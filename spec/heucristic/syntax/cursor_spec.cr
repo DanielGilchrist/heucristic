@@ -33,4 +33,25 @@ describe Heucristic::Syntax::Cursor do
   it "does not match the keyword" do
     target_at(source, 1, 2).should be_nil
   end
+
+  nested = <<-CR
+    module Outer
+      class Inner
+        def build(other : Other::Thing) : Inner
+          Inner.new
+        end
+      end
+    end
+    CR
+
+  it "finds a constant path and records the enclosing namespaces" do
+    target = target_at(nested, 4, 7)
+    target.should be_a(Heucristic::Syntax::OnPath)
+    target.as?(Heucristic::Syntax::OnPath).try(&.enclosing).should eq(["Outer", "Outer::Inner"])
+  end
+
+  it "finds a path inside a type restriction" do
+    target = target_at(nested, 3, 23)
+    target.as?(Heucristic::Syntax::OnPath).try(&.node.to_s).should eq("Other::Thing")
+  end
 end

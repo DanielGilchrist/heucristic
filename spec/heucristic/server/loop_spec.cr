@@ -70,4 +70,33 @@ describe Heucristic::Server::Loop do
     response.error.try(&.["code"]?).try(&.as_i?).should eq(-32601)
     client.shutdown
   end
+
+  it "resolves a constant through the enclosing namespaces and lists every reopening" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    source = <<-CR
+      class Thing
+      end
+
+      module Outer
+        class Thing
+        end
+
+        class Thing
+          def make : Thing
+            Thing.new
+          end
+        end
+      end
+      CR
+    client.open(URI_A, source)
+    client.await_notification("textDocument/publishDiagnostics")
+
+    definition = client.definition(URI_A, 9, 6).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([4, 7])
+    hover_text(client.hover(URI_A, 9, 6)).to_s.should contain("class Outer::Thing")
+    client.shutdown
+  end
 end

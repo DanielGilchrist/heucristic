@@ -7,6 +7,7 @@ require "../document/store"
 require "../syntax/parse"
 require "../syntax/cursor"
 require "../index/workspace"
+require "../index/entry"
 require "../index/loader"
 require "./uri"
 require "./diagnostics"
@@ -156,13 +157,10 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::HoverParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        target = target_at(params.text_document.uri.to_s, params.position)
-        candidates = candidates_for(target)
-        return reply(request.id, nil) if candidates.empty?
+        entries = entries_at(params.text_document.uri.to_s, params.position)
+        return reply(request.id, nil) if entries.empty?
 
-        sections = candidates.map do |candidate|
-          "```crystal\n#{candidate.signature}\n```\n#{candidate.qualified}"
-        end
+        sections = entries.map { |entry| describe(entry) }
         contents = LSProtocol::MarkupContent.new(
           kind: LSProtocol::MarkupKind::Markdown, value: sections.join("\n\n---\n\n")
         )
@@ -173,40 +171,87 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::DefinitionParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        target = target_at(params.text_document.uri.to_s, params.position)
-        return reply(request.id, nil) unless target.is_a?(Syntax::OnCall)
-
-        locations = candidates_for(target).map do |candidate|
+        locations = entries_at(params.text_document.uri.to_s, params.position).map do |entry|
           LSProtocol::Location.new(
-            range: candidate.name_span.to_range, uri: URI.parse(Uri.from_path(candidate.path))
+            range: entry.name_span.to_range, uri: URI.parse(Uri.from_path(entry.path))
           )
         end
         reply(request.id, locations.empty? ? nil : locations)
       end
 
-      private def target_at(uri : String, position : LSProtocol::Position) : Syntax::Target?
+      private def entries_at(uri : String, position : LSProtocol::Position) : Array(Index::Entry)
         document = @documents[uri]
-        return if document.is_a?(Document::Store::Missing)
+        return Array(Index::Entry).new if document.is_a?(Document::Store::Missing)
         tree = @trees[uri]?
-        return unless tree
+        return Array(Index::Entry).new unless tree
 
         point = document.text.point(position)
-        return if point.is_a?(Document::OutOfRange)
+        return Array(Index::Entry).new if point.is_a?(Document::OutOfRange)
 
-        Syntax::Cursor.find(tree, point)
+        entries_for(Syntax::Cursor.find(tree, point))
       end
 
-      private def candidates_for(target : Syntax::Target?) : Array(Index::Def)
+      private def entries_for(target : Syntax::Target?) : Array(Index::Entry)
+        entries = Array(Index::Entry).new
         case target
-        in Nil then Array(Index::Def).new
+        in Nil then nil
         in Syntax::OnDef
           signature = Index::Signature.of(target.node)
-          @workspace.named(target.node.name).select { |candidate| candidate.signature == signature }
+          @workspace.named(target.node.name).each do |candidate|
+            entries << candidate if candidate.signature == signature
+          end
         in Syntax::OnCall
           call = target.node
-          return Array(Index::Def).new if call.obj
+          return entries if call.obj
           count = call.args.size
-          @workspace.named(call.name).select(&.arity.accepts?(count))
+          @workspace.named(call.name).each do |candidate|
+            entries << candidate if candidate.arity.accepts?(count)
+          end
+        in Syntax::OnPath
+          resolve_path(target.node, target.enclosing, entries)
+        end
+        entries
+      end
+
+      private def resolve_path(
+        node : Crystal::Path,
+        enclosing : Array(String),
+        entries : Array(Index::Entry),
+      ) : Nil
+        name = node.names.join("::")
+        scopes = node.global? ? [""] : enclosing.reverse + [""]
+        scopes.each do |scope|
+          full = scope.empty? ? name : "#{scope}::#{name}"
+          @workspace.namespaces(full).each { |entry| entries << entry }
+          @workspace.aliases(full).each { |entry| entries << entry }
+          return unless entries.empty?
+        end
+      end
+
+      private def describe(entry : Index::Entry) : String
+        case entry
+        in Index::Def
+          "```crystal\n#{entry.signature}\n```\n#{entry.qualified}"
+        in Index::ClassNamespace
+          head = String.build do |io|
+            io << "abstract " if entry.abstract_type
+            io << entry.keyword << ' ' << entry.name
+            io << '(' << entry.type_vars.join(", ") << ')' unless entry.type_vars.empty?
+            superclass = entry.superclass
+            io << " < " << superclass unless superclass.is_a?(Index::Unrestricted)
+          end
+          "```crystal\n#{head}\n```"
+        in Index::ModuleNamespace
+          generics = entry.type_vars.empty? ? "" : "(#{entry.type_vars.join(", ")})"
+          "```crystal\n#{entry.keyword} #{entry.name}#{generics}\n```"
+        in Index::EnumNamespace
+          base = entry.base_type
+          suffix = base.is_a?(Index::Unrestricted) ? "" : " : #{base}"
+          "```crystal\n#{entry.keyword} #{entry.name}#{suffix}\n```"
+        in Index::LibNamespace, Index::AnnotationNamespace
+          "```crystal\n#{entry.keyword} #{entry.name}\n```"
+        in Index::Alias
+          "```crystal\nalias #{entry.name} = #{entry.target}\n```"
         end
       end
 
