@@ -1,0 +1,13 @@
+name: heucristic
+version: 0.1.0
+
+authors:
+  - Daniel Gilchrist <danniieelg@gmail.com>
+
+targets:
+  heucristic:
+    main: src/heucristic.cr
+
+crystal: '>= 1.21.0'
+
+license: MIT
