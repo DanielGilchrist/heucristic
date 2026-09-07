@@ -4,10 +4,24 @@ version: 0.1.0
 authors:
   - Daniel Gilchrist <danniieelg@gmail.com>
 
+crystal: ">= 1.21.0"
+
+license: MIT
+
+dependencies:
+  lsprotocol:
+    github: nobodywasishere/lsprotocol-crystal
+    commit: 28986890c7657af4aefea8355ca3f3c7fc2bc9dd
+
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    version: ~> 1.7.0
+
 targets:
   heucristic:
     main: src/heucristic.cr
-
-crystal: '>= 1.21.0'
-
-license: MIT
+  probe:
+    main: tools/probe.cr
+  ameba:
+    main: lint/ameba.cr

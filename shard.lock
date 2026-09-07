@@ -1,0 +1,10 @@
+version: 2.0
+shards:
+  ameba:
+    git: https://github.com/crystal-ameba/ameba.git
+    version: 1.7.0
+
+  lsprotocol:
+    git: https://github.com/nobodywasishere/lsprotocol-crystal.git
+    version: 0.1.0+git.commit.28986890c7657af4aefea8355ca3f3c7fc2bc9dd
+

@@ -1,6 +1,3 @@
-# TODO: Write documentation for `Heucristic`
-module Heucristic
-  VERSION = "0.1.0"
+require "./heucristic/server/loop"
 
-  # TODO: Put your code here
-end
+Heucristic::Server::Loop.new(STDIN, STDOUT).run

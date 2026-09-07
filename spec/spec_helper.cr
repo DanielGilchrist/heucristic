@@ -1,2 +1,3 @@
 require "spec"
-require "../src/heucristic"
+require "../src/heucristic/server/loop"
+require "./support/**"
