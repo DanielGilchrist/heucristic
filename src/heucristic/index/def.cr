@@ -1,5 +1,7 @@
 require "../document/span"
 require "./arity"
+require "./parameter"
+require "./signature"
 
 module Heucristic
   module Index
@@ -15,10 +17,15 @@ module Heucristic
       path : String,
       name_span : Document::Span,
       arity : Arity,
-      signature : String do
+      parameters : Array(Parameter),
+      return_type : Restriction do
       def qualified : String
         separator = receiver.metaclass? ? "." : "#"
         owner.empty? ? name : "#{owner}#{separator}#{name}"
+      end
+
+      def signature : String
+        Signature.render(receiver.metaclass? ? "self" : nil, name, parameters, return_type)
       end
     end
   end

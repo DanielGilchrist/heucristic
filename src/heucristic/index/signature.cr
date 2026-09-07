@@ -1,4 +1,5 @@
 require "compiler/crystal/syntax"
+require "./parameter"
 
 module Heucristic
   module Index
@@ -6,33 +7,43 @@ module Heucristic
       extend self
 
       def of(node : Crystal::Def) : String
-        String.build do |io|
-          io << "def "
-          if (receiver = node.receiver)
-            io << receiver << '.'
-          end
-          io << node.name
-          write_parameters(io, node)
-          if (return_type = node.return_type)
-            io << " : " << return_type
-          end
-        end
+        render(
+          node.receiver.try(&.to_s), node.name, parameters(node), Restrictions.of(node.return_type)
+        )
       end
 
-      private def write_parameters(io : IO, node : Crystal::Def) : Nil
-        parts = Array(String).new
+      def parameters(node : Crystal::Def) : Array(Parameter)
+        parameters = Array(Parameter).new(node.args.size + 2)
         node.args.each_with_index do |arg, index|
-          parts << (index == node.splat_index ? "*#{arg}" : arg.to_s)
+          kind = index == node.splat_index ? ParameterKind::Splat : ParameterKind::Positional
+          parameters << Parameter.from(arg, kind)
         end
         if (double_splat = node.double_splat)
-          parts << "**#{double_splat}"
+          parameters << Parameter.from(double_splat, :double_splat)
         end
-        if (block_arg = node.block_arg)
-          parts << "&#{block_arg}"
+        if (block = node.block_arg)
+          parameters << Parameter.from(block, :block)
         end
-        return if parts.empty?
+        parameters
+      end
 
-        io << '(' << parts.join(", ") << ')'
+      def render(
+        receiver : String?,
+        name : String,
+        parameters : Array(Parameter),
+        return_type : Restriction,
+      ) : String
+        String.build do |io|
+          io << "def "
+          io << receiver << '.' if receiver
+          io << name
+          unless parameters.empty?
+            io << '('
+            parameters.join(io, ", ")
+            io << ')'
+          end
+          Restrictions.write(io, return_type)
+        end
       end
     end
   end

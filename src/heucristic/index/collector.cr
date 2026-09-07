@@ -68,7 +68,8 @@ module Heucristic
           path: @path,
           name_span: span,
           arity: Arity.of(node),
-          signature: Signature.of(node),
+          parameters: Signature.parameters(node),
+          return_type: Restrictions.of(node.return_type),
         )
       end
     end

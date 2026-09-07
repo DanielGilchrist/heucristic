@@ -1,0 +1,44 @@
+require "./restriction"
+
+module Heucristic
+  module Index
+    enum ParameterKind
+      Positional
+      Splat
+      DoubleSplat
+      Block
+    end
+
+    record Parameter,
+      name : String,
+      external_name : String,
+      restriction : Restriction,
+      default : String?,
+      kind : ParameterKind do
+      def self.from(arg : Crystal::Arg, kind : ParameterKind) : Parameter
+        new(
+          name: arg.name,
+          external_name: arg.external_name,
+          restriction: Restrictions.of(arg.restriction),
+          default: arg.default_value.try(&.to_s),
+          kind: kind,
+        )
+      end
+
+      def to_s(io : IO) : Nil
+        case kind
+        in .positional?   then nil
+        in .splat?        then io << '*'
+        in .double_splat? then io << "**"
+        in .block?        then io << '&'
+        end
+        io << external_name
+        io << ' ' << name if external_name != name
+        Restrictions.write(io, restriction)
+        return unless (value = default)
+
+        io << " = " << value
+      end
+    end
+  end
+end

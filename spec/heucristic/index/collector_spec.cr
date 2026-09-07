@@ -27,9 +27,17 @@ describe Heucristic::Index::Collector do
     file.defs.map(&.qualified).should eq(["Outer::Inner.build", "Outer::Inner#run", "top"])
     file.defs[0].signature.should eq("def self.build(count : Int32) : Inner")
     file.defs[1].signature.should eq(
-      %(def run(*args, key : String = "k", &block : (Int32 -> Nil)) : Nil)
+      %(def run(*args, key : String = "k", &block : Int32 -> Nil) : Nil)
     )
     file.defs[2].signature.should eq("def top")
+  end
+
+  it "keeps the nilable shorthand and external parameter names" do
+    file = index("def load(from path : String, limit : Int32? = nil) : File?\nend\n")
+    file.defs[0].signature.should eq("def load(from path : String, limit : Int32? = nil) : File?")
+    file.defs[0].return_type.should eq(
+      Heucristic::Syntax::Nilable.new(Heucristic::Syntax::Named.new(["File"], false))
+    )
   end
 
   it "records the name span in zero based utf16 coordinates" do
