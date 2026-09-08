@@ -40,7 +40,8 @@ private def receiver_of(marker : String) : String
   workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree))
   types = Heucristic::Resolve::Types.new(workspace)
   methods = Heucristic::Resolve::Methods.new(workspace, types)
-  receiver = Heucristic::Resolve::Receiver.new(workspace, types, methods)
+  shims = Heucristic::Index::Shims.new
+  receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
 
   line = SOURCE.lines.index!(&.includes?(marker)) + 1
   column = SOURCE.lines[line - 1].index!(marker) + 1
@@ -96,7 +97,8 @@ private def receiver_at(source : String, line : Int32, column : Int32) : String
   )
   types = Heucristic::Resolve::Types.new(workspace)
   methods = Heucristic::Resolve::Methods.new(workspace, types)
-  receiver = Heucristic::Resolve::Receiver.new(workspace, types, methods)
+  shims = Heucristic::Index::Shims.new
+  receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
   target = Heucristic::Syntax::Cursor.find(tree, Heucristic::Document::Point.new(line, column))
   case target
   in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s

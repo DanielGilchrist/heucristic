@@ -273,6 +273,7 @@ module Heucristic
           parameters: Array(Parameter).new,
           return_type: type,
           free_vars: Array(String).new,
+          yields: false,
         )
       end
 
@@ -295,6 +296,7 @@ module Heucristic
           parameters: Signature.parameters(node),
           return_type: Restrictions.of(node.return_type),
           free_vars: node.free_vars || Array(String).new,
+          yields: !node.block_arity.nil? || !node.block_arg.nil?,
         )
       end
     end

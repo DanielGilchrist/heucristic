@@ -9,6 +9,8 @@ require "../syntax/parse"
 require "../syntax/cursor"
 require "../index/workspace"
 require "../index/entry"
+require "../index/shims"
+require "./shim_roots"
 require "../resolve/types"
 require "../resolve/receiver"
 require "../resolve/methods"
@@ -37,9 +39,10 @@ module Heucristic
         @documents = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
         @workspace = Index::Workspace.new
+        @shims = Index::Shims.new
         @types = Resolve::Types.new(@workspace)
         @methods = Resolve::Methods.new(@workspace, @types)
-        @receiver = Resolve::Receiver.new(@workspace, @types, @methods)
+        @receiver = Resolve::Receiver.new(@workspace, @shims, @types, @methods)
         @stopping = false
         @index_stdlib = true
         @progress = Progress.new(@transport, false)
@@ -86,12 +89,22 @@ module Heucristic
         roots
       end
 
+      def shim_roots : Array(String)
+        ShimRoots.for(@root)
+      end
+
       def indexed(event : Index::Finished) : Nil
+        @shims.replace_all(event.shims)
         @workspace.replace_all(event.files)
         @types.invalidate
         @documents.each { |document| index_document(document) }
         @transport.send(Protocol::Encoder.notification(
-          INDEXED, {files: @workspace.size, elapsed_ms: event.elapsed.total_milliseconds.round}
+          INDEXED,
+          {
+            files:      @workspace.size,
+            shims:      @shims.size,
+            elapsed_ms: event.elapsed.total_milliseconds.round,
+          },
         ))
       end
 
@@ -261,7 +274,8 @@ module Heucristic
           return Answer.of(entries)
         end
 
-        found = @methods.lookup(receiver, call.name, call.args.size)
+        shape = Resolve::Methods::Call.new(call.name, call.args.size, !call.block.nil?)
+        found = @methods.lookup(receiver, shape)
         return Answer.note("no `#{call.name}` indexed on #{receiver}") if found.empty?
 
         sections = found.map { |entry| describe_resolved(entry, receiver) }
@@ -333,10 +347,19 @@ module Heucristic
       private def describe_resolved(entry : Index::Def, receiver : Resolve::Resolved) : String
         case (returning = @receiver.return_type(entry, receiver))
         in Resolve::Resolved
-          "```crystal\n#{entry.signature(returning.to_s)}\n```\n#{entry.qualified}"
+          header = "```crystal\n#{entry.signature(returning.to_s)}\n```"
+          "#{header}\n#{entry.qualified}#{shim_note(entry)}"
         in Resolve::Unknown
           "#{describe(entry)}\n\nreturns #{returning}"
         end
+      end
+
+      private def shim_note(entry : Index::Def) : String
+        return "" unless entry.return_type.is_a?(Index::Unrestricted)
+        shim = @shims.find(entry)
+        return "" unless shim
+
+        "\n\nreturn type from #{shim.entry.path}"
       end
 
       private def describe(entry : Index::Entry) : String

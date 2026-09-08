@@ -25,19 +25,31 @@ module Heucristic
         )
       end
 
-      def to_s(io : IO) : Nil
-        case kind
-        in .positional?   then nil
-        in .splat?        then io << '*'
-        in .double_splat? then io << "**"
-        in .block?        then io << '&'
+      def identity : String
+        String.build do |io|
+          write_prefix(io)
+          io << external_name
+          Restrictions.write(io, restriction) unless kind.block?
         end
+      end
+
+      def to_s(io : IO) : Nil
+        write_prefix(io)
         io << external_name
         io << ' ' << name if external_name != name
         Restrictions.write(io, restriction)
         return unless (value = default)
 
         io << " = " << value
+      end
+
+      private def write_prefix(io : IO) : Nil
+        case kind
+        in .positional?   then nil
+        in .splat?        then io << '*'
+        in .double_splat? then io << "**"
+        in .block?        then io << '&'
+        end
       end
     end
   end

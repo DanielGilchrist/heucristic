@@ -77,8 +77,9 @@ module Heucristic
 
       private def start_indexing : Nil
         roots = @session.index_roots
+        shim_roots = @session.shim_roots
         events = @events
-        Fibers.detach(:indexer) { Index::Loader.load(roots, events) }
+        Fibers.detach(:indexer) { Index::Loader.load(roots, shim_roots, events) }
       end
 
       private def indexing(event : Index::Event) : Nil

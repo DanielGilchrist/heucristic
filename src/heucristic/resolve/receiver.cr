@@ -1,5 +1,6 @@
 require "compiler/crystal/syntax"
 require "../index/workspace"
+require "../index/shims"
 require "../index/evident"
 require "../syntax/target"
 require "../syntax/type_reader"
@@ -11,33 +12,38 @@ require "./local_assignments"
 module Heucristic
   module Resolve
     class Receiver
-      def initialize(@workspace : Index::Workspace, @types : Types, @methods : Methods) : Nil
+      def initialize(
+        @workspace : Index::Workspace,
+        @shims : Index::Shims,
+        @types : Types,
+        @methods : Methods,
+      ) : Nil
       end
 
       def result_of(call : Crystal::Call, context : Syntax::Context) : Resolution
         receiver = of_call(call, context)
         return receiver if receiver.is_a?(Unknown)
 
-        result_of(receiver, call.name, call.args.size)
+        result_of(receiver, Methods::Call.new(call.name, call.args.size, !call.block.nil?))
       end
 
-      def result_of(receiver : Resolved, name : String, arity : Int32) : Resolution
+      def result_of(receiver : Resolved, call : Methods::Call) : Resolution
         if receiver.is_a?(UnionRef)
           members = receiver.members.map do |member|
-            member.is_a?(Unknown) ? member : result_of(member, name, arity)
+            member.is_a?(Unknown) ? member : result_of(member, call)
           end
           return union(members)
         end
 
-        defs = @methods.lookup(receiver, name, arity)
-        return Unknown.new(:unresolved_name, "no `#{name}` on #{receiver}") if defs.empty?
+        defs = @methods.lookup(receiver, call)
+        return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
 
         results = defs.map { |entry| return_type(entry, receiver) }
         resolved = results.select(Resolved).uniq!
         return resolved[0] if resolved.size == 1
         return results[0] if resolved.empty?
 
-        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{name}` return different types")
+        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` return different types")
       end
 
       def of_call(call : Crystal::Call, context : Syntax::Context) : Resolution
@@ -150,15 +156,37 @@ module Heucristic
 
         case (restriction = entry.return_type)
         in Index::Unrestricted
+          shim = @shims.find(entry)
+          return shimmed(shim.entry, receiver) if shim
+
           Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
         in Syntax::TypeReader::Unsupported
           Unknown.new(:unsupported, restriction.source)
         in Syntax::Type
-          scope = return_scope(entry, receiver)
-          return scope if scope.is_a?(Unknown)
-
-          @types.resolve(restriction, scope)
+          resolve_return(restriction, entry, receiver)
         end
+      end
+
+      private def shimmed(shim : Index::Def, receiver : Resolved) : Resolution
+        case (restriction = shim.return_type)
+        in Index::Unrestricted
+          Unknown.new(:no_annotation, "shim for #{shim.qualified} states no return type")
+        in Syntax::TypeReader::Unsupported
+          Unknown.new(:unsupported, restriction.source)
+        in Syntax::Type
+          resolve_return(restriction, shim, receiver)
+        end
+      end
+
+      private def resolve_return(
+        restriction : Syntax::Type,
+        entry : Index::Def,
+        receiver : Resolved,
+      ) : Resolution
+        scope = return_scope(entry, receiver)
+        return scope if scope.is_a?(Unknown)
+
+        @types.resolve(restriction, scope)
       end
 
       private def return_scope(entry : Index::Def, receiver : Resolved) : Scope | Unknown

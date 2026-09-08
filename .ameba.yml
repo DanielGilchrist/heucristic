@@ -45,3 +45,4 @@ Layout/LineLength:
 Globs:
   - "**/*.cr"
   - "!lib"
+  - "!shims"

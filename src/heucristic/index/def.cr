@@ -20,7 +20,8 @@ module Heucristic
       arity : Arity,
       parameters : Array(Parameter),
       return_type : Restriction,
-      free_vars : Array(String) do
+      free_vars : Array(String),
+      yields : Bool do
       def qualified : String
         case (namespace = owner)
         in TopLevel then name
@@ -30,6 +31,10 @@ module Heucristic
 
       def signature : String
         Signature.render(receiver.metaclass? ? "self" : nil, name, parameters, return_type)
+      end
+
+      def identity : String
+        "#{qualified}(#{parameters.map(&.identity).join(", ")})"
       end
 
       def signature(returning : String) : String

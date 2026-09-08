@@ -7,33 +7,39 @@ module Heucristic
       def initialize(@workspace : Index::Workspace, @types : Types) : Nil
       end
 
-      def lookup(receiver : Resolution, name : String, arity : Int32) : Array(Index::Def)
+      record Call, name : String, arity : Int32, block : Bool do
+        def accepts?(entry : Index::Def) : Bool
+          entry.arity.accepts?(arity) && entry.yields == block
+        end
+      end
+
+      def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
         case receiver
-        in TypeRef  then instance_methods(receiver.name, name, arity)
-        in MetaRef  then class_methods(receiver.of.name, name, arity)
-        in UnionRef then receiver.members.flat_map { |member| lookup(member, name, arity) }.uniq!
+        in TypeRef  then instance_methods(receiver.name, call)
+        in MetaRef  then class_methods(receiver.of.name, call)
+        in UnionRef then receiver.members.flat_map { |member| lookup(member, call) }.uniq!
         in Unknown  then Array(Index::Def).new
         end
       end
 
-      private def instance_methods(type : String, name : String, arity : Int32) : Array(Index::Def)
-        first_level(type, name) { |entry| entry.receiver.instance? && entry.arity.accepts?(arity) }
+      private def instance_methods(type : String, call : Call) : Array(Index::Def)
+        first_level(type, call.name) { |entry| entry.receiver.instance? && call.accepts?(entry) }
       end
 
-      private def class_methods(type : String, name : String, arity : Int32) : Array(Index::Def)
-        found = first_level(type, name) do |entry|
-          entry.receiver.metaclass? && entry.arity.accepts?(arity)
+      private def class_methods(type : String, call : Call) : Array(Index::Def)
+        found = first_level(type, call.name) do |entry|
+          entry.receiver.metaclass? && call.accepts?(entry)
         end
         return found unless found.empty?
 
-        extended = extended_methods(type, name, arity)
+        extended = extended_methods(type, call)
         return extended unless extended.empty?
-        return extended unless name == "new"
+        return extended unless call.name == "new"
 
-        instance_methods(type, "initialize", arity)
+        instance_methods(type, Call.new("initialize", call.arity, call.block))
       end
 
-      private def extended_methods(type : String, name : String, arity : Int32) : Array(Index::Def)
+      private def extended_methods(type : String, call : Call) : Array(Index::Def)
         levels(type).each do |level|
           @workspace.mixins_of(level).reverse_each do |mixin|
             next unless mixin.kind.extend?
@@ -41,7 +47,7 @@ module Heucristic
             module_name = extended_module(mixin, level)
             next unless module_name
 
-            found = instance_methods(module_name, name, arity)
+            found = instance_methods(module_name, call)
             return found unless found.empty?
           end
         end

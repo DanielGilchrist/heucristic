@@ -12,9 +12,10 @@ module Heucristic
 
       REPORT_EVERY = 32
 
-      def load(roots : Array(String), events : Channel(Event)) : Nil
+      def load(roots : Array(String), shim_roots : Array(String), events : Channel(Event)) : Nil
         started = Time.instant
-        paths = roots.flat_map { |root| Dir.glob(::File.join(root, "**", "*.cr")) }.uniq!
+        shim_paths = glob(shim_roots)
+        paths = glob(roots).reject { |path| shim_paths.includes?(path) } + shim_paths
         events.send(Started.new(paths.size))
 
         results = Channel(File?).new(paths.size + 1)
@@ -26,12 +27,17 @@ module Heucristic
         end
 
         files = Array(File).new(paths.size)
+        shims = Array(File).new(shim_paths.size)
         paths.size.times do |done|
           file = results.receive
-          files << file if file
+          (shim_paths.includes?(file.path) ? shims : files) << file if file
           events.send(Advanced.new(done + 1, paths.size)) if (done + 1) % REPORT_EVERY == 0
         end
-        events.send(Finished.new(files, Time.instant - started))
+        events.send(Finished.new(files, shims, Time.instant - started))
+      end
+
+      def glob(roots : Array(String)) : Array(String)
+        roots.flat_map { |root| Dir.glob(::File.join(root, "**", "*.cr")) }.uniq!
       end
 
       def index_path(path : String) : File?

@@ -23,5 +23,7 @@ targets:
     main: src/heucristic.cr
   probe:
     main: tools/probe.cr
+  shims-check:
+    main: tools/shims_check.cr
   ameba:
     main: lint/ameba.cr

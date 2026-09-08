@@ -11,7 +11,8 @@ private def lookup(source : String, receiver : String, name : String, arity : In
   types = Heucristic::Resolve::Types.new(workspace)
   scope = Heucristic::Resolve::Scope::TOP
   resolved = types.resolve(Heucristic::Syntax::Named.new(receiver.split("::"), false), scope)
-  Heucristic::Resolve::Methods.new(workspace, types).lookup(resolved, name, arity).map(&.qualified)
+  call = Heucristic::Resolve::Methods::Call.new(name, arity, false)
+  Heucristic::Resolve::Methods.new(workspace, types).lookup(resolved, call).map(&.qualified)
 end
 
 private def lookup_meta(
@@ -31,7 +32,8 @@ private def lookup_meta(
   meta = Heucristic::Resolve::MetaRef.new(
     Heucristic::Resolve::TypeRef.new(receiver, Array(Heucristic::Resolve::Resolution).new)
   )
-  Heucristic::Resolve::Methods.new(workspace, types).lookup(meta, name, arity).map(&.qualified)
+  call = Heucristic::Resolve::Methods::Call.new(name, arity, false)
+  Heucristic::Resolve::Methods.new(workspace, types).lookup(meta, call).map(&.qualified)
 end
 
 describe Heucristic::Resolve::Methods do
@@ -114,5 +116,31 @@ describe Heucristic::Resolve::Methods do
     lookup_meta(source, "Fibers", "helper", 0).should eq(["Helpers#helper"])
     lookup_meta(source, "Child", "helper", 0).should eq(["Helpers#helper"])
     lookup(source, "Fibers", "detach", 1).should eq(["Fibers#detach"])
+  end
+
+  it "separates a yielding def from its block-less overload" do
+    source = <<-CR
+      class List
+        def each : Int32
+        end
+
+        def each(& : Int32 ->) : Nil
+        end
+      end
+      CR
+    tree = Heucristic::Syntax.parse(source, "a.cr")
+    raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+    workspace = Heucristic::Index::Workspace.new
+    workspace.update(
+      Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+    )
+    types = Heucristic::Resolve::Types.new(workspace)
+    methods = Heucristic::Resolve::Methods.new(workspace, types)
+    list = Heucristic::Resolve::TypeRef.new("List", Array(Heucristic::Resolve::Resolution).new)
+
+    with_block = methods.lookup(list, Heucristic::Resolve::Methods::Call.new("each", 0, true))
+    without = methods.lookup(list, Heucristic::Resolve::Methods::Call.new("each", 0, false))
+    with_block.map(&.signature).should eq(["def each(& : Int32 ->) : Nil"])
+    without.map(&.signature).should eq(["def each : Int32"])
   end
 end
