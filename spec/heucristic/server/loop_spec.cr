@@ -316,4 +316,32 @@ describe Heucristic::Server::Loop do
     client.definition(URI_A, 0, 6).result.try(&.raw).should be_nil
     client.shutdown
   end
+
+  it "renders the whole signature with the receiver's bindings" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    source = <<-CR
+      module Enumerable(T)
+        def each(& : T ->) : Nil
+        end
+      end
+
+      class Array(T)
+        include Enumerable(T)
+      end
+
+      def go(names : Array(String)) : Nil
+        names.each { |name| name }
+      end
+      CR
+    client.open(URI_A, source)
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 10, 9)).to_s.should eq(
+      "```crystal\n# Enumerable#each\ndef each(& : String ->) : Nil\n```"
+    )
+    client.shutdown
+  end
 end

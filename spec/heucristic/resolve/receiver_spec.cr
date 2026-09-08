@@ -461,3 +461,43 @@ describe Heucristic::Resolve::Receiver, "block parameters" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "constants" do
+  source = <<-CR
+    module System
+      def self.cpu_count : Int32
+      end
+    end
+
+    module Fibers
+      WORKERS = System.cpu_count
+      NAMES = [] of String
+      LIMIT = compute
+    end
+
+    def go : Nil
+      Fibers::WORKERS.size
+      Fibers::NAMES.size
+      Fibers::LIMIT.size
+      Fibers.size
+    end
+    CR
+
+  it "types a constant from its value expression through return restrictions" do
+    receiver_of_size(source, "Fibers::WORKERS.size").should eq("Int32")
+  end
+
+  it "types a constant from an evident value" do
+    receiver_of_size(source, "Fibers::NAMES.size").should eq("Array(String)")
+  end
+
+  it "reports a constant whose value it cannot type" do
+    receiver_of_size(source, "Fibers::LIMIT.size").should eq(
+      "unknown (unresolved name: no `compute` on Fibers)"
+    )
+  end
+
+  it "treats a bare type name as its metaclass" do
+    receiver_of_size(source, "Fibers.size").should eq("Fibers.class")
+  end
+end

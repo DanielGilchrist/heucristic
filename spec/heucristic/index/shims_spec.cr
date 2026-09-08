@@ -83,4 +83,23 @@ describe Heucristic::Resolve::Receiver, "with shims" do
     result_of(receiver, bag, "first", 0, false).should eq("String")
     result_of(receiver, bag, "compact_map", 0, true).should eq("Array(unknown (free variable: U))")
   end
+
+  it "lets a shim restrict a parameter the stdlib leaves unrestricted" do
+    shims = Heucristic::Index::Shims.new
+    shim_source = "module Math\n  def min(a : T, b : U) : T | U forall T, U\n  end\nend\n"
+    shims.replace_all([collect("shims/math.cr", shim_source)])
+    stdlib_source = <<-CR
+      module Math
+        def min(a, b)
+        end
+
+        def min(a : Float64, b : Float64) : Float64
+        end
+      end
+      CR
+    stdlib = collect("math.cr", stdlib_source)
+
+    shims.find(stdlib.defs[0]).try(&.entry.return_type.to_s).should eq("T | U")
+    shims.find(stdlib.defs[1]).should be_nil
+  end
 end

@@ -372,11 +372,10 @@ module Heucristic
         arguments : Array(Resolve::Resolution),
         site : Resolve::Receiver::Site,
       ) : String
+        signature = @receiver.signature(entry, receiver, arguments, site)
         case (returning = @receiver.return_type(entry, receiver, arguments, site))
-        in Resolve::Resolved
-          fence("# #{entry.qualified}", entry.signature(returning.to_s))
-        in Resolve::Unknown
-          fence("# #{entry.qualified}", entry.signature, "# returns #{returning}")
+        in Resolve::Resolved then fence("# #{entry.qualified}", signature)
+        in Resolve::Unknown  then fence("# #{entry.qualified}", signature, "# returns #{returning}")
         end
       end
 

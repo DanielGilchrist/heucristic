@@ -78,7 +78,7 @@ module Heucristic
 
         value = member.default_value.try(&.to_s) || Constant::ImplicitValue.new
         type = Syntax::Named.new([owner], false)
-        @constants << Constant.new("#{owner}::#{member.name}", @path, span, value, type)
+        @constants << Constant.new("#{owner}::#{member.name}", @path, span, value, type, nil)
       end
 
       def visit(node : Crystal::LibDef) : Bool
@@ -196,7 +196,9 @@ module Heucristic
 
       private def constant(name : Crystal::Path, value : Crystal::ASTNode) : Bool
         with_span(name) do |span|
-          @constants << Constant.new(qualify(name), @path, span, value.to_s, Evident.type(value))
+          @constants << Constant.new(
+            qualify(name), @path, span, value.to_s, Evident.type(value), value
+          )
         end
         false
       end

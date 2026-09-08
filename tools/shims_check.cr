@@ -23,14 +23,32 @@ module ShimsCheck
     end
 
     stdlib = Hash(String, Heucristic::Index::Def).new
-    finished.files.each { |file| file.defs.each { |entry| stdlib[entry.identity] = entry } }
+    by_shape = Hash(String, Array(Heucristic::Index::Def)).new
+    finished.files.each do |file|
+      file.defs.each do |entry|
+        stdlib[entry.identity] = entry
+        (by_shape[entry.shape] ||= Array(Heucristic::Index::Def).new) << entry
+      end
+    end
     shims = Heucristic::Index::Shims.new
     shims.replace_all(finished.shims)
 
     orphans = Array(String).new
     redundant = Array(String).new
+    duplicated = Array(String).new
+    finished.files.select { |file| Heucristic::Index::Loader.generated?(file.path) }.each do |file|
+      file.defs.each do |entry|
+        source = stdlib[entry.identity]?
+        next if source.nil? || Heucristic::Index::Loader.generated?(source.path)
+
+        duplicated << "#{entry.identity}  also in #{source.path}"
+      end
+    end
     shims.each do |shim|
       target = stdlib[shim.entry.identity]?
+      target ||= by_shape[shim.entry.shape]?.try do |candidates|
+        candidates.find { |candidate| shims.find(candidate) == shim }
+      end
       if target.nil?
         orphans << "#{shim.entry.identity}  (#{shim.entry.path})"
       elsif !target.return_type.is_a?(Heucristic::Index::Unrestricted)
@@ -41,7 +59,8 @@ module ShimsCheck
     puts "shims: #{shims.size} from #{shim_roots.join(", ")}"
     report("orphans (no stdlib def with this identity)", orphans)
     report("redundant (stdlib now has a return type)", redundant)
-    orphans.empty? && redundant.empty? ? 0 : 1
+    report("generated defs the stdlib now declares in source", duplicated)
+    orphans.empty? && redundant.empty? && duplicated.empty? ? 0 : 1
   end
 
   private def report(title : String, lines : Array(String)) : Nil

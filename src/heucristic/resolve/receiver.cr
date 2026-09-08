@@ -7,6 +7,7 @@ require "../syntax/type_reader"
 require "./types"
 require "./methods"
 require "./unify"
+require "./render"
 require "./local_declarations"
 require "./local_assignments"
 
@@ -112,6 +113,7 @@ module Heucristic
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
+        return constant(node, context, visiting) if node.is_a?(Crystal::Path)
         evident = Index::Evident.type(node)
         return declared(evident, scope(context)) if evident.is_a?(Syntax::Type)
 
@@ -119,6 +121,7 @@ module Heucristic
         when Crystal::Var         then variable(node.name, context, visiting, locals)
         when Crystal::InstanceVar then instance_var(node.name, context)
         when Crystal::Call        then result_of(node, context, locals)
+        when Crystal::Path        then constant(node, context, visiting)
         when Crystal::Expressions
           if node.expressions.size == 1
             type_of(node.expressions[0], context, visiting, locals)
@@ -216,6 +219,27 @@ module Heucristic
         end
       end
 
+      def signature(
+        entry : Index::Def,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+        site : Site,
+      ) : String
+        scope = return_scope(entry, receiver, arguments, site)
+        return entry.signature if scope.is_a?(Unknown)
+
+        parameters = entry.parameters.map do |parameter|
+          restriction = parameter.restriction
+          text = restriction.is_a?(Syntax::Type) ? Render.type(restriction, scope, @types) : nil
+          parameter.rendered(text)
+        end
+        returning = return_type(entry, receiver, arguments, site)
+        receiver_name = entry.receiver.metaclass? ? "self" : nil
+        Index::Signature.render(receiver_name, entry.name, parameters) do |io|
+          io << " : " << returning if returning.is_a?(Resolved)
+        end
+      end
+
       private def return_scope(
         entry : Index::Def,
         receiver : Resolved,
@@ -237,6 +261,45 @@ module Heucristic
         bind_arguments(entry, arguments, bindings, scope)
         bind_block(entry, site, bindings, scope)
         scope
+      end
+
+      private def constant(
+        path : Crystal::Path,
+        context : Syntax::Context,
+        visiting : Array(String),
+      ) : Resolution
+        scope = scope(context)
+        located = @types.locate_any(Syntax::Named.new(path.names, path.global?), scope)
+        return located if located.is_a?(Unknown)
+
+        constants = @workspace.constants(located)
+        if constants.empty?
+          resolved = @types.resolve(Syntax::Named.new(path.names, path.global?), scope)
+          return resolved.is_a?(TypeRef) ? MetaRef.new(resolved) : resolved
+        end
+        return Unknown.new(:cycle, located) if visiting.includes?(located)
+
+        union(constants.map { |entry| constant_type(entry, located, visiting + [located]) })
+      end
+
+      private def constant_type(
+        entry : Index::Constant,
+        name : String,
+        visiting : Array(String),
+      ) : Resolution
+        owner = name.rpartition("::")[0]
+        owner_scope = owner.empty? ? Scope::TOP : Scope.of(owner)
+        type = entry.type
+        return @types.resolve(type, owner_scope) if type.is_a?(Syntax::Type)
+
+        expression = entry.expression
+        unless expression
+          return Unknown.new(:no_annotation, "#{name} has no value to type")
+        end
+
+        enclosing = owner.empty? ? Array(String).new : [owner]
+        context = Syntax::Context.new(enclosing, Array(String).new, nil)
+        type_of(expression, context, visiting, Array(Binding).new)
       end
 
       private def block_parameter(

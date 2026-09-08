@@ -14,8 +14,9 @@ module Heucristic
 
       def load(roots : Array(String), shim_roots : Array(String), events : Channel(Event)) : Nil
         started = Time.instant
-        shim_paths = glob(shim_roots)
-        paths = glob(roots).reject { |path| shim_paths.includes?(path) } + shim_paths
+        shim_paths = glob(shim_roots).reject { |path| generated?(path) }
+        generated = glob(shim_roots).select { |path| generated?(path) }
+        paths = glob(roots).reject { |path| shim_paths.includes?(path) } + shim_paths + generated
         events.send(Started.new(paths.size))
 
         results = Channel(File?).new(paths.size + 1)
@@ -38,6 +39,10 @@ module Heucristic
 
       def glob(roots : Array(String)) : Array(String)
         roots.flat_map { |root| Dir.glob(::File.join(root, "**", "*.cr")) }.uniq!
+      end
+
+      def generated?(path : String) : Bool
+        path.includes?("/generated/")
       end
 
       def index_path(path : String) : File?

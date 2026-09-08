@@ -34,6 +34,20 @@ module Heucristic
         end
       end
 
+      def rendered(restriction_text : String?) : Parameter
+        return self unless restriction_text
+
+        rendered = Syntax::Named.new([restriction_text], false)
+        Parameter.new(name, external_name, rendered, default, kind)
+      end
+
+      def shape : String
+        String.build do |io|
+          write_prefix(io)
+          io << external_name
+        end
+      end
+
       def to_s(io : IO) : Nil
         write_prefix(io)
         io << external_name

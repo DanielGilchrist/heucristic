@@ -37,10 +37,8 @@ module Heucristic
         "#{qualified}(#{parameters.map(&.identity).join(", ")})"
       end
 
-      def signature(returning : String) : String
-        Signature.render(receiver.metaclass? ? "self" : nil, name, parameters) do |io|
-          io << " : " << returning
-        end
+      def shape : String
+        "#{qualified}(#{parameters.map(&.shape).join(", ")})"
       end
     end
   end
