@@ -45,11 +45,10 @@ module Heucristic
         return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
 
         results = defs.map { |entry| return_type(entry, receiver, call.arguments) }
-        resolved = results.select(Resolved).uniq!
-        return resolved[0] if resolved.size == 1
-        return results[0] if resolved.empty?
+        distinct = results.uniq
+        return distinct[0] if distinct.size == 1
 
-        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` return different types")
+        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
       end
 
       def of_call(call : Crystal::Call, context : Syntax::Context) : Resolution

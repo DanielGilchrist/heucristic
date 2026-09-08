@@ -336,7 +336,28 @@ describe Heucristic::Resolve::Receiver, "overloads" do
 
   it "keeps every overload for an unknown argument and reports the ambiguity" do
     receiver_of_size(source.gsub("abs", "size"), "Math.min(d, d).size").should eq(
-      "unknown (ambiguous: 3 overloads of `min` return different types)"
+      "unknown (ambiguous: 3 overloads of `min` do not agree on a type)"
+    )
+  end
+
+  it "does not pick the typed overload over an untyped one when the argument is unknown" do
+    source = <<-CR
+      module Math
+        extend self
+
+        def max(value1 : Float64, value2 : Float64) : Float64
+        end
+
+        def max(value1, value2)
+        end
+      end
+
+      def go(d) : Nil
+        Math.max(d, d).size
+      end
+      CR
+    receiver_of_size(source, "Math.max(d, d).size").should eq(
+      "unknown (ambiguous: 2 overloads of `max` do not agree on a type)"
     )
   end
 end

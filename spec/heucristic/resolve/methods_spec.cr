@@ -1,6 +1,15 @@
 require "../../spec_helper"
 
 private def lookup(source : String, receiver : String, name : String, arity : Int32) : Array(String)
+  call = Heucristic::Resolve::Methods::Call.new(name, arity, false)
+  lookup(source, receiver, call).map(&.qualified)
+end
+
+private def lookup(
+  source : String,
+  receiver : String,
+  call : Heucristic::Resolve::Methods::Call,
+) : Array(Heucristic::Index::Def)
   tree = Heucristic::Syntax.parse(source, "a.cr")
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
@@ -11,8 +20,7 @@ private def lookup(source : String, receiver : String, name : String, arity : In
   types = Heucristic::Resolve::Types.new(workspace)
   scope = Heucristic::Resolve::Scope::TOP
   resolved = types.resolve(Heucristic::Syntax::Named.new(receiver.split("::"), false), scope)
-  call = Heucristic::Resolve::Methods::Call.new(name, arity, false)
-  Heucristic::Resolve::Methods.new(workspace, types).lookup(resolved, call).map(&.qualified)
+  Heucristic::Resolve::Methods.new(workspace, types).lookup(resolved, call)
 end
 
 private def lookup_meta(
@@ -142,5 +150,30 @@ describe Heucristic::Resolve::Methods do
     without = methods.lookup(list, Heucristic::Resolve::Methods::Call.new("each", 0, false))
     with_block.map(&.signature).should eq(["def each(& : Int32 ->) : Nil"])
     without.map(&.signature).should eq(["def each : Int32"])
+  end
+
+  it "prefers an overload with restricted parameters over an unrestricted one" do
+    source = <<-CR
+      class Calc
+        def min(a : Float64, b : Float64) : Float64
+        end
+
+        def min(a, b)
+        end
+
+        def min(a : Float32, b : Float32) : Float32
+        end
+      end
+      CR
+    float = Heucristic::Resolve::TypeRef.new("Float64", Array(Heucristic::Resolve::Resolution).new)
+    unknown = Heucristic::Resolve::Unknown.new(:no_annotation, "x")
+    floats = [float, float] of Heucristic::Resolve::Resolution
+    unknowns = [unknown, unknown] of Heucristic::Resolve::Resolution
+    typed = Heucristic::Resolve::Methods::Call.new("min", 2, false, floats)
+    untyped = Heucristic::Resolve::Methods::Call.new("min", 2, false, unknowns)
+    lookup(source, "Calc", typed).map(&.signature).should eq(
+      ["def min(a : Float64, b : Float64) : Float64"]
+    )
+    lookup(source, "Calc", untyped).size.should eq(3)
   end
 end

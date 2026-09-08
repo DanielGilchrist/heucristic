@@ -63,13 +63,13 @@ module Heucristic
       end
 
       private def instance_methods(type : String, call : Call) : Array(Index::Def)
-        first_level(type, call.name) do |entry|
+        first_level(type, call) do |entry|
           entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
         end
       end
 
       private def class_methods(type : String, call : Call) : Array(Index::Def)
-        found = first_level(type, call.name) do |entry|
+        found = first_level(type, call) do |entry|
           entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
         end
         return found unless found.empty?
@@ -107,15 +107,42 @@ module Heucristic
 
       private def first_level(
         type : String,
-        name : String,
+        call : Call,
         & : Index::Def -> Bool
       ) : Array(Index::Def)
-        candidates = @workspace.named(name)
+        candidates = @workspace.named(call.name)
         levels(type).each do |level|
           found = candidates.select { |entry| entry.owner == level && yield entry }
-          return found unless found.empty?
+          return most_specific(found, call) unless found.empty?
         end
         Array(Index::Def).new
+      end
+
+      private def most_specific(found : Array(Index::Def), call : Call) : Array(Index::Def)
+        found.reject do |entry|
+          found.any? { |other| other != entry && stricter?(other, entry, call) }
+        end
+      end
+
+      private def stricter?(candidate : Index::Def, other : Index::Def, call : Call) : Bool
+        left = candidate.parameters.select(&.kind.positional?)
+        right = other.parameters.select(&.kind.positional?)
+        return false unless left.size == right.size
+
+        strictly = false
+        left.each_with_index do |mine, index|
+          theirs = right[index]
+          known = call.arguments[index]?.try { |argument| !argument.is_a?(Unknown) } || false
+          mine_restricted = !mine.restriction.is_a?(Index::Unrestricted)
+          theirs_restricted = !theirs.restriction.is_a?(Index::Unrestricted)
+          return false if mine_restricted != theirs_restricted && !known
+          return false if theirs_restricted && !mine_restricted
+          if mine_restricted && theirs_restricted
+            return false unless mine.restriction == theirs.restriction
+          end
+          strictly ||= mine_restricted && !theirs_restricted
+        end
+        strictly
       end
 
       private def levels(type : String) : Array(String)
