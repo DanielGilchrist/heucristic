@@ -24,9 +24,37 @@ module Heucristic
         found = first_level(type, name) do |entry|
           entry.receiver.metaclass? && entry.arity.accepts?(arity)
         end
-        return found unless found.empty? && name == "new"
+        return found unless found.empty?
+
+        extended = extended_methods(type, name, arity)
+        return extended unless extended.empty?
+        return extended unless name == "new"
 
         instance_methods(type, "initialize", arity)
+      end
+
+      private def extended_methods(type : String, name : String, arity : Int32) : Array(Index::Def)
+        levels(type).each do |level|
+          @workspace.mixins_of(level).reverse_each do |mixin|
+            next unless mixin.kind.extend?
+
+            module_name = extended_module(mixin, level)
+            next unless module_name
+
+            found = instance_methods(module_name, name, arity)
+            return found unless found.empty?
+          end
+        end
+        Array(Index::Def).new
+      end
+
+      private def extended_module(mixin : Index::Mixin, owner : String) : String?
+        target = mixin.target
+        return if target.is_a?(Syntax::TypeReader::Unsupported)
+
+        scope = Scope.new(owner, @types.type_vars_of(owner))
+        resolved = @types.resolve_lexically(target, scope)
+        resolved.is_a?(TypeRef) ? resolved.name : nil
       end
 
       private def first_level(

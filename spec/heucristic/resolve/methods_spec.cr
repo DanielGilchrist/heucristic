@@ -87,4 +87,32 @@ describe Heucristic::Resolve::Methods do
     lookup_meta(source, "Dog", "new", 1).should eq(["Dog#initialize"])
     lookup_meta(source, "Dog", "speak", 0).should be_empty
   end
+
+  it "finds instance defs of an extended module on the metaclass, including extend self" do
+    source = <<-CR
+      module Helpers
+        def helper : Int32
+        end
+      end
+
+      module Fibers
+        extend self
+        extend Helpers
+
+        def detach(name : String) : Nil
+        end
+      end
+
+      class Base
+        extend Helpers
+      end
+
+      class Child < Base
+      end
+      CR
+    lookup_meta(source, "Fibers", "detach", 1).should eq(["Fibers#detach"])
+    lookup_meta(source, "Fibers", "helper", 0).should eq(["Helpers#helper"])
+    lookup_meta(source, "Child", "helper", 0).should eq(["Helpers#helper"])
+    lookup(source, "Fibers", "detach", 1).should eq(["Fibers#detach"])
+  end
 end
