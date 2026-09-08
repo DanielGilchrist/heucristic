@@ -8,6 +8,7 @@ require "../syntax/parse"
 require "../syntax/cursor"
 require "../index/workspace"
 require "../index/entry"
+require "../resolve/types"
 require "../index/loader"
 require "./uri"
 require "./diagnostics"
@@ -27,6 +28,7 @@ module Heucristic
         @documents = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
         @workspace = Index::Workspace.new
+        @resolver = Resolve::Types.new(@workspace)
         @stopping = false
       end
 
@@ -208,7 +210,7 @@ module Heucristic
             entries << candidate if candidate.arity.accepts?(count)
           end
         in Syntax::OnPath
-          resolve_path(target.node, target.enclosing, entries)
+          resolve_path(target.node, target.enclosing, target.type_vars, entries)
         end
         entries
       end
@@ -216,16 +218,15 @@ module Heucristic
       private def resolve_path(
         node : Crystal::Path,
         enclosing : Array(String),
+        type_vars : Array(String),
         entries : Array(Index::Entry),
       ) : Nil
-        name = node.names.join("::")
-        scopes = node.global? ? [""] : enclosing.reverse + [""]
-        scopes.each do |scope|
-          full = scope.empty? ? name : "#{scope}::#{name}"
-          @workspace.namespaces(full).each { |entry| entries << entry }
-          @workspace.aliases(full).each { |entry| entries << entry }
-          return unless entries.empty?
-        end
+        scope = Resolve::Scope.new(enclosing.last? || "", type_vars)
+        located = @resolver.locate(Syntax::Named.new(node.names, node.global?), scope)
+        return if located.is_a?(Resolve::Unknown)
+
+        @workspace.namespaces(located).each { |entry| entries << entry }
+        @workspace.aliases(located).each { |entry| entries << entry }
       end
 
       private def describe(entry : Index::Entry) : String

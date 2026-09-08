@@ -149,3 +149,38 @@ describe Heucristic::Index::Collector, "namespaces" do
     index(source).defs.map(&.qualified).should eq(["Outer::Base#initialize"])
   end
 end
+
+describe Heucristic::Index::Collector, "record" do
+  source = <<-CR
+    module M
+      record Point, x : Int32, label : String = "p", y = 1 do
+        def sum : Int32
+          x + y
+        end
+      end
+    end
+    CR
+
+  it "indexes a record as a struct namespace" do
+    point = index(source).namespaces.select(Heucristic::Index::ClassNamespace).first
+    point.name.should eq("M::Point")
+    point.kind.struct?.should be_true
+  end
+
+  it "indexes typed fields as instance variables and getters" do
+    file = index(source)
+    file.instance_vars.map { |ivar| {ivar.name, ivar.type.to_s} }.should eq(
+      [{"@x", "Int32"}, {"@label", "String"}]
+    )
+    getters = file.defs.select(&.parameters.empty?).map do |entry|
+      {entry.qualified, entry.return_type.to_s}
+    end
+    getters.should eq(
+      [{"M::Point#x", "Int32"}, {"M::Point#label", "String"}, {"M::Point#sum", "Int32"}]
+    )
+  end
+
+  it "leaves an untyped field out of the index" do
+    index(source).instance_vars.map(&.name).should_not contain("@y")
+  end
+end

@@ -128,6 +128,29 @@ module Heucristic
         true
       end
 
+      def visit(node : Crystal::Call) : Bool
+        return true unless node.name == "record" && node.obj.nil?
+        name = node.args[0]?
+        return true unless name.is_a?(Crystal::Path)
+
+        full = enter(name)
+        with_span(name) do |span|
+          @namespaces << ClassNamespace.new(
+            name: full,
+            path: @path,
+            name_span: span,
+            kind: :struct,
+            abstract_type: false,
+            type_vars: Array(String).new,
+            superclass: Unrestricted.new,
+          )
+        end
+        node.args.skip(1).each { |field| record_field(field) }
+        node.block.try(&.accept(self))
+        @owners.pop
+        false
+      end
+
       def visit(node : Crystal::ASTNode) : Bool
         true
       end
@@ -156,6 +179,31 @@ module Heucristic
         start = Document::Point.from(location)
         span = @text.span(start, start.advance(name.to_s.size))
         yield span if span.is_a?(Document::Span)
+      end
+
+      private def record_field(field : Crystal::ASTNode) : Nil
+        return unless field.is_a?(Crystal::TypeDeclaration)
+        var = field.var
+        return unless var.is_a?(Crystal::Var)
+        location = var.location
+        return unless location
+
+        start = Document::Point.from(location)
+        span = @text.span(start, start.advance(var.name.size))
+        return unless span.is_a?(Document::Span)
+
+        type = Syntax::TypeReader.read(field.declared_type)
+        @instance_vars << InstanceVar.new("@#{var.name}", owner, type, @path, span)
+        @defs << Def.new(
+          name: var.name,
+          owner: owner,
+          receiver: :instance,
+          path: @path,
+          name_span: span,
+          arity: Arity.new(0, 0, false),
+          parameters: Array(Parameter).new,
+          return_type: type,
+        )
       end
 
       private def record(node : Crystal::Def) : Nil

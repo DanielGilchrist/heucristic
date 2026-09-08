@@ -99,4 +99,18 @@ describe Heucristic::Server::Loop do
     hover_text(client.hover(URI_A, 9, 6)).to_s.should contain("class Outer::Thing")
     client.shutdown
   end
+
+  it "jumps to an alias even when its target does not resolve" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, "alias Broken = Missing | Nil\n\ndef f(x : Broken)\nend\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    definition = client.definition(URI_A, 2, 11).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([0])
+    hover_text(client.hover(URI_A, 2, 11)).to_s.should contain("alias Broken = Missing | Nil")
+    client.shutdown
+  end
 end
