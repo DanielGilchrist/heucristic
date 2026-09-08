@@ -21,7 +21,8 @@ module Score
     line : Int32,
     column : Int32,
     name : String,
-    result : Heucristic::Resolve::Resolution
+    result : Heucristic::Resolve::Resolution,
+    targets : Array(String)
 
   def run(args : Array(String)) : Int32
     root = File.expand_path(args[0]? || Dir.current)
@@ -64,8 +65,9 @@ module Score
           next unless location
 
           result = receiver.result_of(call, site.context)
+          targets = targets_of(call, site.context, receiver, methods)
           outcomes << Outcome.new(
-            path, location.line_number, location.column_number, call.name, result
+            path, location.line_number, location.column_number, call.name, result, targets
           )
         end
       end
@@ -74,6 +76,20 @@ module Score
     report(outcomes, elapsed, root)
     verify_sample(outcomes, verify, main, root) if verify > 0 && main
     0
+  end
+
+  private def targets_of(
+    call : Crystal::Call,
+    context : Heucristic::Syntax::Context,
+    receiver : Heucristic::Resolve::Receiver,
+    methods : Heucristic::Resolve::Methods,
+  ) : Array(String)
+    typed = receiver.of_call(call, context)
+    return Array(String).new if typed.is_a?(Heucristic::Resolve::Unknown)
+
+    methods.lookup(typed, receiver.shape_of(call, context)).map do |entry|
+      "#{entry.path}:#{entry.name_span.start_line + 1}"
+    end
   end
 
   private def report(outcomes : Array(Outcome), elapsed : Time::Span, root : String) : Nil
@@ -109,6 +125,8 @@ module Score
     puts
     puts "verifying #{sample.size} resolved calls against `crystal tool implementations`"
     agree = 0
+    disagree = 0
+    unseen = 0
     sample.each do |outcome|
       cursor = "#{outcome.path}:#{outcome.line}:#{outcome.column}"
       output = IO::Memory.new
@@ -126,12 +144,32 @@ module Score
       end
       compiler = JSON.parse(output.to_s)
       locations = compiler["implementations"]?.try(&.as_a?) || Array(JSON::Any).new
+      theirs = locations.map { |impl| "#{impl["filename"]}:#{impl["line"]}" }
       where = cursor.sub(root + "/", "")
-      puts "  #{where} #{outcome.name} -> ours: #{outcome.result}"
-      puts "      compiler: #{locations.size} implementation(s)"
-      agree += 1 unless locations.empty?
+      if theirs.empty?
+        unseen += 1
+        puts "  ? #{where} #{outcome.name}: compiler reports no implementation"
+      elsif same_targets?(theirs, outcome.targets)
+        agree += 1
+      elsif same_files?(theirs, outcome.targets)
+        agree += 1
+        puts "  ~ #{where} #{outcome.name}: same file, different line (macro-generated def)"
+      else
+        disagree += 1
+        puts "  X #{where} #{outcome.name}"
+        puts "      ours:     #{outcome.targets.map(&.sub(root + "/", "")).join(", ")}"
+        puts "      compiler: #{theirs.map(&.sub(root + "/", "")).join(", ")}"
+      end
     end
-    puts "compiler found a target for #{agree}/#{sample.size} of our resolved calls"
+    puts "agree: #{agree}, disagree: #{disagree}, compiler saw no implementation: #{unseen}"
+  end
+
+  private def same_targets?(theirs : Array(String), ours : Array(String)) : Bool
+    theirs.sort == ours.sort
+  end
+
+  private def same_files?(theirs : Array(String), ours : Array(String)) : Bool
+    theirs.map(&.rpartition(':')[0]).sort! == ours.map(&.rpartition(':')[0]).sort!
   end
 
   private def percent(part : Int32, whole : Int32) : String
