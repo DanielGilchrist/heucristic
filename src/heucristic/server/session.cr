@@ -274,11 +274,11 @@ module Heucristic
           return Answer.of(entries)
         end
 
-        shape = Resolve::Methods::Call.new(call.name, call.args.size, !call.block.nil?)
+        shape = @receiver.shape_of(call, target.context)
         found = @methods.lookup(receiver, shape)
         return Answer.note("no `#{call.name}` indexed on #{receiver}") if found.empty?
 
-        sections = found.map { |entry| describe_resolved(entry, receiver) }
+        sections = found.map { |entry| describe_resolved(entry, receiver, shape.arguments) }
         entries = Array(Index::Entry).new(found.size)
         found.each { |entry| entries << entry }
         Answer.new(entries, Array(Document::Span).new, sections, Array(String).new)
@@ -344,22 +344,17 @@ module Heucristic
         others.unshift("#{describe(primary)}\nreopened in #{namespaces.size} places")
       end
 
-      private def describe_resolved(entry : Index::Def, receiver : Resolve::Resolved) : String
-        case (returning = @receiver.return_type(entry, receiver))
+      private def describe_resolved(
+        entry : Index::Def,
+        receiver : Resolve::Resolved,
+        arguments : Array(Resolve::Resolution),
+      ) : String
+        case (returning = @receiver.return_type(entry, receiver, arguments))
         in Resolve::Resolved
-          header = "```crystal\n#{entry.signature(returning.to_s)}\n```"
-          "#{header}\n#{entry.qualified}#{shim_note(entry)}"
+          "```crystal\n#{entry.signature(returning.to_s)}\n```\n#{entry.qualified}"
         in Resolve::Unknown
           "#{describe(entry)}\n\nreturns #{returning}"
         end
-      end
-
-      private def shim_note(entry : Index::Def) : String
-        return "" unless entry.return_type.is_a?(Index::Unrestricted)
-        shim = @shims.find(entry)
-        return "" unless shim
-
-        "\n\nreturn type from #{shim.entry.path}"
       end
 
       private def describe(entry : Index::Entry) : String

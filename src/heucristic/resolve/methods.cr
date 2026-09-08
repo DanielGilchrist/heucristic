@@ -7,7 +7,11 @@ module Heucristic
       def initialize(@workspace : Index::Workspace, @types : Types) : Nil
       end
 
-      record Call, name : String, arity : Int32, block : Bool do
+      record Call, name : String, arity : Int32, block : Bool, arguments : Array(Resolution) do
+        def self.new(name : String, arity : Int32, block : Bool) : Call
+          new(name, arity, block, Array(Resolution).new)
+        end
+
         def accepts?(entry : Index::Def) : Bool
           entry.arity.accepts?(arity) && entry.yields == block
         end

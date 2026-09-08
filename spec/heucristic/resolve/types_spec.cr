@@ -190,4 +190,9 @@ describe Heucristic::Resolve::Types do
       CR
     resolve(workspace(source), "Config", "App::Child").should eq("Base::Config")
   end
+
+  it "collapses duplicate and nested union members" do
+    resolve(ws, "Thing | Thing", "Outer").should eq("Outer::Thing")
+    resolve(ws, "(Thing | Nil) | Nil", "Outer").should eq("Outer::Thing | Nil")
+  end
 end

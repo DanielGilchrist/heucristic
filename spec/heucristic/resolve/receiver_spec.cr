@@ -267,3 +267,35 @@ describe Heucristic::Resolve::Receiver, "call results" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "argument bindings" do
+  source = <<-CR
+    class Array(T)
+      def +(other : Array(U)) : Array(T | U) forall U
+      end
+
+      def zip(other : Array(U)) : Array(Tuple(T, U)) forall U
+      end
+    end
+
+    class Box
+      def pair(a : Array(String), b : Array(Int32), c : Int32?) : Nil
+        (a + b).size
+        a.zip(b).size
+        wrap(c).size
+      end
+
+      def wrap(value : U?) : Array(U) forall U
+      end
+    end
+    CR
+
+  it "binds a def's free variable from the matching argument" do
+    receiver_of_size(source, "(a + b).size").should eq("Array(String | Int32)")
+    receiver_of_size(source, "a.zip(b).size").should eq("Array(Tuple(String, Int32))")
+  end
+
+  it "binds through a nilable restriction" do
+    receiver_of_size(source, "wrap(c).size").should eq("Array(Int32)")
+  end
+end

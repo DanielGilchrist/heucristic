@@ -6,6 +6,7 @@ require "../syntax/target"
 require "../syntax/type_reader"
 require "./types"
 require "./methods"
+require "./unify"
 require "./local_declarations"
 require "./local_assignments"
 
@@ -24,7 +25,12 @@ module Heucristic
         receiver = of_call(call, context)
         return receiver if receiver.is_a?(Unknown)
 
-        result_of(receiver, Methods::Call.new(call.name, call.args.size, !call.block.nil?))
+        result_of(receiver, shape_of(call, context))
+      end
+
+      def shape_of(call : Crystal::Call, context : Syntax::Context) : Methods::Call
+        arguments = call.args.map { |argument| type_of(argument, context) }
+        Methods::Call.new(call.name, call.args.size, !call.block.nil?, arguments)
       end
 
       def result_of(receiver : Resolved, call : Methods::Call) : Resolution
@@ -38,7 +44,7 @@ module Heucristic
         defs = @methods.lookup(receiver, call)
         return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
 
-        results = defs.map { |entry| return_type(entry, receiver) }
+        results = defs.map { |entry| return_type(entry, receiver, call.arguments) }
         resolved = results.select(Resolved).uniq!
         return resolved[0] if resolved.size == 1
         return results[0] if resolved.empty?
@@ -92,6 +98,12 @@ module Heucristic
         when Crystal::Var         then variable(node.name, context, visiting)
         when Crystal::InstanceVar then instance_var(node.name, context)
         when Crystal::Call        then result_of(node, context)
+        when Crystal::Expressions
+          if node.expressions.size == 1
+            type_of(node.expressions[0], context, visiting)
+          else
+            Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
+          end
         else
           Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
         end
@@ -149,7 +161,11 @@ module Heucristic
         definition && definition.receiver ? MetaRef.new(this) : this
       end
 
-      def return_type(entry : Index::Def, receiver : Resolved) : Resolution
+      def return_type(
+        entry : Index::Def,
+        receiver : Resolved,
+        arguments : Array(Resolution) = Array(Resolution).new,
+      ) : Resolution
         if entry.name == "initialize" && receiver.is_a?(MetaRef)
           return receiver.of
         end
@@ -157,47 +173,53 @@ module Heucristic
         case (restriction = entry.return_type)
         in Index::Unrestricted
           shim = @shims.find(entry)
-          return shimmed(shim.entry, receiver) if shim
+          return return_type(shim.entry, receiver, arguments) if shim
 
           Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
         in Syntax::TypeReader::Unsupported
           Unknown.new(:unsupported, restriction.source)
         in Syntax::Type
-          resolve_return(restriction, entry, receiver)
+          scope = return_scope(entry, receiver, arguments)
+          return scope if scope.is_a?(Unknown)
+
+          @types.resolve(restriction, scope)
         end
       end
 
-      private def shimmed(shim : Index::Def, receiver : Resolved) : Resolution
-        case (restriction = shim.return_type)
-        in Index::Unrestricted
-          Unknown.new(:no_annotation, "shim for #{shim.qualified} states no return type")
-        in Syntax::TypeReader::Unsupported
-          Unknown.new(:unsupported, restriction.source)
-        in Syntax::Type
-          resolve_return(restriction, shim, receiver)
-        end
-      end
-
-      private def resolve_return(
-        restriction : Syntax::Type,
+      private def return_scope(
         entry : Index::Def,
         receiver : Resolved,
-      ) : Resolution
-        scope = return_scope(entry, receiver)
-        return scope if scope.is_a?(Unknown)
+        arguments : Array(Resolution),
+      ) : Scope | Unknown
+        owner = entry.owner
+        bindings = Array(Binding).new
+        type_vars = entry.free_vars.dup
+        unless owner.is_a?(Index::TopLevel)
+          instance = receiver.is_a?(MetaRef) ? receiver.of : receiver
+          inherited = instance.is_a?(TypeRef) ? @types.bindings(instance, owner) : bindings
+          return inherited if inherited.is_a?(Unknown)
+          bindings = inherited.dup
+          type_vars = @types.type_vars_of(owner) + type_vars
+        end
 
-        @types.resolve(restriction, scope)
+        scope = Scope.new(owner, type_vars, bindings)
+        bind_arguments(entry, arguments, bindings, scope)
+        scope
       end
 
-      private def return_scope(entry : Index::Def, receiver : Resolved) : Scope | Unknown
-        owner = entry.owner
-        return Scope.new(owner, entry.free_vars) if owner.is_a?(Index::TopLevel)
+      private def bind_arguments(
+        entry : Index::Def,
+        arguments : Array(Resolution),
+        bindings : Array(Binding),
+        scope : Scope,
+      ) : Nil
+        positional = entry.parameters.select(&.kind.positional?)
+        positional.zip?(arguments) do |parameter, argument|
+          restriction = parameter.restriction
+          next unless argument && restriction.is_a?(Syntax::Type)
 
-        instance = receiver.is_a?(MetaRef) ? receiver.of : receiver
-        bindings = instance.is_a?(TypeRef) ? @types.bindings(instance, owner) : Array(Binding).new
-        return bindings if bindings.is_a?(Unknown)
-
-        Scope.new(owner, @types.type_vars_of(owner) + entry.free_vars, bindings)
+          Unify.bind(restriction, argument, entry.free_vars, bindings, @types, scope)
+        end
       end
 
       private def scope(context : Syntax::Context) : Scope

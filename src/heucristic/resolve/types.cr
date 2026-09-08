@@ -194,9 +194,13 @@ module Heucristic
         members.each do |member|
           resolution = resolve(member, scope, with_ancestors)
           return resolution if resolution.is_a?(Unknown)
-          resolved << resolution
+          if resolution.is_a?(UnionRef)
+            resolution.members.each { |inner| resolved << inner unless resolved.includes?(inner) }
+          else
+            resolved << resolution unless resolved.includes?(resolution)
+          end
         end
-        UnionRef.new(resolved)
+        resolved.size == 1 ? resolved[0] : UnionRef.new(resolved)
       end
 
       private def resolve_metaclass(
