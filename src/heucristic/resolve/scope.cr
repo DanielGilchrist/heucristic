@@ -1,20 +1,23 @@
+require "../index/owner"
+
 module Heucristic
   module Resolve
-    record Scope, namespace : String, type_vars : Array(String) do
-      TOP = new("", Array(String).new)
+    record Scope, namespace : Index::Owner, type_vars : Array(String) do
+      TOP = new(Index::TopLevel.new, Array(String).new)
 
       def self.of(namespace : String) : Scope
         new(namespace, Array(String).new)
       end
 
-      def chain : Array(String)
-        chain = Array(String).new
+      def chain : Array(Index::Owner)
+        chain = Array(Index::Owner).new
         current = namespace
-        until current.empty?
+        while current.is_a?(String)
           chain << current
-          current = current.rpartition("::")[0]
+          parent = current.rpartition("::")[0]
+          current = parent.empty? ? Index::TopLevel.new : parent
         end
-        chain << ""
+        chain << Index::TopLevel.new
         chain
       end
     end

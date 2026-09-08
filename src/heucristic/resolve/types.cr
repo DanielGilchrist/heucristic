@@ -68,10 +68,10 @@ module Heucristic
           return Unknown.new(:free_variable, first)
         end
 
-        scopes = path.global? ? [""] : scope.chain
+        scopes = path.global? ? [Index::TopLevel.new] of Index::Owner : scope.chain
         scopes.each do |prefix|
           search_in(prefix, with_ancestors) do |namespace|
-            head = namespace.empty? ? first : "#{namespace}::#{first}"
+            head = qualify(namespace, first)
             next unless declared?(head)
 
             full = rest.empty? ? head : "#{head}::#{rest.join("::")}"
@@ -82,14 +82,25 @@ module Heucristic
         Unknown.new(:unresolved_name, path.to_s)
       end
 
-      private def search_in(namespace : String, with_ancestors : Bool, & : String ->) : Nil
+      private def search_in(
+        namespace : Index::Owner,
+        with_ancestors : Bool,
+        & : Index::Owner ->
+      ) : Nil
         yield namespace
-        return if namespace.empty? || !with_ancestors
+        return unless namespace.is_a?(String) && with_ancestors
 
         chain = @ancestors.of(namespace, self)
         return if chain.is_a?(Unknown)
 
         chain.each { |ancestor| yield ancestor }
+      end
+
+      private def qualify(namespace : Index::Owner, name : String) : String
+        case namespace
+        in Index::TopLevel then name
+        in String          then "#{namespace}::#{name}"
+        end
       end
 
       private def resolve_named(
@@ -183,9 +194,10 @@ module Heucristic
       end
 
       private def resolve_self(scope : Scope) : Resolution
-        return Unknown.new(:unsupported, "self outside a type") if scope.namespace.empty?
-
-        TypeRef.new(scope.namespace, Array(Resolution).new)
+        case (namespace = scope.namespace)
+        in Index::TopLevel then Unknown.new(:unsupported, "self outside a type")
+        in String          then TypeRef.new(namespace, Array(Resolution).new)
+        end
       end
     end
   end

@@ -1,5 +1,6 @@
 require "../document/span"
 require "./arity"
+require "./owner"
 require "./parameter"
 require "./signature"
 
@@ -12,7 +13,7 @@ module Heucristic
 
     record Def,
       name : String,
-      owner : String,
+      owner : Owner,
       receiver : Receiver,
       path : String,
       name_span : Document::Span,
@@ -20,8 +21,10 @@ module Heucristic
       parameters : Array(Parameter),
       return_type : Restriction do
       def qualified : String
-        separator = receiver.metaclass? ? "." : "#"
-        owner.empty? ? name : "#{owner}#{separator}#{name}"
+        case (namespace = owner)
+        in TopLevel then name
+        in String   then "#{namespace}#{receiver.metaclass? ? "." : "#"}#{name}"
+        end
       end
 
       def signature : String

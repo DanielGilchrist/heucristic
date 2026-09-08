@@ -2,6 +2,7 @@ require "../fibers"
 require "../log"
 require "../protocol/framing"
 require "../protocol/decoder"
+require "../protocol/transport"
 require "../index/loader"
 require "./session"
 
@@ -16,7 +17,8 @@ module Heucristic
       def initialize(@input : IO, @output : IO) : Nil
         @inbound = Channel(Inbound).new(64)
         @indexed = Channel(Array(Index::File)).new(1)
-        @session = Session.new(->(body : String) : Nil { send(body) })
+        @transport = Protocol::Transport.new(@output)
+        @session = Session.new(@transport)
       end
 
       def run : Nil
@@ -53,7 +55,9 @@ module Heucristic
         in Protocol::Response
           deliver(@session.handle(incoming))
         in Protocol::Unparseable
-          send(Protocol::Encoder.error(nil, Protocol::Encoder::PARSE_ERROR, incoming.reason))
+          @transport.send(
+            Protocol::Encoder.error(nil, Protocol::Encoder::PARSE_ERROR, incoming.reason)
+          )
           Silence.new
         in Protocol::Framing::Malformed
           Log.info("malformed frame: #{incoming.reason}")
@@ -64,20 +68,13 @@ module Heucristic
       end
 
       private def deliver(outcome : Outcome) : Outcome
-        send(outcome.body) if outcome.is_a?(Reply)
+        @transport.send(outcome.body) if outcome.is_a?(Reply)
         outcome
       end
 
       private def start_indexing : Nil
         roots = @session.index_roots
         Fibers.detach(:indexer) { @indexed.send(Index::Loader.load(roots)) }
-      end
-
-      private def send(body : String) : Nil
-        written = Protocol::Framing.write(@output, body)
-        return unless written.is_a?(Protocol::Framing::Disconnected)
-
-        Log.info("client disconnected: #{written.reason}")
       end
     end
   end

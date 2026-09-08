@@ -25,10 +25,10 @@ end
 private def resolve(
   workspace : Heucristic::Index::Workspace,
   source : String,
-  namespace : String = "",
+  namespace : String? = nil,
   type_vars : Array(String) = Array(String).new,
 ) : String
-  scope = Heucristic::Resolve::Scope.new(namespace, type_vars)
+  scope = Heucristic::Resolve::Scope.new(namespace || Heucristic::Index::TopLevel.new, type_vars)
   Heucristic::Resolve::Types.new(workspace).resolve(restriction(source), scope).to_s
 end
 

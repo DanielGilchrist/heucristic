@@ -49,24 +49,27 @@ module Heucristic
           parents << target unless parents.includes?(target)
         end
 
-        superclass = superclass(entries, name, types)
-        return superclass if superclass.is_a?(Unknown)
-        parents << superclass unless superclass.empty?
-        parents
+        case (superclass = superclass(entries, name, types))
+        in Unknown                then superclass
+        in Builtins::NoSuperclass then parents
+        in String                 then parents << superclass
+        end
       end
 
       private def builtin_parents(name : String) : Chain
         return Unknown.new(:unresolved_name, name) unless Builtins.includes?(name)
 
-        superclass = Builtins.superclass(name)
-        superclass.empty? ? Array(String).new : [superclass]
+        case (superclass = Builtins.superclass(name))
+        in Builtins::NoSuperclass then Array(String).new
+        in String                 then [superclass]
+        end
       end
 
       private def superclass(
         entries : Array(Index::Namespace),
         name : String,
         types : Types,
-      ) : String | Unknown
+      ) : String | Builtins::NoSuperclass | Unknown
         entries.each do |entry|
           case entry
           in Index::ClassNamespace
@@ -76,15 +79,15 @@ module Heucristic
           in Index::EnumNamespace
             return "Enum"
           in Index::ModuleNamespace, Index::LibNamespace, Index::AnnotationNamespace
-            return ""
+            return Builtins::NoSuperclass.new
           end
         end
 
         implicit_superclass(entries[0])
       end
 
-      private def implicit_superclass(entry : Index::Namespace) : String
-        return "" unless entry.is_a?(Index::ClassNamespace)
+      private def implicit_superclass(entry : Index::Namespace) : String | Builtins::NoSuperclass
+        return Builtins::NoSuperclass.new unless entry.is_a?(Index::ClassNamespace)
 
         entry.kind.struct? ? "Struct" : "Reference"
       end

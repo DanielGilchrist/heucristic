@@ -184,3 +184,51 @@ describe Heucristic::Index::Collector, "record" do
     index(source).instance_vars.map(&.name).should_not contain("@y")
   end
 end
+
+describe Heucristic::Index::Collector, "instance variables from parameters" do
+  it "declares an ivar from a typed @-parameter and ignores an untyped one" do
+    file = index("class C\n  def initialize(@a : Int32, @b, c : String) : Nil\n  end\nend\n")
+    file.instance_vars.map { |ivar| {ivar.name, ivar.type.to_s} }.should eq([{"@a", "Int32"}])
+  end
+end
+
+describe Heucristic::Index::Collector, "instance variables from assignments" do
+  source = <<-CR
+    class Session
+      def initialize : Nil
+        @store = Document::Store.new
+        @trees = Hash(String, Crystal::ASTNode).new
+        @names = [] of String
+        @lookup = {} of String => Int32
+        @count = 0
+        @label = "x"
+        @flag = true
+        @maybe = nil
+        @kind = Kind
+        @narrowed = thing.as(String)
+        @optional = thing.as?(String)
+        @computed = build
+        @declared : Int32 = 1
+      end
+    end
+    CR
+
+  it "types an ivar from an evident right hand side, and skips a call result" do
+    file = index(source)
+    typed = file.instance_vars.map { |ivar| {ivar.name, ivar.type.to_s, ivar.origin} }
+    typed.should eq([
+      {"@store", "Document::Store", Heucristic::Index::Origin::Assigned},
+      {"@trees", "Hash(String, Crystal::ASTNode)", Heucristic::Index::Origin::Assigned},
+      {"@names", "::Array(String)", Heucristic::Index::Origin::Assigned},
+      {"@lookup", "::Hash(String, Int32)", Heucristic::Index::Origin::Assigned},
+      {"@count", "::Int32", Heucristic::Index::Origin::Assigned},
+      {"@label", "::String", Heucristic::Index::Origin::Assigned},
+      {"@flag", "::Bool", Heucristic::Index::Origin::Assigned},
+      {"@maybe", "::Nil", Heucristic::Index::Origin::Assigned},
+      {"@kind", "Kind.class", Heucristic::Index::Origin::Assigned},
+      {"@narrowed", "String", Heucristic::Index::Origin::Assigned},
+      {"@optional", "String?", Heucristic::Index::Origin::Assigned},
+      {"@declared", "Int32", Heucristic::Index::Origin::Declared},
+    ])
+  end
+end

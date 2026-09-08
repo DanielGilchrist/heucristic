@@ -33,6 +33,8 @@ module Heucristic
         NonTypeArgument
         Unsupported
         Cycle
+        InferenceNeeded
+        TopLevel
       end
 
       def to_s(io : IO) : Nil

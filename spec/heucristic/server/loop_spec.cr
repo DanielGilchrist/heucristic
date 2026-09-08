@@ -50,7 +50,7 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
-  it "answers null for a call with a receiver" do
+  it "explains a receiver it cannot type and gives no definition" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")
     client.await_notification("$/heucristic/indexed")
@@ -58,7 +58,7 @@ describe Heucristic::Server::Loop do
     client.open(URI_A, "x = 1\nx.abs\n")
     client.await_notification("textDocument/publishDiagnostics")
 
-    client.hover(URI_A, 1, 2).result.try(&.raw).should be_nil
+    hover_text(client.hover(URI_A, 1, 2)).to_s.should contain("receiver of `abs`: unknown")
     client.definition(URI_A, 1, 2).result.try(&.raw).should be_nil
     client.shutdown
   end
@@ -111,6 +111,93 @@ describe Heucristic::Server::Loop do
     definition = client.definition(URI_A, 2, 11).result.try(&.as_a?)
     definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([0])
     hover_text(client.hover(URI_A, 2, 11)).to_s.should contain("alias Broken = Missing | Nil")
+    client.shutdown
+  end
+
+  it "resolves an implicit self call to the enclosing type instead of the whole workspace" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    source = <<-CR
+      class Other
+        def initialize(x : Int32) : Nil
+        end
+      end
+
+      class Cursor
+        def initialize(point : Int32) : Nil
+        end
+
+        def self.find(point : Int32) : Cursor
+          new(point)
+        end
+      end
+      CR
+    client.open(URI_A, source)
+    client.await_notification("textDocument/publishDiagnostics")
+
+    definition = client.definition(URI_A, 10, 5).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([6])
+    client.shutdown
+  end
+
+  it "shows a parameter's declared type on hover and jumps to the parameter" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    source = "class Box\n  def fill(item : String, other) : Nil\n    item\n    other\n  end\nend\n"
+    client.open(URI_A, source)
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 2, 5)).to_s.should contain("`item` : String")
+    hover_text(client.hover(URI_A, 3, 5)).to_s.should contain("no type restriction")
+    definition = client.definition(URI_A, 2, 5).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["character"].as_i)).should eq([11])
+    client.shutdown
+  end
+
+  it "explains why a call cannot be resolved instead of guessing" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, "def go(x)\n  x.size\nend\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 1, 5)).to_s.should contain("parameter x has no type restriction")
+    client.definition(URI_A, 1, 5).result.try(&.raw).should be_nil
+    client.shutdown
+  end
+
+  it "types an ivar assigned with Const.new and resolves a call on it" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    source = <<-CR
+      class Workspace
+        def update(name : String) : Nil
+        end
+      end
+
+      class Session
+        def initialize : Nil
+          @workspace = Workspace.new
+        end
+
+        def go : Nil
+          @workspace.update("x")
+        end
+      end
+      CR
+    client.open(URI_A, source)
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 11, 6)).to_s.should contain("`@workspace` : Workspace")
+    definition = client.definition(URI_A, 11, 16).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1])
     client.shutdown
   end
 end

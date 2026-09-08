@@ -3,17 +3,22 @@ require "../version"
 require "../log"
 require "../protocol/message"
 require "../protocol/encoder"
+require "../protocol/transport"
 require "../document/store"
 require "../syntax/parse"
 require "../syntax/cursor"
 require "../index/workspace"
 require "../index/entry"
 require "../resolve/types"
+require "../resolve/receiver"
+require "../resolve/methods"
 require "../index/loader"
 require "./uri"
 require "./diagnostics"
 require "./decoded_params"
 require "./outcome"
+require "./answer"
+require "../resolve/local_declarations"
 
 module Heucristic
   module Server
@@ -23,12 +28,14 @@ module Heucristic
       getter root : String
       getter workspace : Index::Workspace
 
-      def initialize(@notify : String ->) : Nil
+      def initialize(@transport : Protocol::Transport) : Nil
         @root = Dir.current
         @documents = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
         @workspace = Index::Workspace.new
         @types = Resolve::Types.new(@workspace)
+        @receiver = Resolve::Receiver.new(@workspace, @types)
+        @methods = Resolve::Methods.new(@workspace, @types)
         @stopping = false
       end
 
@@ -68,7 +75,7 @@ module Heucristic
         @workspace.replace_all(files)
         @types.invalidate
         @documents.each { |document| index_document(document) }
-        @notify.call(Protocol::Encoder.notification(INDEXED, {files: @workspace.size}))
+        @transport.send(Protocol::Encoder.notification(INDEXED, {files: @workspace.size}))
       end
 
       private def initialize_session(request : Protocol::Request) : Outcome
@@ -162,10 +169,11 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::HoverParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        entries = entries_at(params.text_document.uri.to_s, params.position)
-        return reply(request.id, nil) if entries.empty?
+        answer = answer_at(params.text_document.uri.to_s, params.position)
+        sections = answer.entries.map { |entry| describe(entry) }
+        sections.concat(answer.notes)
+        return reply(request.id, nil) if sections.empty?
 
-        sections = entries.map { |entry| describe(entry) }
         contents = LSProtocol::MarkupContent.new(
           kind: LSProtocol::MarkupKind::Markdown, value: sections.join("\n\n---\n\n")
         )
@@ -176,60 +184,117 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::DefinitionParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        locations = entries_at(params.text_document.uri.to_s, params.position).map do |entry|
+        uri = params.text_document.uri.to_s
+        answer = answer_at(uri, params.position)
+        locations = answer.entries.map do |entry|
           LSProtocol::Location.new(
             range: entry.name_span.to_range, uri: URI.parse(Uri.from_path(entry.path))
           )
         end
+        answer.spans.each do |span|
+          locations << LSProtocol::Location.new(range: span.to_range, uri: URI.parse(uri))
+        end
         reply(request.id, locations.empty? ? nil : locations)
       end
 
-      private def entries_at(uri : String, position : LSProtocol::Position) : Array(Index::Entry)
+      private def answer_at(uri : String, position : LSProtocol::Position) : Answer
         document = @documents[uri]
-        return Array(Index::Entry).new if document.is_a?(Document::Store::Missing)
+        return Answer::NONE if document.is_a?(Document::Store::Missing)
         tree = @trees[uri]?
-        return Array(Index::Entry).new unless tree
+        return Answer::NONE unless tree
 
         point = document.text.point(position)
-        return Array(Index::Entry).new if point.is_a?(Document::OutOfRange)
+        return Answer::NONE if point.is_a?(Document::OutOfRange)
 
-        entries_for(Syntax::Cursor.find(tree, point))
-      end
-
-      private def entries_for(target : Syntax::Target?) : Array(Index::Entry)
-        entries = Array(Index::Entry).new
-        case target
-        in Nil then nil
-        in Syntax::OnDef
-          signature = Index::Signature.of(target.node)
-          @workspace.named(target.node.name).each do |candidate|
-            entries << candidate if candidate.signature == signature
-          end
-        in Syntax::OnCall
-          call = target.node
-          return entries if call.obj
-          count = call.args.size
-          @workspace.named(call.name).each do |candidate|
-            entries << candidate if candidate.arity.accepts?(count)
-          end
-        in Syntax::OnPath
-          resolve_path(target.node, target.enclosing, target.type_vars, entries)
+        case (target = Syntax::Cursor.find(tree, point))
+        in Nil                   then Answer::NONE
+        in Syntax::OnDef         then answer_def(target)
+        in Syntax::OnCall        then answer_call(target)
+        in Syntax::OnPath        then answer_path(target)
+        in Syntax::OnVar         then answer_var(target, document.text)
+        in Syntax::OnInstanceVar then answer_instance_var(target)
         end
-        entries
       end
 
-      private def resolve_path(
-        node : Crystal::Path,
-        enclosing : Array(String),
-        type_vars : Array(String),
-        entries : Array(Index::Entry),
-      ) : Nil
-        scope = Resolve::Scope.new(enclosing.last? || "", type_vars)
-        located = @types.locate(Syntax::Named.new(node.names, node.global?), scope)
-        return if located.is_a?(Resolve::Unknown)
+      private def answer_def(target : Syntax::OnDef) : Answer
+        signature = Index::Signature.of(target.node)
+        entries = Array(Index::Entry).new
+        @workspace.named(target.node.name).each do |candidate|
+          entries << candidate if candidate.signature == signature
+        end
+        Answer.of(entries)
+      end
 
+      private def answer_call(target : Syntax::OnCall) : Answer
+        call = target.node
+        receiver = @receiver.of_call(call, target.context)
+        if receiver.is_a?(Resolve::Unknown)
+          unless receiver.reason.top_level?
+            return Answer.note("receiver of `#{call.name}`: #{receiver}")
+          end
+
+          entries = Array(Index::Entry).new
+          @workspace.named(call.name).each do |candidate|
+            entries << candidate if candidate.arity.accepts?(call.args.size)
+          end
+          return Answer.of(entries)
+        end
+
+        found = @methods.lookup(receiver, call.name, call.args.size)
+        return Answer.note("no `#{call.name}` indexed on #{receiver}") if found.empty?
+
+        entries = Array(Index::Entry).new(found.size)
+        found.each { |entry| entries << entry }
+        Answer.of(entries)
+      end
+
+      private def answer_path(target : Syntax::OnPath) : Answer
+        node = target.node
+        scope = Resolve::Scope.new(target.context.owner, target.context.type_vars)
+        located = @types.locate(Syntax::Named.new(node.names, node.global?), scope)
+        return Answer::NONE if located.is_a?(Resolve::Unknown)
+
+        entries = Array(Index::Entry).new
         @workspace.namespaces(located).each { |entry| entries << entry }
         @workspace.aliases(located).each { |entry| entries << entry }
+        Answer.of(entries)
+      end
+
+      private def answer_var(target : Syntax::OnVar, text : Document::Text) : Answer
+        note = "`#{target.name}` : #{@receiver.variable(target.name, target.context)}"
+        spans = Array(Document::Span).new
+        if (definition = target.context.def_node)
+          if (parameter = definition.args.find(&.name.==(target.name)))
+            add_span(spans, text, parameter.location, target.name.size)
+          elsif (declaration = Resolve::LocalDeclarations.find(definition.body, target.name))
+            add_span(spans, text, declaration.var.location, target.name.size)
+          end
+        end
+        Answer.new(Array(Index::Entry).new, spans, [note])
+      end
+
+      private def answer_instance_var(target : Syntax::OnInstanceVar) : Answer
+        note = "`#{target.name}` : #{@receiver.instance_var(target.name, target.context)}"
+        entries = Array(Index::Entry).new
+        if (owner = target.context.owner).is_a?(String)
+          @workspace.instance_vars_of(owner).each do |declared|
+            entries << declared if declared.name == target.name
+          end
+        end
+        Answer.of(entries, note)
+      end
+
+      private def add_span(
+        spans : Array(Document::Span),
+        text : Document::Text,
+        location : Crystal::Location?,
+        size : Int32,
+      ) : Nil
+        return unless location
+
+        start = Document::Point.from(location)
+        span = text.span(start, start.advance(size))
+        spans << span if span.is_a?(Document::Span)
       end
 
       private def describe(entry : Index::Entry) : String
@@ -256,6 +321,8 @@ module Heucristic
           "```crystal\n#{entry.keyword} #{entry.name}\n```"
         in Index::Alias
           "```crystal\nalias #{entry.name} = #{entry.target}\n```"
+        in Index::InstanceVar
+          "```crystal\n#{entry.name} : #{entry.type}\n```\n#{entry.owner}"
         end
       end
 
@@ -267,7 +334,7 @@ module Heucristic
         params = LSProtocol::PublishDiagnosticsParams.new(
           diagnostics: diagnostics, uri: URI.parse(uri), version: version
         )
-        @notify.call(
+        @transport.send(
           Protocol::Encoder.notification(LSProtocol::TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS, params)
         )
         Silence.new

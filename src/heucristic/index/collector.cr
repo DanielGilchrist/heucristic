@@ -2,6 +2,7 @@ require "compiler/crystal/syntax"
 require "../document/text"
 require "./file"
 require "./signature"
+require "./evident"
 
 module Heucristic
   module Index
@@ -88,13 +89,11 @@ module Heucristic
       end
 
       def visit(node : Crystal::Include) : Bool
-        @mixins << Mixin.new(owner, :include, Syntax::TypeReader.read(node.name), @path)
-        false
+        mixin(:include, node.name)
       end
 
       def visit(node : Crystal::Extend) : Bool
-        @mixins << Mixin.new(owner, :extend, Syntax::TypeReader.read(node.name), @path)
-        false
+        mixin(:extend, node.name)
       end
 
       def visit(node : Crystal::Alias) : Bool
@@ -117,10 +116,26 @@ module Heucristic
         span = @text.span(start, start.advance(var.name.size))
         return false unless span.is_a?(Document::Span)
 
-        @instance_vars << InstanceVar.new(
-          var.name, owner, Syntax::TypeReader.read(node.declared_type), @path, span
-        )
+        instance_var(var.name, Syntax::TypeReader.read(node.declared_type), span, :declared)
         false
+      end
+
+      def visit(node : Crystal::Assign) : Bool
+        target = node.target
+        return true unless target.is_a?(Crystal::InstanceVar)
+
+        type = Evident.type(node.value)
+        return true if type.is_a?(Evident::NotEvident)
+
+        location = target.location
+        return true unless location
+
+        start = Document::Point.from(location)
+        span = @text.span(start, start.advance(target.name.size))
+        return true unless span.is_a?(Document::Span)
+
+        instance_var(target.name, type, span, :assigned)
+        true
       end
 
       def visit(node : Crystal::Def) : Bool
@@ -155,15 +170,36 @@ module Heucristic
         true
       end
 
-      private def owner : String
-        @owners.last? || ""
+      private def owner : Owner
+        @owners.last? || TopLevel.new
+      end
+
+      private def mixin(kind : MixinKind, target : Crystal::ASTNode) : Bool
+        namespace = owner
+        return false if namespace.is_a?(TopLevel)
+
+        @mixins << Mixin.new(namespace, kind, Syntax::TypeReader.read(target), @path)
+        false
+      end
+
+      private def instance_var(
+        name : String,
+        type : Syntax::TypeReader::Outcome,
+        span : Document::Span,
+        origin : Origin,
+      ) : Nil
+        namespace = owner
+        return if namespace.is_a?(TopLevel)
+
+        @instance_vars << InstanceVar.new(name, namespace, type, @path, span, origin)
       end
 
       private def qualify(name : Crystal::Path) : String
         own = name.names.join("::")
-        return own if name.global? || @owners.empty?
-
-        "#{owner}::#{own}"
+        case (namespace = owner)
+        in TopLevel then own
+        in String   then name.global? ? own : "#{namespace}::#{own}"
+        end
       end
 
       private def enter(name : Crystal::Path) : String
@@ -181,6 +217,30 @@ module Heucristic
         yield span if span.is_a?(Document::Span)
       end
 
+      private def record_ivar_parameters(node : Crystal::Def) : Nil
+        body = node.body
+        statements = body.is_a?(Crystal::Expressions) ? body.expressions : [body]
+        statements.each do |statement|
+          break unless statement.is_a?(Crystal::Assign)
+          target = statement.target
+          value = statement.value
+          break unless target.is_a?(Crystal::InstanceVar) && value.is_a?(Crystal::Var)
+
+          parameter = node.args.find(&.name.==(value.name))
+          restriction = parameter.try(&.restriction)
+          next unless parameter && restriction
+
+          location = parameter.location
+          next unless location
+
+          start = Document::Point.from(location)
+          span = @text.span(start, start.advance(target.name.size))
+          next unless span.is_a?(Document::Span)
+
+          instance_var(target.name, Syntax::TypeReader.read(restriction), span, :declared)
+        end
+      end
+
       private def record_field(field : Crystal::ASTNode) : Nil
         return unless field.is_a?(Crystal::TypeDeclaration)
         var = field.var
@@ -193,7 +253,7 @@ module Heucristic
         return unless span.is_a?(Document::Span)
 
         type = Syntax::TypeReader.read(field.declared_type)
-        @instance_vars << InstanceVar.new("@#{var.name}", owner, type, @path, span)
+        instance_var("@#{var.name}", type, span, :declared)
         @defs << Def.new(
           name: var.name,
           owner: owner,
@@ -207,6 +267,7 @@ module Heucristic
       end
 
       private def record(node : Crystal::Def) : Nil
+        record_ivar_parameters(node)
         name_location = node.name_location
         return unless name_location
 
