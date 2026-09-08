@@ -361,3 +361,58 @@ describe Heucristic::Resolve::Receiver, "overloads" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "block results" do
+  source = <<-CR
+    class String
+      def size : Int32
+      end
+    end
+
+    module Enumerable(T)
+      def flat_map(& : T -> Array(U) | Iterator(U) | U) : Array(U) forall U
+      end
+
+      def sum(& : T -> U) : U forall U
+      end
+
+      def each(& : T ->) : Nil
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+    end
+
+    class Dir
+      def self.glob(pattern : String) : Array(String)
+      end
+    end
+
+    class Walker
+      def run(roots : Array(String)) : Nil
+        roots.flat_map { |root| Dir.glob(root) }.size
+        roots.flat_map { |root| root }.size
+        roots.sum { |root| root.size }.size
+        roots.flat_map { |root| unknown_call(root) }.size
+      end
+    end
+    CR
+
+  it "binds a free variable from the block result through the shaped union member" do
+    receiver_of_size(source, "roots.flat_map { |root| Dir.glob(root) }.size").should eq(
+      "Array(String)"
+    )
+  end
+
+  it "binds a free variable from a bare block result" do
+    receiver_of_size(source, "roots.flat_map { |root| root }.size").should eq("Array(String)")
+    receiver_of_size(source, "roots.sum { |root| root.size }.size").should eq("Int32")
+  end
+
+  it "leaves the variable free when the block result is unknown" do
+    receiver_of_size(source, "roots.flat_map { |root| unknown_call(root) }.size").should eq(
+      "Array(unknown (free variable: U))"
+    )
+  end
+end

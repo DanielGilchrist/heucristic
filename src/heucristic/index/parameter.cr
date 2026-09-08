@@ -5,6 +5,7 @@ module Heucristic
     enum ParameterKind
       Positional
       Splat
+      Keyword
       DoubleSplat
       Block
     end
@@ -45,10 +46,10 @@ module Heucristic
 
       private def write_prefix(io : IO) : Nil
         case kind
-        in .positional?   then nil
-        in .splat?        then io << '*'
-        in .double_splat? then io << "**"
-        in .block?        then io << '&'
+        in .positional?, .keyword? then nil
+        in .splat?                 then io << '*'
+        in .double_splat?          then io << "**"
+        in .block?                 then io << '&'
         end
       end
     end

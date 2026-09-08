@@ -283,7 +283,8 @@ module Heucristic
         found = @methods.lookup(receiver, shape)
         return Answer.note("no `#{call.name}` indexed on #{receiver}") if found.empty?
 
-        sections = found.map { |entry| describe_resolved(entry, receiver, shape.arguments) }
+        site = Resolve::Receiver::Site.new(call.block, target.context, Array(Resolve::Binding).new)
+        sections = found.map { |entry| describe_resolved(entry, receiver, shape.arguments, site) }
         entries = Array(Index::Entry).new(found.size)
         found.each { |entry| entries << entry }
         Answer.new(entries, Array(Document::Span).new, sections, Array(String).new)
@@ -369,8 +370,9 @@ module Heucristic
         entry : Index::Def,
         receiver : Resolve::Resolved,
         arguments : Array(Resolve::Resolution),
+        site : Resolve::Receiver::Site,
       ) : String
-        case (returning = @receiver.return_type(entry, receiver, arguments))
+        case (returning = @receiver.return_type(entry, receiver, arguments, site))
         in Resolve::Resolved
           fence("# #{entry.qualified}", entry.signature(returning.to_s))
         in Resolve::Unknown

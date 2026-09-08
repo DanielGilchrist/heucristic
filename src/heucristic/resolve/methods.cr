@@ -7,13 +7,45 @@ module Heucristic
       def initialize(@workspace : Index::Workspace, @types : Types) : Nil
       end
 
-      record Call, name : String, arity : Int32, block : Bool, arguments : Array(Resolution) do
+      record Call,
+        name : String,
+        arity : Int32,
+        block : Bool,
+        arguments : Array(Resolution),
+        named : Array(String) do
         def self.new(name : String, arity : Int32, block : Bool) : Call
-          new(name, arity, block, Array(Resolution).new)
+          new(name, arity, block, Array(Resolution).new, Array(String).new)
+        end
+
+        def self.new(
+          name : String,
+          arity : Int32,
+          block : Bool,
+          arguments : Array(Resolution),
+        ) : Call
+          new(name, arity, block, arguments, Array(String).new)
         end
 
         def accepts?(entry : Index::Def) : Bool
-          entry.arity.accepts?(arity) && entry.yields == block
+          entry.arity.accepts?(arity) && entry.yields == block && keywords_satisfied?(entry)
+        end
+
+        private def keywords_satisfied?(entry : Index::Def) : Bool
+          required = entry.parameters.all? do |parameter|
+            next true unless parameter.kind.keyword?
+
+            parameter.default || named.includes?(parameter.external_name)
+          end
+          return false unless required
+          return true if entry.parameters.any?(&.kind.double_splat?)
+
+          named.all? do |name|
+            entry.parameters.any? do |parameter|
+              next false unless parameter.kind.keyword? || parameter.kind.positional?
+
+              parameter.external_name == name
+            end
+          end
         end
       end
 
@@ -23,9 +55,11 @@ module Heucristic
         owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
         type_vars = entry.free_vars + owner_vars
         scope = Scope.new(owner, type_vars)
-        positional.zip?(call.arguments).all? do |parameter, argument|
-          restriction = parameter.restriction
-          next true if argument.nil? || argument.is_a?(Unknown) || !restriction.is_a?(Syntax::Type)
+        splat = entry.parameters.find(&.kind.splat?)
+        call.arguments.each_with_index.all? do |argument, index|
+          parameter = positional[index]? || splat
+          restriction = parameter.try(&.restriction)
+          next true if argument.is_a?(Unknown) || !restriction.is_a?(Syntax::Type)
 
           admits?(@types.resolve_lexically(restriction, scope), argument)
         end

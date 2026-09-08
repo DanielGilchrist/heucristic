@@ -29,6 +29,15 @@ private def lookup_meta(
   name : String,
   arity : Int32,
 ) : Array(String)
+  call = Heucristic::Resolve::Methods::Call.new(name, arity, false)
+  lookup_meta(source, receiver, call).map(&.qualified)
+end
+
+private def lookup_meta(
+  source : String,
+  receiver : String,
+  call : Heucristic::Resolve::Methods::Call,
+) : Array(Heucristic::Index::Def)
   tree = Heucristic::Syntax.parse(source, "a.cr")
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
@@ -40,8 +49,7 @@ private def lookup_meta(
   meta = Heucristic::Resolve::MetaRef.new(
     Heucristic::Resolve::TypeRef.new(receiver, Array(Heucristic::Resolve::Resolution).new)
   )
-  call = Heucristic::Resolve::Methods::Call.new(name, arity, false)
-  Heucristic::Resolve::Methods.new(workspace, types).lookup(meta, call).map(&.qualified)
+  Heucristic::Resolve::Methods.new(workspace, types).lookup(meta, call)
 end
 
 describe Heucristic::Resolve::Methods do
@@ -175,5 +183,29 @@ describe Heucristic::Resolve::Methods do
       ["def min(a : Float64, b : Float64) : Float64"]
     )
     lookup(source, "Calc", untyped).size.should eq(3)
+  end
+
+  it "matches splat and keyword-only parameters the way the compiler does" do
+    source = <<-CR
+      class Dir
+        def self.glob(*patterns : String, match : Int32 = 0, follow : Bool = false) : Array(String)
+        end
+
+        def self.glob(patterns : Array(String), match : Int32 = 0) : Array(String)
+        end
+
+        def self.glob(*patterns : String, hidden : Bool, follow : Bool = false) : Array(Int32)
+        end
+      end
+      CR
+    string = Heucristic::Resolve::TypeRef.new("String", Array(Heucristic::Resolve::Resolution).new)
+    one = Heucristic::Resolve::Methods::Call.new(
+      "glob", 1, false, [string] of Heucristic::Resolve::Resolution
+    )
+    hidden = Heucristic::Resolve::Methods::Call.new(
+      "glob", 1, false, [string] of Heucristic::Resolve::Resolution, ["hidden"]
+    )
+    lookup_meta(source, "Dir", one).map(&.return_type.to_s).should eq(["Array(String)"])
+    lookup_meta(source, "Dir", hidden).map(&.return_type.to_s).should eq(["Array(Int32)"])
   end
 end

@@ -21,22 +21,37 @@ module Heucristic
       ) : Nil
       end
 
-      def result_of(call : Crystal::Call, context : Syntax::Context) : Resolution
-        receiver = of_call(call, context)
+      def result_of(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        locals : Array(Binding) = Array(Binding).new,
+      ) : Resolution
+        receiver = of_call(call, context, locals)
         return receiver if receiver.is_a?(Unknown)
 
-        result_of(receiver, shape_of(call, context))
+        result_of(receiver, shape_of(call, context, locals), Site.new(call.block, context, locals))
       end
 
-      def shape_of(call : Crystal::Call, context : Syntax::Context) : Methods::Call
-        arguments = call.args.map { |argument| type_of(argument, context) }
-        Methods::Call.new(call.name, call.args.size, !call.block.nil?, arguments)
+      def shape_of(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        locals : Array(Binding) = Array(Binding).new,
+      ) : Methods::Call
+        arguments = call.args.map do |argument|
+          type_of(argument, context, Array(String).new, locals)
+        end
+        named = call.named_args.try(&.map(&.name)) || Array(String).new
+        Methods::Call.new(call.name, call.args.size, !call.block.nil?, arguments, named)
       end
 
       def result_of(receiver : Resolved, call : Methods::Call) : Resolution
+        result_of(receiver, call, Site::NONE)
+      end
+
+      def result_of(receiver : Resolved, call : Methods::Call, site : Site) : Resolution
         if receiver.is_a?(UnionRef)
           members = receiver.members.map do |member|
-            member.is_a?(Unknown) ? member : result_of(member, call)
+            member.is_a?(Unknown) ? member : result_of(member, call, site)
           end
           return union(members)
         end
@@ -44,26 +59,32 @@ module Heucristic
         defs = @methods.lookup(receiver, call)
         return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
 
-        results = defs.map { |entry| return_type(entry, receiver, call.arguments) }
+        results = defs.map { |entry| return_type(entry, receiver, call.arguments, site) }
         distinct = results.uniq
         return distinct[0] if distinct.size == 1
 
         Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
       end
 
-      def of_call(call : Crystal::Call, context : Syntax::Context) : Resolution
+      record Site, block : Crystal::Block?, context : Syntax::Context, locals : Array(Binding) do
+        NONE = new(
+          nil, Syntax::Context.new(Array(String).new, Array(String).new, nil), Array(Binding).new
+        )
+      end
+
+      def of_call(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        locals : Array(Binding) = Array(Binding).new,
+      ) : Resolution
         receiver = call.obj
         return implicit_self(context) unless receiver
 
-        type_of(receiver, context)
-      end
-
-      def type_of(node : Crystal::ASTNode, context : Syntax::Context) : Resolution
-        type_of(node, context, Array(String).new)
+        type_of(receiver, context, Array(String).new, locals)
       end
 
       def variable(name : String, context : Syntax::Context) : Resolution
-        variable(name, context, Array(String).new)
+        variable(name, context, Array(String).new, Array(Binding).new)
       end
 
       def instance_var(name : String, context : Syntax::Context) : Resolution
@@ -89,17 +110,18 @@ module Heucristic
         node : Crystal::ASTNode,
         context : Syntax::Context,
         visiting : Array(String),
+        locals : Array(Binding),
       ) : Resolution
         evident = Index::Evident.type(node)
         return declared(evident, scope(context)) if evident.is_a?(Syntax::Type)
 
         case node
-        when Crystal::Var         then variable(node.name, context, visiting)
+        when Crystal::Var         then variable(node.name, context, visiting, locals)
         when Crystal::InstanceVar then instance_var(node.name, context)
-        when Crystal::Call        then result_of(node, context)
+        when Crystal::Call        then result_of(node, context, locals)
         when Crystal::Expressions
           if node.expressions.size == 1
-            type_of(node.expressions[0], context, visiting)
+            type_of(node.expressions[0], context, visiting, locals)
           else
             Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
           end
@@ -112,8 +134,12 @@ module Heucristic
         name : String,
         context : Syntax::Context,
         visiting : Array(String),
+        locals : Array(Binding),
       ) : Resolution
         return implicit_self(context) if name == "self"
+        if (local = locals.find(&.name.==(name)))
+          return local.value
+        end
 
         definition = context.def_node
         return Unknown.new(:no_annotation, "#{name} is outside any method") unless definition
@@ -139,7 +165,7 @@ module Heucristic
           )
         end
 
-        union(assignments.map { |value| type_of(value, context, visiting + [name]) })
+        union(assignments.map { |value| type_of(value, context, visiting + [name], locals) })
       end
 
       private def union(resolutions : Array(Resolution)) : Resolution
@@ -164,6 +190,7 @@ module Heucristic
         entry : Index::Def,
         receiver : Resolved,
         arguments : Array(Resolution) = Array(Resolution).new,
+        site : Site = Site::NONE,
       ) : Resolution
         if entry.name == "initialize" && receiver.is_a?(MetaRef)
           return receiver.of
@@ -172,13 +199,13 @@ module Heucristic
         case (restriction = entry.return_type)
         in Index::Unrestricted
           shim = @shims.find(entry)
-          return return_type(shim.entry, receiver, arguments) if shim
+          return return_type(shim.entry, receiver, arguments, site) if shim
 
           Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
         in Syntax::TypeReader::Unsupported
           Unknown.new(:unsupported, restriction.source)
         in Syntax::Type
-          scope = return_scope(entry, receiver, arguments)
+          scope = return_scope(entry, receiver, arguments, site)
           return scope if scope.is_a?(Unknown)
 
           @types.resolve(restriction, scope)
@@ -189,6 +216,7 @@ module Heucristic
         entry : Index::Def,
         receiver : Resolved,
         arguments : Array(Resolution),
+        site : Site,
       ) : Scope | Unknown
         owner = entry.owner
         bindings = Array(Binding).new
@@ -203,7 +231,44 @@ module Heucristic
 
         scope = Scope.new(owner, type_vars, bindings)
         bind_arguments(entry, arguments, bindings, scope)
+        bind_block(entry, site, bindings, scope)
         scope
+      end
+
+      private def bind_block(
+        entry : Index::Def,
+        site : Site,
+        bindings : Array(Binding),
+        scope : Scope,
+      ) : Nil
+        block = site.block
+        return unless block
+        parameter = entry.parameters.find(&.kind.block?)
+        return unless parameter
+        restriction = parameter.restriction
+        return unless restriction.is_a?(Syntax::Proc)
+        output = restriction.output
+        return unless output
+
+        inputs = restriction.inputs.map { |input| @types.resolve(input, scope) }
+        locals = site.locals.dup
+        block.args.each_with_index do |argument, index|
+          input = inputs[index]?
+          locals << Binding.new(argument.name, input) if input
+        end
+        body = last_expression(block.body)
+        return unless body
+
+        result = type_of(body, site.context, Array(String).new, locals)
+        Unify.bind(output, result, entry.free_vars, bindings, @types, scope)
+      end
+
+      private def last_expression(body : Crystal::ASTNode) : Crystal::ASTNode?
+        case body
+        when Crystal::Expressions then body.expressions.last?
+        when Crystal::Nop         then nil
+        else                           body
+        end
       end
 
       private def bind_arguments(

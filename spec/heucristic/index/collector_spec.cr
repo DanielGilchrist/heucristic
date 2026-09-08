@@ -257,3 +257,45 @@ describe Heucristic::Index::Collector, "enum members" do
     ])
   end
 end
+
+describe Heucristic::Index::Collector, "accessor macros" do
+  source = <<-CR
+    class Node
+      getter args : Array(Int32)
+      getter? done : Bool
+      property name : String = "n"
+      setter count : Int32
+      getter label
+      getter :sym
+      class_getter registry : Hash(String, Int32)
+      property size = 3
+
+      record Pair, a : Int32 do
+        def self.zero : Pair
+        end
+      end
+    end
+    CR
+
+  it "declares reader and writer defs with the field type" do
+    file = index(source)
+    defs = file.defs.map { |entry| {entry.qualified, entry.signature} }
+    defs.should contain({"Node#args", "def args : Array(Int32)"})
+    defs.should contain({"Node#done?", "def done? : Bool"})
+    defs.should contain({"Node#name", "def name : String"})
+    defs.should contain({"Node#name=", "def name=(value : String) : String"})
+    defs.should contain({"Node#count=", "def count=(value : Int32) : Int32"})
+    defs.should contain({"Node#label", "def label"})
+    defs.should contain({"Node#sym", "def sym"})
+    defs.should contain({"Node.registry", "def self.registry : Hash(String, Int32)"})
+    defs.should contain({"Node#size", "def size : ::Int32"})
+    defs.should contain({"Node::Pair.zero", "def self.zero : Pair"})
+  end
+
+  it "declares the backing instance variable for typed instance accessors" do
+    ivars = index(source).instance_vars.map { |ivar| {ivar.name, ivar.type.to_s} }
+    ivars.should contain({"@args", "Array(Int32)"})
+    ivars.should contain({"@name", "String"})
+    ivars.map(&.[0]).should_not contain("@registry")
+  end
+end

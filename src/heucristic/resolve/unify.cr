@@ -36,10 +36,34 @@ module Heucristic
           inner = argument.is_a?(UnionRef) ? argument.members.reject(&.==(NIL)) : [argument]
           value = inner.size == 1 ? inner[0] : argument
           bind(restriction.inner, value, free_vars, bindings, types, scope)
-        in Syntax::Union, Syntax::Proc, Syntax::Metaclass, Syntax::Splat, Syntax::Literal,
+        in Syntax::Union
+          bind_union(restriction, argument, free_vars, bindings, types, scope)
+        in Syntax::Proc, Syntax::Metaclass, Syntax::Splat, Syntax::Literal,
            Syntax::TypeOf, Syntax::SelfType, Syntax::Underscore
           nil
         end
+      end
+
+      private def bind_union(
+        restriction : Syntax::Union,
+        argument : Resolution,
+        free_vars : Array(String),
+        bindings : Array(Binding),
+        types : Types,
+        scope : Scope,
+      ) : Nil
+        return unless argument.is_a?(TypeRef)
+
+        shaped = restriction.members.select(Syntax::Generic).find do |member|
+          base = types.resolve_lexically(member.base, scope)
+          base.is_a?(TypeRef) && base.name == argument.name
+        end
+        return bind(shaped, argument, free_vars, bindings, types, scope) if shaped
+
+        bare = restriction.members.select(Syntax::Named).find do |member|
+          member.names.size == 1 && free_vars.includes?(member.names[0])
+        end
+        bind(bare, argument, free_vars, bindings, types, scope) if bare
       end
 
       private NIL = TypeRef.new("Nil", Array(Resolution).new)

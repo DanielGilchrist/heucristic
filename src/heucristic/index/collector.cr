@@ -160,7 +160,14 @@ module Heucristic
         true
       end
 
+      ACCESSORS = {
+        "getter", "getter?", "getter!", "property", "property?", "property!", "setter",
+        "class_getter", "class_getter?", "class_getter!", "class_property", "class_property?",
+        "class_property!", "class_setter",
+      }
+
       def visit(node : Crystal::Call) : Bool
+        return accessors(node) if node.obj.nil? && ACCESSORS.includes?(node.name)
         return true unless node.name == "record" && node.obj.nil?
         name = node.args[0]?
         return true unless name.is_a?(Crystal::Path)
@@ -263,6 +270,106 @@ module Heucristic
 
           instance_var(target.name, Syntax::TypeReader.read(restriction), span, :declared)
         end
+      end
+
+      private def accessors(node : Crystal::Call) : Bool
+        return false if owner.is_a?(TopLevel)
+
+        macro_name = node.name
+        receiver = macro_name.starts_with?("class_") ? Receiver::Metaclass : Receiver::Instance
+        base = macro_name.lchop("class_")
+        node.args.each { |arg| accessor(arg, base, receiver) }
+        false
+      end
+
+      private def accessor(arg : Crystal::ASTNode, base : String, receiver : Receiver) : Nil
+        case arg
+        when Crystal::TypeDeclaration
+          var = arg.var
+          return unless var.is_a?(Crystal::Var)
+          type = Syntax::TypeReader.read(arg.declared_type)
+          accessor_defs(var, var.name, type, base, receiver)
+          return unless receiver.instance?
+
+          instance_var("@#{var.name}", type, span_of(var, var.name.size), :declared)
+        when Crystal::Assign
+          target = arg.target
+          return unless target.is_a?(Crystal::Var)
+          evident = Evident.type(arg.value)
+          type = evident.is_a?(Syntax::Type) ? evident : Unrestricted.new
+          accessor_defs(target, target.name, type, base, receiver)
+        when Crystal::Var
+          accessor_defs(arg, arg.name, Unrestricted.new, base, receiver)
+        when Crystal::Call
+          return unless arg.obj.nil? && arg.args.empty?
+
+          accessor_defs(arg, arg.name, Unrestricted.new, base, receiver)
+        when Crystal::SymbolLiteral, Crystal::StringLiteral
+          accessor_defs(arg, arg.value, Unrestricted.new, base, receiver)
+        end
+      end
+
+      private def accessor_defs(
+        node : Crystal::ASTNode,
+        name : String,
+        type : Restriction,
+        base : String,
+        receiver : Receiver,
+      ) : Nil
+        span = span_of(node, name.size)
+        return unless span
+
+        reader = case base
+                 when "getter?", "property?" then "#{name}?"
+                 when "getter!", "property!" then "#{name}!"
+                 else                             name
+                 end
+        unless base == "setter"
+          add_def(reader, receiver, span, Array(Parameter).new, type)
+        end
+        return unless base.starts_with?("property") || base == "setter"
+
+        value = Parameter.new("value", "value", type, nil, :positional)
+        add_def("#{name}=", receiver, span, [value], type)
+      end
+
+      private def add_def(
+        name : String,
+        receiver : Receiver,
+        span : Document::Span,
+        parameters : Array(Parameter),
+        return_type : Restriction,
+      ) : Nil
+        @defs << Def.new(
+          name: name,
+          owner: owner,
+          receiver: receiver,
+          path: @path,
+          name_span: span,
+          arity: Arity.new(parameters.size, 0, false),
+          parameters: parameters,
+          return_type: return_type,
+          free_vars: Array(String).new,
+          yields: false,
+        )
+      end
+
+      private def span_of(node : Crystal::ASTNode, size : Int32) : Document::Span?
+        location = node.location
+        return unless location
+
+        start = Document::Point.from(location)
+        span = @text.span(start, start.advance(size))
+        span.is_a?(Document::Span) ? span : nil
+      end
+
+      private def instance_var(
+        name : String,
+        type : Syntax::TypeReader::Outcome,
+        span : Document::Span?,
+        origin : Origin,
+      ) : Nil
+        instance_var(name, type, span, origin) if span
       end
 
       private def record_field(field : Crystal::ASTNode) : Nil

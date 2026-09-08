@@ -14,8 +14,15 @@ module Heucristic
 
       def parameters(node : Crystal::Def) : Array(Parameter)
         parameters = Array(Parameter).new(node.args.size + 2)
+        splat_index = node.splat_index
         node.args.each_with_index do |arg, index|
-          kind = index == node.splat_index ? ParameterKind::Splat : ParameterKind::Positional
+          kind = if splat_index.nil? || index < splat_index
+                   ParameterKind::Positional
+                 elsif index == splat_index
+                   ParameterKind::Splat
+                 else
+                   ParameterKind::Keyword
+                 end
           parameters << Parameter.from(arg, kind)
         end
         if (double_splat = node.double_splat)
