@@ -28,7 +28,7 @@ module Heucristic
         @documents = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
         @workspace = Index::Workspace.new
-        @resolver = Resolve::Types.new(@workspace)
+        @types = Resolve::Types.new(@workspace)
         @stopping = false
       end
 
@@ -66,6 +66,7 @@ module Heucristic
 
       def indexed(files : Array(Index::File)) : Nil
         @workspace.replace_all(files)
+        @types.invalidate
         @documents.each { |document| index_document(document) }
         @notify.call(Protocol::Encoder.notification(INDEXED, {files: @workspace.size}))
       end
@@ -142,6 +143,7 @@ module Heucristic
         in Crystal::ASTNode
           @trees[document.uri] = tree
           @workspace.update(Index::Collector.collect(path, document.text, tree))
+          @types.invalidate
           publish(document.uri, document.version, Diagnostics.none)
         end
       end
@@ -153,6 +155,7 @@ module Heucristic
         path = Uri.to_path(document.uri)
         path = document.uri if path.is_a?(Uri::NotAFile)
         @workspace.update(Index::Collector.collect(path, document.text, tree))
+        @types.invalidate
       end
 
       private def hover(request : Protocol::Request) : Outcome
@@ -222,7 +225,7 @@ module Heucristic
         entries : Array(Index::Entry),
       ) : Nil
         scope = Resolve::Scope.new(enclosing.last? || "", type_vars)
-        located = @resolver.locate(Syntax::Named.new(node.names, node.global?), scope)
+        located = @types.locate(Syntax::Named.new(node.names, node.global?), scope)
         return if located.is_a?(Resolve::Unknown)
 
         @workspace.namespaces(located).each { |entry| entries << entry }

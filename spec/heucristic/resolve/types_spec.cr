@@ -84,7 +84,7 @@ describe Heucristic::Resolve::Types do
   end
 
   it "refuses an alias cycle" do
-    resolve(ws, "Loop", "Outer").should eq("unknown (alias cycle: Outer::Loop)")
+    resolve(ws, "Loop", "Outer").should eq("unknown (cycle: Outer::Loop)")
   end
 
   it "knows the types the compiler creates without source" do
@@ -148,5 +148,46 @@ describe Heucristic::Resolve::Types do
       Heucristic::Syntax::Named.new(["Loop"], false), Heucristic::Resolve::Scope.of("Outer")
     )
     located.should eq("Outer::Loop")
+  end
+
+  it "finds a constant through an included module" do
+    source = <<-CR
+      module Shapes
+        class Circle; end
+      end
+
+      class Canvas
+        include Shapes
+      end
+      CR
+    resolve(workspace(source), "Circle", "Canvas").should eq("Shapes::Circle")
+  end
+
+  it "finds a constant through the superclass" do
+    source = <<-CR
+      class Base
+        class Config; end
+      end
+
+      class Child < Base
+      end
+      CR
+    resolve(workspace(source), "Config", "Child").should eq("Base::Config")
+  end
+
+  it "prefers the enclosing namespace over an ancestor's constant" do
+    source = <<-CR
+      class Base
+        class Config; end
+      end
+
+      module App
+        class Config; end
+
+        class Child < Base
+        end
+      end
+      CR
+    resolve(workspace(source), "Config", "App::Child").should eq("Base::Config")
   end
 end

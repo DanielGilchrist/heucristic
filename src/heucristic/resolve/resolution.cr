@@ -32,7 +32,7 @@ module Heucristic
         FreeVariable
         NonTypeArgument
         Unsupported
-        AliasCycle
+        Cycle
       end
 
       def to_s(io : IO) : Nil
