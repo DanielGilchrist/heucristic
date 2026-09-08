@@ -12,8 +12,8 @@ module Probe
     process = Process.new(binary, input: :pipe, output: :pipe, error: :inherit)
     client = LspClient.new(process.output, process.input)
 
-    client.initialize!(root)
-    indexed = client.await_notification("$/heucristic/indexed", 30.seconds)
+    client.initialize!(root, stdlib: true, progress: true)
+    indexed = await_indexed(client)
     STDERR.puts "indexed: #{indexed.params}"
 
     client.open(uri, File.read(file))
@@ -29,6 +29,15 @@ module Probe
 
     client.shutdown
     process.wait.exit_code
+  end
+
+  private def await_indexed(client : LspClient) : Heucristic::Protocol::Notification
+    loop do
+      notification = client.await_notification("$/progress", 30.seconds) rescue break
+      STDERR.puts "progress: #{notification.params.try(&.["value"]?)}"
+      break if notification.params.try(&.["value"]?.try(&.["kind"]?)) == "end"
+    end
+    client.await_notification("$/heucristic/indexed", 30.seconds)
   end
 
   private def parse(args : Array(String)) : {String, String, Int32, Int32, String}?

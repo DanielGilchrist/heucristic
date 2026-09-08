@@ -38,6 +38,17 @@ module Heucristic
         end
       end
 
+      def request(id : Id, method : String, params : T) : String forall T
+        JSON.build do |json|
+          json.object do
+            json.field "jsonrpc", "2.0"
+            json.field "id", id
+            json.field "method", method
+            json.field("params") { params.to_json(json) }
+          end
+        end
+      end
+
       def notification(method : String, params : T) : String forall T
         JSON.build do |json|
           json.object do

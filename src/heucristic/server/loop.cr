@@ -5,6 +5,8 @@ require "../protocol/decoder"
 require "../protocol/transport"
 require "../index/loader"
 require "./session"
+require "./progress"
+require "../index/event"
 
 module Heucristic
   module Server
@@ -16,7 +18,8 @@ module Heucristic
 
       def initialize(@input : IO, @output : IO) : Nil
         @inbound = Channel(Inbound).new(64)
-        @indexed = Channel(Array(Index::File)).new(1)
+        @events = Channel(Index::Event).new(64)
+        @next_request_id = 0_i64
         @transport = Protocol::Transport.new(@output)
         @session = Session.new(@transport)
       end
@@ -29,8 +32,8 @@ module Heucristic
           when incoming = @inbound.receive
             break if incoming.is_a?(Protocol::Framing::EndOfStream)
             break if dispatch(incoming).is_a?(Stop)
-          when files = @indexed.receive
-            @session.indexed(files)
+          when event = @events.receive
+            indexing(event)
           end
         end
       end
@@ -74,7 +77,20 @@ module Heucristic
 
       private def start_indexing : Nil
         roots = @session.index_roots
-        Fibers.detach(:indexer) { @indexed.send(Index::Loader.load(roots)) }
+        events = @events
+        Fibers.detach(:indexer) { Index::Loader.load(roots, events) }
+      end
+
+      private def indexing(event : Index::Event) : Nil
+        case event
+        in Index::Started
+          @next_request_id += 1
+          @session.progress.begin(event, @next_request_id)
+        in Index::Advanced then @session.progress.advance(event)
+        in Index::Finished
+          @session.progress.finish(event)
+          @session.indexed(event)
+        end
       end
     end
   end

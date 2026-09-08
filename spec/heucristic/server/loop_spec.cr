@@ -200,4 +200,47 @@ describe Heucristic::Server::Loop do
     definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1])
     client.shutdown
   end
+
+  it "reports indexing progress when the client supports it" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty", progress: true)
+
+    create = select
+    when request = client.requests.receive
+      request
+    when timeout(5.seconds)
+      raise "no progress create request"
+    end
+    create.method.should eq("window/workDoneProgress/create")
+
+    kinds = Array(String).new
+    until kinds.last? == "end"
+      value = client.await_notification("$/progress").params.try(&.["value"]?)
+      kinds << value.try(&.["kind"]?).try(&.as_s?).to_s
+    end
+    kinds.first.should eq("begin")
+    kinds.last.should eq("end")
+    client.shutdown
+  end
+
+  it "stays silent about progress when the client does not support it" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    indexed = client.await_notification("$/heucristic/indexed")
+    indexed.params.try(&.["files"]?).try(&.as_i?).should eq(0)
+    client.shutdown
+  end
+
+  it "indexes the stdlib on request and resolves a call on a string literal" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty", stdlib: true)
+    indexed = client.await_notification("$/heucristic/indexed", 60.seconds)
+    (indexed.params.try(&.["files"]?).try(&.as_i?) || 0).should be > 1000
+
+    client.open(URI_A, "\"x\".size\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 0, 5)).to_s.should contain("String#size")
+    client.shutdown
+  end
 end

@@ -3,27 +3,35 @@ require "../disk"
 require "../log"
 require "../syntax/parse"
 require "./collector"
+require "./event"
 
 module Heucristic
   module Index
     module Loader
       extend self
 
-      def load(roots : Array(String)) : Array(File)
+      REPORT_EVERY = 32
+
+      def load(roots : Array(String), events : Channel(Event)) : Nil
+        started = Time.instant
         paths = roots.flat_map { |root| Dir.glob(::File.join(root, "**", "*.cr")) }.uniq!
+        events.send(Started.new(paths.size))
+
         results = Channel(File?).new(paths.size + 1)
         workers = Math.min(Fibers::WORKER_THREADS, Math.max(paths.size, 1))
-
-        Fibers.parallel(:indexer, workers) do |worker|
-          index_slice(paths, worker, workers, results)
+        Fibers.detach(:indexer) do
+          Fibers.parallel(:indexer, workers) do |worker|
+            index_slice(paths, worker, workers, results)
+          end
         end
 
-        files = Array(File).new
-        paths.size.times do
+        files = Array(File).new(paths.size)
+        paths.size.times do |done|
           file = results.receive
           files << file if file
+          events.send(Advanced.new(done + 1, paths.size)) if (done + 1) % REPORT_EVERY == 0
         end
-        files
+        events.send(Finished.new(files, Time.instant - started))
       end
 
       def index_path(path : String) : File?

@@ -9,11 +9,13 @@ class LspClient
   alias PositionParams = Hash(String, Hash(String, String) | Hash(String, Int32))
 
   getter notifications : Channel(Heucristic::Protocol::Notification)
+  getter requests : Channel(Heucristic::Protocol::Request)
 
   def initialize(@input : IO, @output : IO) : Nil
     @next_id = 0_i64
     @responses = Channel(Heucristic::Protocol::Response).new(16)
     @notifications = Channel(Heucristic::Protocol::Notification).new(256)
+    @requests = Channel(Heucristic::Protocol::Request).new(16)
     spawn { pump }
   end
 
@@ -42,11 +44,16 @@ class LspClient
     write(Heucristic::Protocol::Encoder.notification(method, params))
   end
 
-  def initialize!(root : String) : Heucristic::Protocol::Response
+  def initialize!(
+    root : String,
+    stdlib : Bool = false,
+    progress : Bool = false,
+  ) : Heucristic::Protocol::Response
     response = request("initialize", {
-      "processId"    => nil,
-      "rootUri"      => "file://#{root}",
-      "capabilities" => Hash(String, String).new,
+      "processId"             => nil,
+      "rootUri"               => "file://#{root}",
+      "capabilities"          => {"window" => {"workDoneProgress" => progress}},
+      "initializationOptions" => {"stdlib" => stdlib},
     })
     notify("initialized", Hash(String, String).new)
     response
@@ -125,7 +132,7 @@ class LspClient
       case (message = Heucristic::Protocol::Decoder.decode(frame))
       in Heucristic::Protocol::Response     then @responses.send(message)
       in Heucristic::Protocol::Notification then @notifications.send(message)
-      in Heucristic::Protocol::Request      then nil
+      in Heucristic::Protocol::Request      then @requests.send(message)
       in Heucristic::Protocol::Unparseable
         raise "server sent unparseable message: #{message.reason}"
       end

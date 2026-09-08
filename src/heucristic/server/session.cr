@@ -18,6 +18,9 @@ require "./diagnostics"
 require "./decoded_params"
 require "./outcome"
 require "./answer"
+require "./progress"
+require "./options"
+require "../crystal_env"
 require "../resolve/local_declarations"
 
 module Heucristic
@@ -27,6 +30,7 @@ module Heucristic
 
       getter root : String
       getter workspace : Index::Workspace
+      getter progress : Progress
 
       def initialize(@transport : Protocol::Transport) : Nil
         @root = Dir.current
@@ -37,6 +41,8 @@ module Heucristic
         @receiver = Resolve::Receiver.new(@workspace, @types)
         @methods = Resolve::Methods.new(@workspace, @types)
         @stopping = false
+        @index_stdlib = true
+        @progress = Progress.new(@transport, false)
       end
 
       def handle(request : Protocol::Request) : Outcome
@@ -68,14 +74,25 @@ module Heucristic
       end
 
       def index_roots : Array(String)
-        [@root]
+        roots = [@root]
+        return roots unless @index_stdlib
+
+        case (paths = CrystalEnv.source_paths(@root))
+        in CrystalEnv::Unavailable
+          Log.info("stdlib not indexed: #{paths.reason}")
+        in Array(String)
+          roots.concat(paths)
+        end
+        roots
       end
 
-      def indexed(files : Array(Index::File)) : Nil
-        @workspace.replace_all(files)
+      def indexed(event : Index::Finished) : Nil
+        @workspace.replace_all(event.files)
         @types.invalidate
         @documents.each { |document| index_document(document) }
-        @transport.send(Protocol::Encoder.notification(INDEXED, {files: @workspace.size}))
+        @transport.send(Protocol::Encoder.notification(
+          INDEXED, {files: @workspace.size, elapsed_ms: event.elapsed.total_milliseconds.round}
+        ))
       end
 
       private def initialize_session(request : Protocol::Request) : Outcome
@@ -88,6 +105,9 @@ module Heucristic
         elsif (root_path = params.root_path)
           @root = root_path
         end
+        @index_stdlib = Options.stdlib?(params.initialization_options)
+        supported = params.capabilities.window.try(&.work_done_progress) || false
+        @progress = Progress.new(@transport, supported)
 
         reply(request.id, LSProtocol::InitializeResult.new(
           capabilities: LSProtocol::ServerCapabilities.new(

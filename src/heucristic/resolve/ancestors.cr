@@ -88,6 +88,7 @@ module Heucristic
 
       private def implicit_superclass(entry : Index::Namespace) : String | Builtins::NoSuperclass
         return Builtins::NoSuperclass.new unless entry.is_a?(Index::ClassNamespace)
+        return Builtins.superclass(entry.name) if Builtins.includes?(entry.name)
 
         entry.kind.struct? ? "Struct" : "Reference"
       end
