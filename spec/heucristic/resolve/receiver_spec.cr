@@ -299,3 +299,44 @@ describe Heucristic::Resolve::Receiver, "argument bindings" do
     receiver_of_size(source, "wrap(c).size").should eq("Array(Int32)")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "overloads" do
+  source = <<-CR
+    module Math
+      extend self
+
+      def min(value1 : Float32, value2 : Float32) : Float32
+      end
+
+      def min(value1 : Float64, value2 : Float64) : Float64
+      end
+
+      def min(value1, value2)
+      end
+    end
+
+    class Calc
+      def run(a : Int32, b : Float64, c : Float64, d) : Nil
+        Math.min(a, a).abs
+        Math.min(b, c).abs
+        Math.min(d, d).abs
+      end
+    end
+    CR
+
+  it "picks the overload whose restrictions admit the argument types" do
+    receiver_of_size(source.gsub("abs", "size"), "Math.min(b, c).size").should eq("Float64")
+  end
+
+  it "refuses to guess when the argument types rule out every typed overload" do
+    receiver_of_size(source.gsub("abs", "size"), "Math.min(a, a).size").should eq(
+      "unknown (no annotation: Math#min has no return type restriction)"
+    )
+  end
+
+  it "keeps every overload for an unknown argument and reports the ambiguity" do
+    receiver_of_size(source.gsub("abs", "size"), "Math.min(d, d).size").should eq(
+      "unknown (ambiguous: 3 overloads of `min` return different types)"
+    )
+  end
+end

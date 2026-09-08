@@ -17,6 +17,42 @@ module Heucristic
         end
       end
 
+      def compatible?(entry : Index::Def, call : Call) : Bool
+        positional = entry.parameters.select(&.kind.positional?)
+        owner = entry.owner
+        owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
+        type_vars = entry.free_vars + owner_vars
+        scope = Scope.new(owner, type_vars)
+        positional.zip?(call.arguments).all? do |parameter, argument|
+          restriction = parameter.restriction
+          next true if argument.nil? || argument.is_a?(Unknown) || !restriction.is_a?(Syntax::Type)
+
+          admits?(@types.resolve_lexically(restriction, scope), argument)
+        end
+      end
+
+      private def admits?(restriction : Resolution, argument : Resolved) : Bool
+        case restriction
+        in Unknown then true
+        in UnionRef
+          restriction.members.any? { |member| member.is_a?(Unknown) || admits?(member, argument) }
+        in MetaRef then argument.is_a?(MetaRef)
+        in TypeRef
+          case argument
+          in TypeRef
+            argument.name == restriction.name || ancestor?(argument.name, restriction.name)
+          in UnionRef
+            argument.members.all? { |member| member.is_a?(Unknown) || admits?(restriction, member) }
+          in MetaRef then restriction.name == "Class"
+          end
+        end
+      end
+
+      private def ancestor?(type : String, candidate : String) : Bool
+        chain = @types.ancestors(type)
+        chain.is_a?(Unknown) || chain.includes?(candidate)
+      end
+
       def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
         case receiver
         in TypeRef  then instance_methods(receiver.name, call)
@@ -27,12 +63,14 @@ module Heucristic
       end
 
       private def instance_methods(type : String, call : Call) : Array(Index::Def)
-        first_level(type, call.name) { |entry| entry.receiver.instance? && call.accepts?(entry) }
+        first_level(type, call.name) do |entry|
+          entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
+        end
       end
 
       private def class_methods(type : String, call : Call) : Array(Index::Def)
         found = first_level(type, call.name) do |entry|
-          entry.receiver.metaclass? && call.accepts?(entry)
+          entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
         end
         return found unless found.empty?
 
