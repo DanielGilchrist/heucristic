@@ -256,7 +256,7 @@ describe Heucristic::Server::Loop do
     client.await_notification("textDocument/publishDiagnostics")
 
     hover_text(client.hover(URI_A, 4, 14)).to_s.should eq(
-      "```crystal\n# Fibers\nWORKERS = 4 # : Int32\n```"
+      "```crystal\nFibers::WORKERS = 4 # : Int32\n```"
     )
     definition = client.definition(URI_A, 4, 14).result.try(&.as_a?)
     definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1])
@@ -295,7 +295,7 @@ describe Heucristic::Server::Loop do
     client.open(URI_A, "enum Kind\n  Splat\nend\n\nx = Kind::Splat\n")
     client.await_notification("textDocument/publishDiagnostics")
 
-    hover_text(client.hover(URI_A, 4, 10)).to_s.should eq("```crystal\n# Kind\nSplat # : Kind\n```")
+    hover_text(client.hover(URI_A, 4, 10)).to_s.should eq("```crystal\nKind::Splat\n```")
     hover_text(client.hover(URI_A, 4, 5)).to_s.should eq("```crystal\nenum Kind\n```")
     definition = client.definition(URI_A, 4, 10).result.try(&.as_a?)
     definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1])

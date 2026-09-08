@@ -282,6 +282,10 @@ module Heucristic
         union(constants.map { |entry| constant_type(entry, located, visiting + [located]) })
       end
 
+      def type_of(entry : Index::Constant) : Resolution
+        constant_type(entry, entry.name, Array(String).new)
+      end
+
       private def constant_type(
         entry : Index::Constant,
         name : String,

@@ -390,14 +390,10 @@ module Heucristic
         in Index::InstanceVar
           fence("# #{entry.owner}", "#{entry.name} : #{entry.type}")
         in Index::Constant
-          type = entry.type
-          typed = type.is_a?(Syntax::Type) ? " # : #{type.to_s.lchop("::")}" : ""
-          owner = entry.name.rpartition("::")[0]
-          short = entry.name.rpartition("::")[2]
-          lines = owner.empty? ? Array(String).new : ["# #{owner}"]
           value = entry.value
-          lines << (value.is_a?(String) ? "#{short} = #{value}#{typed}" : "#{short}#{typed}")
-          fence(lines)
+          return fence(entry.name) unless value.is_a?(String)
+
+          fence("#{entry.name} = #{value} # : #{@receiver.type_of(entry)}")
         end
       end
 
