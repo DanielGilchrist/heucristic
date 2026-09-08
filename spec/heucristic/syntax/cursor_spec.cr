@@ -55,4 +55,12 @@ describe Heucristic::Syntax::Cursor do
     target = target_at(nested, 3, 23)
     target.as?(Heucristic::Syntax::OnPath).try(&.node.to_s).should eq("Other::Thing")
   end
+
+  it "records which segment of a path the point is on" do
+    source = "x = Outer::Inner::Thing\n"
+    first = target_at(source, 1, 6).as?(Heucristic::Syntax::OnPath)
+    middle = target_at(source, 1, 13).as?(Heucristic::Syntax::OnPath)
+    last = target_at(source, 1, 20).as?(Heucristic::Syntax::OnPath)
+    {first.try(&.segment), middle.try(&.segment), last.try(&.segment)}.should eq({0, 1, 2})
+  end
 end

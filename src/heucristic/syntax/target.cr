@@ -14,7 +14,7 @@ module Heucristic
 
     record OnDef, node : Crystal::Def, context : Context
     record OnCall, node : Crystal::Call, context : Context
-    record OnPath, node : Crystal::Path, context : Context
+    record OnPath, node : Crystal::Path, context : Context, segment : Int32
     record OnVar, name : String, context : Context
     record OnInstanceVar, name : String, context : Context
 

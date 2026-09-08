@@ -244,3 +244,16 @@ describe Heucristic::Index::Collector, "constants" do
     ])
   end
 end
+
+describe Heucristic::Index::Collector, "enum members" do
+  it "records each member as a constant typed as the enum" do
+    file = index("module M\n  enum Kind\n    Splat\n    Block = 4\n  end\nend\n")
+    recorded = file.constants.map do |constant|
+      {constant.name, constant.value.to_s, constant.type.to_s}
+    end
+    recorded.should eq([
+      {"M::Kind::Splat", "Heucristic::Index::Constant::ImplicitValue()", "M::Kind"},
+      {"M::Kind::Block", "4", "M::Kind"},
+    ])
+  end
+end

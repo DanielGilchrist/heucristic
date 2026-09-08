@@ -204,9 +204,9 @@ module Heucristic
 
         answer = answer_at(params.text_document.uri.to_s, params.position)
         sections = answer.descriptions.dup
-        sections.concat(describe_all(answer.entries)) if sections.empty?
+        sections.concat(describe_all(answer.entries)) if sections.empty? && answer.notes.empty?
         sections.concat(answer.notes)
-        return reply(request.id, nil) if sections.empty?
+        sections << "nothing indexed for this position" if sections.empty?
 
         contents = LSProtocol::MarkupContent.new(
           kind: LSProtocol::MarkupKind::Markdown, value: sections.join("\n\n---\n\n")
@@ -233,15 +233,16 @@ module Heucristic
 
       private def answer_at(uri : String, position : LSProtocol::Position) : Answer
         document = @documents[uri]
-        return Answer::NONE if document.is_a?(Document::Store::Missing)
+        return Answer.note("document is not open") if document.is_a?(Document::Store::Missing)
         tree = @trees[uri]?
-        return Answer::NONE unless tree
+        return Answer.note("the file has never parsed, fix the syntax error first") unless tree
 
         point = document.text.point(position)
-        return Answer::NONE if point.is_a?(Document::OutOfRange)
+        return Answer.note("position is outside the document") if point.is_a?(Document::OutOfRange)
 
         case (target = Syntax::Cursor.find(tree, point))
-        in Nil                   then Answer::NONE
+        in Nil
+          Answer.note("no def, call, constant, variable or instance variable under the cursor")
         in Syntax::OnDef         then answer_def(target)
         in Syntax::OnCall        then answer_call(target)
         in Syntax::OnPath        then answer_path(target)
@@ -256,6 +257,10 @@ module Heucristic
         @workspace.named(target.node.name).each do |candidate|
           entries << candidate if candidate.signature == signature
         end
+        if entries.empty?
+          return Answer.note("this def is not indexed yet, the file may have a syntax error")
+        end
+
         Answer.of(entries)
       end
 
@@ -287,8 +292,9 @@ module Heucristic
       private def answer_path(target : Syntax::OnPath) : Answer
         node = target.node
         scope = Resolve::Scope.new(target.context.owner, target.context.type_vars)
-        located = @types.locate_any(Syntax::Named.new(node.names, node.global?), scope)
-        return Answer::NONE if located.is_a?(Resolve::Unknown)
+        names = node.names[0, target.segment + 1]
+        located = @types.locate_any(Syntax::Named.new(names, node.global?), scope)
+        return Answer.note(located.to_s) if located.is_a?(Resolve::Unknown)
 
         entries = Array(Index::Entry).new
         @workspace.namespaces(located).each { |entry| entries << entry }
@@ -298,7 +304,7 @@ module Heucristic
       end
 
       private def answer_var(target : Syntax::OnVar, text : Document::Text) : Answer
-        note = "`#{target.name}` : #{@receiver.variable(target.name, target.context)}"
+        note = typed(@receiver.variable(target.name, target.context))
         spans = Array(Document::Span).new
         if (definition = target.context.def_node)
           if (parameter = definition.args.find(&.name.==(target.name)))
@@ -307,18 +313,33 @@ module Heucristic
             add_span(spans, text, declaration.var.location, target.name.size)
           end
         end
-        Answer.new(Array(Index::Entry).new, spans, Array(String).new, [note])
+        Answer.new(Array(Index::Entry).new, spans, [note], Array(String).new)
       end
 
       private def answer_instance_var(target : Syntax::OnInstanceVar) : Answer
-        note = "`#{target.name}` : #{@receiver.instance_var(target.name, target.context)}"
+        note = typed(@receiver.instance_var(target.name, target.context))
         entries = Array(Index::Entry).new
         if (owner = target.context.owner).is_a?(String)
           @workspace.instance_vars_of(owner).each do |declared|
             entries << declared if declared.name == target.name
           end
         end
-        Answer.of(entries, note)
+        Answer.new(entries, Array(Document::Span).new, [note], Array(String).new)
+      end
+
+      private def typed(resolution : Resolve::Resolution) : String
+        case resolution
+        in Resolve::Resolved then fence(resolution.to_s)
+        in Resolve::Unknown  then resolution.to_s
+        end
+      end
+
+      private def fence(*lines : String) : String
+        fence(lines.to_a)
+      end
+
+      private def fence(lines : Array(String)) : String
+        "```crystal\n#{lines.join('\n')}\n```"
       end
 
       private def add_span(
@@ -341,7 +362,7 @@ module Heucristic
         primary = namespaces.find(&.is_a?(Index::ClassNamespace)) || namespaces[0]
         primary = namespaces.select(Index::ClassNamespace).find(&.type_vars.empty?.!) || primary
         others = entries.reject(Index::Namespace).map { |entry| describe(entry) }
-        others.unshift("#{describe(primary)}\nreopened in #{namespaces.size} places")
+        others.unshift(fence(namespace_header(primary), "# reopened in #{namespaces.size} places"))
       end
 
       private def describe_resolved(
@@ -351,42 +372,53 @@ module Heucristic
       ) : String
         case (returning = @receiver.return_type(entry, receiver, arguments))
         in Resolve::Resolved
-          "```crystal\n#{entry.signature(returning.to_s)}\n```\n#{entry.qualified}"
+          fence("# #{entry.qualified}", entry.signature(returning.to_s))
         in Resolve::Unknown
-          "#{describe(entry)}\n\nreturns #{returning}"
+          fence("# #{entry.qualified}", entry.signature, "# returns #{returning}")
         end
       end
 
       private def describe(entry : Index::Entry) : String
         case entry
         in Index::Def
-          "```crystal\n#{entry.signature}\n```\n#{entry.qualified}"
+          fence("# #{entry.qualified}", entry.signature)
+        in Index::Namespace
+          fence(namespace_header(entry))
+        in Index::Alias
+          fence("alias #{entry.name} = #{entry.target}")
+        in Index::InstanceVar
+          fence("# #{entry.owner}", "#{entry.name} : #{entry.type}")
+        in Index::Constant
+          type = entry.type
+          typed = type.is_a?(Syntax::Type) ? " # : #{type.to_s.lchop("::")}" : ""
+          owner = entry.name.rpartition("::")[0]
+          short = entry.name.rpartition("::")[2]
+          lines = owner.empty? ? Array(String).new : ["# #{owner}"]
+          value = entry.value
+          lines << (value.is_a?(String) ? "#{short} = #{value}#{typed}" : "#{short}#{typed}")
+          fence(lines)
+        end
+      end
+
+      private def namespace_header(entry : Index::Namespace) : String
+        case entry
         in Index::ClassNamespace
-          head = String.build do |io|
+          String.build do |io|
             io << "abstract " if entry.abstract_type
             io << entry.keyword << ' ' << entry.name
             io << '(' << entry.type_vars.join(", ") << ')' unless entry.type_vars.empty?
             superclass = entry.superclass
             io << " < " << superclass unless superclass.is_a?(Index::Unrestricted)
           end
-          "```crystal\n#{head}\n```"
         in Index::ModuleNamespace
           generics = entry.type_vars.empty? ? "" : "(#{entry.type_vars.join(", ")})"
-          "```crystal\n#{entry.keyword} #{entry.name}#{generics}\n```"
+          "#{entry.keyword} #{entry.name}#{generics}"
         in Index::EnumNamespace
           base = entry.base_type
           suffix = base.is_a?(Index::Unrestricted) ? "" : " : #{base}"
-          "```crystal\n#{entry.keyword} #{entry.name}#{suffix}\n```"
+          "#{entry.keyword} #{entry.name}#{suffix}"
         in Index::LibNamespace, Index::AnnotationNamespace
-          "```crystal\n#{entry.keyword} #{entry.name}\n```"
-        in Index::Alias
-          "```crystal\nalias #{entry.name} = #{entry.target}\n```"
-        in Index::InstanceVar
-          "```crystal\n#{entry.name} : #{entry.type}\n```\n#{entry.owner}"
-        in Index::Constant
-          type = entry.type
-          typed = type.is_a?(Syntax::Type) ? " : #{type}" : ""
-          "```crystal\n#{entry.name}#{typed} = #{entry.value}\n```"
+          "#{entry.keyword} #{entry.name}"
         end
       end
 

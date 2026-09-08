@@ -8,7 +8,9 @@ module Heucristic
       name : String,
       path : String,
       name_span : Document::Span,
-      value : String,
-      type : Syntax::Type | Evident::NotEvident
+      value : String | ImplicitValue,
+      type : Syntax::Type | Evident::NotEvident do
+      record ImplicitValue
+    end
   end
 end

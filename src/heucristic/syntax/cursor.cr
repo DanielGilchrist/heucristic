@@ -37,8 +37,19 @@ module Heucristic
       end
 
       def visit(node : Crystal::Path) : Bool
-        @target = OnPath.new(node, context) if over?(node.location, node.to_s.size)
+        if (location = node.location) && over?(location, node.to_s.size)
+          @target = OnPath.new(node, context, segment_at(node, location))
+        end
         @target.nil?
+      end
+
+      private def segment_at(node : Crystal::Path, location : Crystal::Location) : Int32
+        offset = @point.column - location.column_number - (node.global? ? 2 : 0)
+        node.names.each_with_index do |name, index|
+          return index if offset < name.size
+          offset -= name.size + 2
+        end
+        node.names.size - 1
       end
 
       def visit(node : Crystal::Var) : Bool

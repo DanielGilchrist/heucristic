@@ -98,7 +98,7 @@ describe Heucristic::Server::Loop do
     definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([4, 7])
     hover = hover_text(client.hover(URI_A, 9, 6)).to_s
     hover.should contain("class Outer::Thing")
-    hover.should contain("reopened in 2 places")
+    hover.should contain("# reopened in 2 places")
     hover.scan("class Outer::Thing").size.should eq(1)
     client.shutdown
   end
@@ -154,7 +154,7 @@ describe Heucristic::Server::Loop do
     client.open(URI_A, source)
     client.await_notification("textDocument/publishDiagnostics")
 
-    hover_text(client.hover(URI_A, 2, 5)).to_s.should contain("`item` : String")
+    hover_text(client.hover(URI_A, 2, 5)).to_s.should eq("```crystal\nString\n```")
     hover_text(client.hover(URI_A, 3, 5)).to_s.should contain("no type restriction")
     definition = client.definition(URI_A, 2, 5).result.try(&.as_a?)
     definition.try(&.map(&.["range"]["start"]["character"].as_i)).should eq([11])
@@ -198,7 +198,7 @@ describe Heucristic::Server::Loop do
     client.open(URI_A, source)
     client.await_notification("textDocument/publishDiagnostics")
 
-    hover_text(client.hover(URI_A, 11, 6)).to_s.should contain("`@workspace` : Workspace")
+    hover_text(client.hover(URI_A, 11, 6)).to_s.should eq("```crystal\nWorkspace\n```")
     definition = client.definition(URI_A, 11, 16).result.try(&.as_a?)
     definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1])
     client.shutdown
@@ -255,7 +255,9 @@ describe Heucristic::Server::Loop do
     client.open(URI_A, "module Fibers\n  WORKERS = 4\nend\n\nx = Fibers::WORKERS\n")
     client.await_notification("textDocument/publishDiagnostics")
 
-    hover_text(client.hover(URI_A, 4, 14)).to_s.should contain("Fibers::WORKERS : ::Int32 = 4")
+    hover_text(client.hover(URI_A, 4, 14)).to_s.should eq(
+      "```crystal\n# Fibers\nWORKERS = 4 # : Int32\n```"
+    )
     definition = client.definition(URI_A, 4, 14).result.try(&.as_a?)
     definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1])
     client.shutdown
@@ -282,6 +284,36 @@ describe Heucristic::Server::Loop do
     client.await_notification("textDocument/publishDiagnostics")
 
     hover_text(client.hover(URI_A, 7, 13)).to_s.should contain("def receive : String | Nil")
+    client.shutdown
+  end
+
+  it "resolves an enum member and the enum itself from one path" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, "enum Kind\n  Splat\nend\n\nx = Kind::Splat\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 4, 10)).to_s.should eq("```crystal\n# Kind\nSplat # : Kind\n```")
+    hover_text(client.hover(URI_A, 4, 5)).to_s.should eq("```crystal\nenum Kind\n```")
+    definition = client.definition(URI_A, 4, 10).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1])
+    client.shutdown
+  end
+
+  it "always explains a hover it cannot answer" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, "x = Missing::Thing\n\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 0, 6)).to_s.should eq("unknown (unresolved name: Missing)")
+    hover_text(client.hover(URI_A, 1, 0)).to_s.should contain("under the cursor")
+    hover_text(client.hover(URI_A, 9, 0)).to_s.should eq("position is outside the document")
+    client.definition(URI_A, 0, 6).result.try(&.raw).should be_nil
     client.shutdown
   end
 end

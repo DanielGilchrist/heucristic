@@ -63,7 +63,22 @@ module Heucristic
             name: name, path: @path, name_span: span, base_type: Restrictions.of(node.base_type)
           )
         end
+        node.members.each { |member| enum_member(name, member) }
         true
+      end
+
+      private def enum_member(owner : String, member : Crystal::ASTNode) : Nil
+        return unless member.is_a?(Crystal::Arg)
+        location = member.location
+        return unless location
+
+        start = Document::Point.from(location)
+        span = @text.span(start, start.advance(member.name.size))
+        return unless span.is_a?(Document::Span)
+
+        value = member.default_value.try(&.to_s) || Constant::ImplicitValue.new
+        type = Syntax::Named.new([owner], false)
+        @constants << Constant.new("#{owner}::#{member.name}", @path, span, value, type)
       end
 
       def visit(node : Crystal::LibDef) : Bool
