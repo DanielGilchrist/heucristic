@@ -11,6 +11,7 @@ module Heucristic
         @enclosing = Array(String).new
         @type_vars = Array(String).new
         @defs = Array(Crystal::Def).new
+        @blocks = Array(Crystal::Call).new
       end
 
       def self.find(tree : Crystal::ASTNode, point : Document::Point) : Target?
@@ -33,7 +34,12 @@ module Heucristic
 
       def visit(node : Crystal::Call) : Bool
         @target = OnCall.new(node, context) if over?(node.name_location, node.name.size)
+        @blocks << node if node.block
         @target.nil?
+      end
+
+      def end_visit(node : Crystal::Call) : Nil
+        @blocks.pop if node.block
       end
 
       def visit(node : Crystal::Path) : Bool
@@ -87,7 +93,7 @@ module Heucristic
       end
 
       private def context : Context
-        Context.new(@enclosing.dup, @type_vars.dup, @defs.last?)
+        Context.new(@enclosing.dup, @type_vars.dup, @defs.last?, @blocks.dup)
       end
 
       private def type_vars_of(node : Crystal::ASTNode) : Array(String)

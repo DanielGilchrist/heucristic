@@ -416,3 +416,48 @@ describe Heucristic::Resolve::Receiver, "block results" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "block parameters" do
+  source = <<-CR
+    module Enumerable(T)
+      def each_with_index(offset = 0, & : T, Int32 ->) : Nil
+      end
+
+      def each(& : T ->) : Nil
+      end
+
+      def sort_by(&)
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+    end
+
+    class Walker
+      def run(names : Array(String)) : Nil
+        names.each_with_index do |name, index|
+          name.size
+          index.size
+          names.each { |inner| inner.size }
+        end
+        names.sort_by { |name| name.size }
+      end
+    end
+    CR
+
+  it "types block parameters from the yielding def's block restriction" do
+    receiver_of_size(source, "name.size").should eq("String")
+    receiver_of_size(source, "index.size").should eq("Int32")
+  end
+
+  it "resolves a nested block against its own call" do
+    receiver_of_size(source, "inner.size").should eq("String")
+  end
+
+  it "says so when the def does not state what it yields" do
+    receiver_of_size(source, "names.sort_by { |name| name.size }").should eq(
+      "unknown (no annotation: Enumerable#sort_by does not state what it yields)"
+    )
+  end
+end

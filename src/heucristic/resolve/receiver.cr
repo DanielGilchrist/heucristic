@@ -158,6 +158,10 @@ module Heucristic
 
         return Unknown.new(:cycle, name) if visiting.includes?(name)
 
+        if (from_block = block_parameter(name, context, locals))
+          return from_block
+        end
+
         assignments = LocalAssignments.find(definition.body, name)
         if assignments.empty?
           return Unknown.new(
@@ -235,6 +239,69 @@ module Heucristic
         scope
       end
 
+      private def block_parameter(
+        name : String,
+        context : Syntax::Context,
+        locals : Array(Binding),
+      ) : Resolution?
+        context.blocks.reverse_each do |call|
+          block = call.block
+          next unless block
+          index = block.args.index(&.name.==(name))
+          next unless index
+
+          enclosing_blocks = context.blocks[0...context.blocks.index!(call)]
+          outer = Syntax::Context.new(
+            context.enclosing, context.type_vars, context.def_node, enclosing_blocks
+          )
+          receiver = of_call(call, outer, locals)
+          return receiver if receiver.is_a?(Unknown)
+
+          shape = shape_of(call, outer, locals)
+          defs = @methods.lookup(receiver, shape)
+          return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
+
+          inputs = defs.map { |entry| block_input(entry, receiver, shape.arguments, index) }
+          distinct = inputs.uniq
+          return distinct[0] if distinct.size == 1
+
+          return Unknown.new(
+            :ambiguous, "#{defs.size} overloads of `#{call.name}` yield different types"
+          )
+        end
+        nil
+      end
+
+      private def block_input(
+        entry : Index::Def,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+        index : Int32,
+      ) : Resolution
+        restriction = block_restriction(entry)
+        unless restriction
+          return Unknown.new(:no_annotation, "#{entry.qualified} does not state what it yields")
+        end
+        input = restriction.inputs[index]?
+        return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values") unless input
+
+        scope = return_scope(entry, receiver, arguments, Site::NONE)
+        return scope if scope.is_a?(Unknown)
+
+        @types.resolve(input, scope)
+      end
+
+      private def block_restriction(entry : Index::Def) : Syntax::Proc?
+        restriction = entry.parameters.find(&.kind.block?).try(&.restriction)
+        return restriction if restriction.is_a?(Syntax::Proc)
+
+        shim = @shims.find(entry)
+        return unless shim
+
+        shimmed = shim.entry.parameters.find(&.kind.block?).try(&.restriction)
+        shimmed.is_a?(Syntax::Proc) ? shimmed : nil
+      end
+
       private def bind_block(
         entry : Index::Def,
         site : Site,
@@ -243,10 +310,8 @@ module Heucristic
       ) : Nil
         block = site.block
         return unless block
-        parameter = entry.parameters.find(&.kind.block?)
-        return unless parameter
-        restriction = parameter.restriction
-        return unless restriction.is_a?(Syntax::Proc)
+        restriction = block_restriction(entry)
+        return unless restriction
         output = restriction.output
         return unless output
 

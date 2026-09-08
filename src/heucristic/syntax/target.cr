@@ -6,7 +6,16 @@ module Heucristic
     record Context,
       enclosing : Array(String),
       type_vars : Array(String),
-      def_node : Crystal::Def? do
+      def_node : Crystal::Def?,
+      blocks : Array(Crystal::Call) do
+      def self.new(
+        enclosing : Array(String),
+        type_vars : Array(String),
+        def_node : Crystal::Def?,
+      ) : Context
+        new(enclosing, type_vars, def_node, Array(Crystal::Call).new)
+      end
+
       def owner : Index::Owner
         enclosing.last? || Index::TopLevel.new
       end
