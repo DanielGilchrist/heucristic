@@ -38,8 +38,8 @@ module Heucristic
         @trees = Hash(String, Crystal::ASTNode).new
         @workspace = Index::Workspace.new
         @types = Resolve::Types.new(@workspace)
-        @receiver = Resolve::Receiver.new(@workspace, @types)
         @methods = Resolve::Methods.new(@workspace, @types)
+        @receiver = Resolve::Receiver.new(@workspace, @types, @methods)
         @stopping = false
         @index_stdlib = true
         @progress = Progress.new(@transport, false)
@@ -190,7 +190,8 @@ module Heucristic
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
         answer = answer_at(params.text_document.uri.to_s, params.position)
-        sections = answer.entries.map { |entry| describe(entry) }
+        sections = answer.descriptions.dup
+        sections.concat(describe_all(answer.entries)) if sections.empty?
         sections.concat(answer.notes)
         return reply(request.id, nil) if sections.empty?
 
@@ -263,20 +264,22 @@ module Heucristic
         found = @methods.lookup(receiver, call.name, call.args.size)
         return Answer.note("no `#{call.name}` indexed on #{receiver}") if found.empty?
 
+        sections = found.map { |entry| describe_resolved(entry, receiver) }
         entries = Array(Index::Entry).new(found.size)
         found.each { |entry| entries << entry }
-        Answer.of(entries)
+        Answer.new(entries, Array(Document::Span).new, sections, Array(String).new)
       end
 
       private def answer_path(target : Syntax::OnPath) : Answer
         node = target.node
         scope = Resolve::Scope.new(target.context.owner, target.context.type_vars)
-        located = @types.locate(Syntax::Named.new(node.names, node.global?), scope)
+        located = @types.locate_any(Syntax::Named.new(node.names, node.global?), scope)
         return Answer::NONE if located.is_a?(Resolve::Unknown)
 
         entries = Array(Index::Entry).new
         @workspace.namespaces(located).each { |entry| entries << entry }
         @workspace.aliases(located).each { |entry| entries << entry }
+        @workspace.constants(located).each { |entry| entries << entry }
         Answer.of(entries)
       end
 
@@ -290,7 +293,7 @@ module Heucristic
             add_span(spans, text, declaration.var.location, target.name.size)
           end
         end
-        Answer.new(Array(Index::Entry).new, spans, [note])
+        Answer.new(Array(Index::Entry).new, spans, Array(String).new, [note])
       end
 
       private def answer_instance_var(target : Syntax::OnInstanceVar) : Answer
@@ -315,6 +318,25 @@ module Heucristic
         start = Document::Point.from(location)
         span = text.span(start, start.advance(size))
         spans << span if span.is_a?(Document::Span)
+      end
+
+      private def describe_all(entries : Array(Index::Entry)) : Array(String)
+        namespaces = entries.select(Index::Namespace)
+        return entries.map { |entry| describe(entry) } if namespaces.size < 2
+
+        primary = namespaces.find(&.is_a?(Index::ClassNamespace)) || namespaces[0]
+        primary = namespaces.select(Index::ClassNamespace).find(&.type_vars.empty?.!) || primary
+        others = entries.reject(Index::Namespace).map { |entry| describe(entry) }
+        others.unshift("#{describe(primary)}\nreopened in #{namespaces.size} places")
+      end
+
+      private def describe_resolved(entry : Index::Def, receiver : Resolve::Resolved) : String
+        case (returning = @receiver.return_type(entry, receiver))
+        in Resolve::Resolved
+          "```crystal\n#{entry.signature(returning.to_s)}\n```\n#{entry.qualified}"
+        in Resolve::Unknown
+          "#{describe(entry)}\n\nreturns #{returning}"
+        end
       end
 
       private def describe(entry : Index::Entry) : String
@@ -343,6 +365,10 @@ module Heucristic
           "```crystal\nalias #{entry.name} = #{entry.target}\n```"
         in Index::InstanceVar
           "```crystal\n#{entry.name} : #{entry.type}\n```\n#{entry.owner}"
+        in Index::Constant
+          type = entry.type
+          typed = type.is_a?(Syntax::Type) ? " : #{type}" : ""
+          "```crystal\n#{entry.name}#{typed} = #{entry.value}\n```"
         end
       end
 

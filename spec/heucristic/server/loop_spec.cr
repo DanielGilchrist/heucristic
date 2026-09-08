@@ -96,7 +96,10 @@ describe Heucristic::Server::Loop do
 
     definition = client.definition(URI_A, 9, 6).result.try(&.as_a?)
     definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([4, 7])
-    hover_text(client.hover(URI_A, 9, 6)).to_s.should contain("class Outer::Thing")
+    hover = hover_text(client.hover(URI_A, 9, 6)).to_s
+    hover.should contain("class Outer::Thing")
+    hover.should contain("reopened in 2 places")
+    hover.scan("class Outer::Thing").size.should eq(1)
     client.shutdown
   end
 
@@ -241,6 +244,44 @@ describe Heucristic::Server::Loop do
     client.await_notification("textDocument/publishDiagnostics")
 
     hover_text(client.hover(URI_A, 0, 5)).to_s.should contain("String#size")
+    client.shutdown
+  end
+
+  it "resolves a constant through its namespace and shows its value" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, "module Fibers\n  WORKERS = 4\nend\n\nx = Fibers::WORKERS\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 4, 14)).to_s.should contain("Fibers::WORKERS : ::Int32 = 4")
+    definition = client.definition(URI_A, 4, 14).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1])
+    client.shutdown
+  end
+
+  it "shows what a call returns after binding the receiver's type arguments" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    source = <<-CR
+      class Channel(T)
+        def receive : T
+        end
+      end
+
+      class Loader
+        def load(results : Channel(String?)) : Nil
+          results.receive
+        end
+      end
+      CR
+    client.open(URI_A, source)
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 7, 13)).to_s.should contain("def receive : String | Nil")
     client.shutdown
   end
 end

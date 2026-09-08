@@ -3,6 +3,7 @@ require "./namespace"
 require "./mixin"
 require "./instance_var"
 require "./alias"
+require "./constant"
 
 module Heucristic
   module Index
@@ -12,6 +13,7 @@ module Heucristic
       namespaces : Array(Namespace),
       mixins : Array(Mixin),
       instance_vars : Array(InstanceVar),
-      aliases : Array(Alias)
+      aliases : Array(Alias),
+      constants : Array(Constant)
   end
 end

@@ -35,6 +35,7 @@ module Heucristic
         Cycle
         InferenceNeeded
         TopLevel
+        Ambiguous
       end
 
       def to_s(io : IO) : Nil

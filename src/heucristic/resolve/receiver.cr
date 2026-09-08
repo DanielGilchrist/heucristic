@@ -4,13 +4,40 @@ require "../index/evident"
 require "../syntax/target"
 require "../syntax/type_reader"
 require "./types"
+require "./methods"
 require "./local_declarations"
 require "./local_assignments"
 
 module Heucristic
   module Resolve
     class Receiver
-      def initialize(@workspace : Index::Workspace, @types : Types) : Nil
+      def initialize(@workspace : Index::Workspace, @types : Types, @methods : Methods) : Nil
+      end
+
+      def result_of(call : Crystal::Call, context : Syntax::Context) : Resolution
+        receiver = of_call(call, context)
+        return receiver if receiver.is_a?(Unknown)
+
+        result_of(receiver, call.name, call.args.size)
+      end
+
+      def result_of(receiver : Resolved, name : String, arity : Int32) : Resolution
+        if receiver.is_a?(UnionRef)
+          members = receiver.members.map do |member|
+            member.is_a?(Unknown) ? member : result_of(member, name, arity)
+          end
+          return union(members)
+        end
+
+        defs = @methods.lookup(receiver, name, arity)
+        return Unknown.new(:unresolved_name, "no `#{name}` on #{receiver}") if defs.empty?
+
+        results = defs.map { |entry| return_type(entry, receiver) }
+        resolved = results.select(Resolved).uniq!
+        return resolved[0] if resolved.size == 1
+        return results[0] if resolved.empty?
+
+        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{name}` return different types")
       end
 
       def of_call(call : Crystal::Call, context : Syntax::Context) : Resolution
@@ -58,8 +85,7 @@ module Heucristic
         case node
         when Crystal::Var         then variable(node.name, context, visiting)
         when Crystal::InstanceVar then instance_var(node.name, context)
-        when Crystal::Call
-          Unknown.new(:inference_needed, "the result of `#{node.name}` needs type inference")
+        when Crystal::Call        then result_of(node, context)
         else
           Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
         end
@@ -115,6 +141,35 @@ module Heucristic
         this = TypeRef.new(owner, Array(Resolution).new)
         definition = context.def_node
         definition && definition.receiver ? MetaRef.new(this) : this
+      end
+
+      def return_type(entry : Index::Def, receiver : Resolved) : Resolution
+        if entry.name == "initialize" && receiver.is_a?(MetaRef)
+          return receiver.of
+        end
+
+        case (restriction = entry.return_type)
+        in Index::Unrestricted
+          Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
+        in Syntax::TypeReader::Unsupported
+          Unknown.new(:unsupported, restriction.source)
+        in Syntax::Type
+          scope = return_scope(entry, receiver)
+          return scope if scope.is_a?(Unknown)
+
+          @types.resolve(restriction, scope)
+        end
+      end
+
+      private def return_scope(entry : Index::Def, receiver : Resolved) : Scope | Unknown
+        owner = entry.owner
+        return Scope.new(owner, entry.free_vars) if owner.is_a?(Index::TopLevel)
+
+        instance = receiver.is_a?(MetaRef) ? receiver.of : receiver
+        bindings = instance.is_a?(TypeRef) ? @types.bindings(instance, owner) : Array(Binding).new
+        return bindings if bindings.is_a?(Unknown)
+
+        Scope.new(owner, @types.type_vars_of(owner) + entry.free_vars, bindings)
       end
 
       private def scope(context : Syntax::Context) : Scope

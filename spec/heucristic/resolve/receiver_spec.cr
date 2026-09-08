@@ -39,7 +39,8 @@ private def receiver_of(marker : String) : String
   text = Heucristic::Document::Text.new(SOURCE)
   workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree))
   types = Heucristic::Resolve::Types.new(workspace)
-  receiver = Heucristic::Resolve::Receiver.new(workspace, types)
+  methods = Heucristic::Resolve::Methods.new(workspace, types)
+  receiver = Heucristic::Resolve::Receiver.new(workspace, types, methods)
 
   line = SOURCE.lines.index!(&.includes?(marker)) + 1
   column = SOURCE.lines[line - 1].index!(marker) + 1
@@ -93,7 +94,9 @@ private def receiver_at(source : String, line : Int32, column : Int32) : String
   workspace.update(
     Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
   )
-  receiver = Heucristic::Resolve::Receiver.new(workspace, Heucristic::Resolve::Types.new(workspace))
+  types = Heucristic::Resolve::Types.new(workspace)
+  methods = Heucristic::Resolve::Methods.new(workspace, types)
+  receiver = Heucristic::Resolve::Receiver.new(workspace, types, methods)
   target = Heucristic::Syntax::Cursor.find(tree, Heucristic::Document::Point.new(line, column))
   case target
   in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s
@@ -183,14 +186,82 @@ describe Heucristic::Resolve::Receiver, "assignments" do
     receiver_at(source, 22, 12).should eq("Store | Int32")
   end
 
-  it "refuses a local assigned from a call result" do
-    receiver_at(source, 24, 12).should eq(
-      "unknown (inference needed: the result of `build` needs type inference)"
-    )
+  it "refuses a local assigned from a call it cannot find" do
+    receiver_at(source, 24, 12).should eq("unknown (unresolved name: no `build` on Session)")
   end
 
   it "types an ivar from its evident assignments and ignores call results, like the compiler" do
     receiver_at(source, 25, 12).should eq("Store")
     receiver_at(source, 26, 12).should eq("Store | Nil")
+  end
+end
+
+private def receiver_of_size(source : String, line_text : String) : String
+  line = source.lines.index!(&.includes?(line_text)) + 1
+  column = source.lines[line - 1].index!(line_text) + line_text.rindex!("size") + 1
+  receiver_at(source, line, column)
+end
+
+describe Heucristic::Resolve::Receiver, "call results" do
+  source = <<-CR
+    module Enumerable(T)
+      def first : T
+      end
+
+      def flat_map(& : T -> _)
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+
+      def uniq! : self
+      end
+    end
+
+    class Channel(T)
+      def receive : T
+      end
+    end
+
+    class Builder
+      def build : Array(String)
+      end
+
+      def run(names : Array(String), results : Channel(Array(Int32)?)) : Nil
+        names.first.size
+        names.uniq!.size
+        results.receive.size
+        build.size
+        names.flat_map { |name| name }.size
+        paths = names.flat_map { |name| name }.uniq!
+        paths.size
+      end
+    end
+    CR
+
+  it "binds a type variable to the receiver's argument through an include" do
+    receiver_of_size(source, "names.first.size").should eq("String")
+  end
+
+  it "resolves self to the receiver with its arguments" do
+    receiver_of_size(source, "names.uniq!.size").should eq("Array(String)")
+  end
+
+  it "binds a type variable on the receiver's own type" do
+    receiver_of_size(source, "results.receive.size").should eq("Array(Int32) | Nil")
+  end
+
+  it "types the result of an implicit self call from its return restriction" do
+    receiver_of_size(source, "build.size").should eq("Array(String)")
+  end
+
+  it "names the def that lacks a return type" do
+    receiver_of_size(source, "names.flat_map { |name| name }.size").should eq(
+      "unknown (no annotation: Enumerable#flat_map has no return type restriction)"
+    )
+    receiver_of_size(source, "paths.size").should eq(
+      "unknown (no annotation: Enumerable#flat_map has no return type restriction)"
+    )
   end
 end

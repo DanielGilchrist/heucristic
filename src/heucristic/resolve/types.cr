@@ -20,6 +20,14 @@ module Heucristic
         @ancestors.of(name, self)
       end
 
+      def bindings(receiver : TypeRef, owner : String) : Array(Binding) | Unknown
+        @ancestors.bindings(receiver, owner, self)
+      end
+
+      def type_vars_of(name : String) : Array(String)
+        @ancestors.type_vars_of(name)
+      end
+
       def resolve(restriction : Index::Restriction, scope : Scope) : Resolution
         case restriction
         in Index::Unrestricted             then Unknown.new(:no_annotation, "no type restriction")
@@ -37,7 +45,11 @@ module Heucristic
       end
 
       def locate(path : Syntax::Named, scope : Scope) : String | Unknown
-        locate(path, scope, true)
+        locate(path, scope, true, false)
+      end
+
+      def locate_any(path : Syntax::Named, scope : Scope) : String | Unknown
+        locate(path, scope, true, true)
       end
 
       private NIL = Syntax::Named.new(["Nil"], true)
@@ -61,6 +73,7 @@ module Heucristic
         path : Syntax::Named,
         scope : Scope,
         with_ancestors : Bool,
+        constants : Bool,
       ) : String | Unknown
         first = path.names[0]
         rest = path.names[1..]
@@ -72,10 +85,10 @@ module Heucristic
         scopes.each do |prefix|
           search_in(prefix, with_ancestors) do |namespace|
             head = qualify(namespace, first)
-            next unless declared?(head)
+            next unless declared?(head, constants)
 
             full = rest.empty? ? head : "#{head}::#{rest.join("::")}"
-            return declared?(full) ? full : Unknown.new(:unresolved_name, full)
+            return declared?(full, constants) ? full : Unknown.new(:unresolved_name, full)
           end
         end
 
@@ -109,7 +122,11 @@ module Heucristic
         visiting : Array(String),
         with_ancestors : Bool,
       ) : Resolution
-        located = locate(type, scope, with_ancestors)
+        if type.names.size == 1 && !type.global? && (bound = scope.bound(type.names[0]))
+          return bound
+        end
+
+        located = locate(type, scope, with_ancestors, false)
         return located if located.is_a?(Unknown)
 
         follow(located, visiting, with_ancestors)
@@ -137,8 +154,9 @@ module Heucristic
         resolve(target, scope, with_ancestors)
       end
 
-      private def declared?(name : String) : Bool
+      private def declared?(name : String, constants : Bool) : Bool
         return true if !@workspace.namespaces(name).empty? || !@workspace.aliases(name).empty?
+        return true if constants && !@workspace.constants(name).empty?
 
         !name.includes?("::") && Builtins.includes?(name)
       end
@@ -196,7 +214,9 @@ module Heucristic
       private def resolve_self(scope : Scope) : Resolution
         case (namespace = scope.namespace)
         in Index::TopLevel then Unknown.new(:unsupported, "self outside a type")
-        in String          then TypeRef.new(namespace, Array(Resolution).new)
+        in String
+          arguments = type_vars_of(namespace).compact_map { |type_var| scope.bound(type_var) }
+          TypeRef.new(namespace, arguments)
         end
       end
     end

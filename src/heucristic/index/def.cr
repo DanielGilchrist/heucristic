@@ -19,7 +19,8 @@ module Heucristic
       name_span : Document::Span,
       arity : Arity,
       parameters : Array(Parameter),
-      return_type : Restriction do
+      return_type : Restriction,
+      free_vars : Array(String) do
       def qualified : String
         case (namespace = owner)
         in TopLevel then name
@@ -29,6 +30,12 @@ module Heucristic
 
       def signature : String
         Signature.render(receiver.metaclass? ? "self" : nil, name, parameters, return_type)
+      end
+
+      def signature(returning : String) : String
+        Signature.render(receiver.metaclass? ? "self" : nil, name, parameters) do |io|
+          io << " : " << returning
+        end
       end
     end
   end

@@ -13,6 +13,7 @@ module Heucristic
         @mixins = Array(Mixin).new
         @instance_vars = Array(InstanceVar).new
         @aliases = Array(Alias).new
+        @constants = Array(Constant).new
         @owners = Array(String).new
       end
 
@@ -23,7 +24,7 @@ module Heucristic
       end
 
       def file : File
-        File.new(@path, @defs, @namespaces, @mixins, @instance_vars, @aliases)
+        File.new(@path, @defs, @namespaces, @mixins, @instance_vars, @aliases, @constants)
       end
 
       def visit(node : Crystal::ClassDef) : Bool
@@ -122,6 +123,7 @@ module Heucristic
 
       def visit(node : Crystal::Assign) : Bool
         target = node.target
+        return constant(target, node.value) if target.is_a?(Crystal::Path)
         return true unless target.is_a?(Crystal::InstanceVar)
 
         type = Evident.type(node.value)
@@ -168,6 +170,13 @@ module Heucristic
 
       def visit(node : Crystal::ASTNode) : Bool
         true
+      end
+
+      private def constant(name : Crystal::Path, value : Crystal::ASTNode) : Bool
+        with_span(name) do |span|
+          @constants << Constant.new(qualify(name), @path, span, value.to_s, Evident.type(value))
+        end
+        false
       end
 
       private def owner : Owner
@@ -263,6 +272,7 @@ module Heucristic
           arity: Arity.new(0, 0, false),
           parameters: Array(Parameter).new,
           return_type: type,
+          free_vars: Array(String).new,
         )
       end
 
@@ -284,6 +294,7 @@ module Heucristic
           arity: Arity.of(node),
           parameters: Signature.parameters(node),
           return_type: Restrictions.of(node.return_type),
+          free_vars: node.free_vars || Array(String).new,
         )
       end
     end

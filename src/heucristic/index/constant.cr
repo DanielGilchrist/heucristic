@@ -1,0 +1,14 @@
+require "../document/span"
+require "../syntax/type"
+require "./evident"
+
+module Heucristic
+  module Index
+    record Constant,
+      name : String,
+      path : String,
+      name_span : Document::Span,
+      value : String,
+      type : Syntax::Type | Evident::NotEvident
+  end
+end

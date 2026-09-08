@@ -232,3 +232,15 @@ describe Heucristic::Index::Collector, "instance variables from assignments" do
     ])
   end
 end
+
+describe Heucristic::Index::Collector, "constants" do
+  it "records constants with their qualified name and evident type" do
+    file = index("module Fibers\n  WORKERS = 4\n  NAME = compute\nend\nTOP = \"t\"\n")
+    recorded = file.constants.map { |constant| {constant.name, constant.value, constant.type.to_s} }
+    recorded.should eq([
+      {"Fibers::WORKERS", "4", "::Int32"},
+      {"Fibers::NAME", "compute", "Heucristic::Index::Evident::NotEvident()"},
+      {"TOP", "\"t\"", "::String"},
+    ])
+  end
+end

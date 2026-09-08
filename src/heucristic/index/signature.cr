@@ -33,6 +33,15 @@ module Heucristic
         parameters : Array(Parameter),
         return_type : Restriction,
       ) : String
+        render(receiver, name, parameters) { |io| Restrictions.write(io, return_type) }
+      end
+
+      def render(
+        receiver : String?,
+        name : String,
+        parameters : Array(Parameter),
+        & : IO ->
+      ) : String
         String.build do |io|
           io << "def "
           io << receiver << '.' if receiver
@@ -42,7 +51,7 @@ module Heucristic
             parameters.join(io, ", ")
             io << ')'
           end
-          Restrictions.write(io, return_type)
+          yield io
         end
       end
     end
