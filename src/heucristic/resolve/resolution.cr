@@ -36,6 +36,7 @@ module Heucristic
         InferenceNeeded
         TopLevel
         Ambiguous
+        TooDeep
       end
 
       def to_s(io : IO) : Nil

@@ -10,37 +10,43 @@ require "./unify"
 require "./render"
 require "./local_declarations"
 require "./local_assignments"
+require "./rescue_variables"
 
 module Heucristic
   module Resolve
     class Receiver
+      DEPTH_LIMIT = 48
+
       def initialize(
         @workspace : Index::Workspace,
         @shims : Index::Shims,
         @types : Types,
         @methods : Methods,
       ) : Nil
+        @depth = 0
       end
 
       def result_of(
         call : Crystal::Call,
         context : Syntax::Context,
         locals : Array(Binding) = Array(Binding).new,
+        visiting : Array(String) = Array(String).new,
       ) : Resolution
-        receiver = of_call(call, context, locals)
+        receiver = of_call(call, context, locals, visiting)
         return receiver if receiver.is_a?(Unknown)
 
-        result_of(receiver, shape_of(call, context, locals), Site.new(call.block, context, locals))
+        shape = shape_of(call, context, locals, visiting)
+        result_of(receiver, shape, Site.new(call.block, context, locals, visiting))
       end
 
       def shape_of(
         call : Crystal::Call,
         context : Syntax::Context,
         locals : Array(Binding) = Array(Binding).new,
+        visiting : Array(String) = Array(String).new,
       ) : Methods::Call
-        arguments = call.args.map do |argument|
-          type_of(argument, context, Array(String).new, locals)
-        end
+        arguments = Array(Resolution).new(call.args.size)
+        call.args.each { |argument| arguments << type_of(argument, context, visiting, locals) }
         named = call.named_args.try(&.map(&.name)) || Array(String).new
         Methods::Call.new(call.name, call.args.size, !call.block.nil?, arguments, named)
       end
@@ -60,16 +66,24 @@ module Heucristic
         defs = @methods.lookup(receiver, call)
         return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
 
-        results = defs.map { |entry| return_type(entry, receiver, call.arguments, site) }
+        results = Array(Resolution).new(defs.size)
+        defs.each { |entry| results << return_type(entry, receiver, call.arguments, site) }
         distinct = results.uniq
         return distinct[0] if distinct.size == 1
 
         Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
       end
 
-      record Site, block : Crystal::Block?, context : Syntax::Context, locals : Array(Binding) do
+      record Site,
+        block : Crystal::Block?,
+        context : Syntax::Context,
+        locals : Array(Binding),
+        visiting : Array(String) do
         NONE = new(
-          nil, Syntax::Context.new(Array(String).new, Array(String).new, nil), Array(Binding).new
+          nil,
+          Syntax::Context.new(Array(String).new, Array(String).new, nil),
+          Array(Binding).new,
+          Array(String).new,
         )
       end
 
@@ -77,11 +91,12 @@ module Heucristic
         call : Crystal::Call,
         context : Syntax::Context,
         locals : Array(Binding) = Array(Binding).new,
+        visiting : Array(String) = Array(String).new,
       ) : Resolution
         receiver = call.obj
         return implicit_self(context) unless receiver
 
-        type_of(receiver, context, Array(String).new, locals)
+        type_of(receiver, context, visiting, locals)
       end
 
       def variable(name : String, context : Syntax::Context) : Resolution
@@ -113,6 +128,24 @@ module Heucristic
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
+        if @depth >= DEPTH_LIMIT
+          return Unknown.new(:too_deep, "typing `#{node}` needs more than #{DEPTH_LIMIT} steps")
+        end
+
+        @depth += 1
+        begin
+          typed(node, context, visiting, locals)
+        ensure
+          @depth -= 1
+        end
+      end
+
+      private def typed(
+        node : Crystal::ASTNode,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
         return constant(node, context, visiting) if node.is_a?(Crystal::Path)
         evident = Index::Evident.type(node)
         return declared(evident, scope(context)) if evident.is_a?(Syntax::Type)
@@ -120,8 +153,22 @@ module Heucristic
         case node
         when Crystal::Var         then variable(node.name, context, visiting, locals)
         when Crystal::InstanceVar then instance_var(node.name, context)
-        when Crystal::Call        then result_of(node, context, locals)
+        when Crystal::Call        then result_of(node, context, locals, visiting)
         when Crystal::Path        then constant(node, context, visiting)
+        when Crystal::If
+          branches = Array(Resolution).new(2)
+          branches << type_of(node.then, context, visiting, locals)
+          branches << type_of(node.else, context, visiting, locals)
+          union(branches)
+        when Crystal::ArrayLiteral
+          elements(node.elements, context, visiting, locals) do |inner|
+            TypeRef.new("Array", [inner] of Resolution)
+          end
+        when Crystal::TupleLiteral
+          members = Array(Resolution).new(node.elements.size)
+          node.elements.each { |element| members << type_of(element, context, visiting, locals) }
+          members.find(&.is_a?(Unknown)) || TypeRef.new("Tuple", members)
+        when Crystal::Nop then TypeRef.new("Nil", Array(Resolution).new)
         when Crystal::Expressions
           if node.expressions.size == 1
             type_of(node.expressions[0], context, visiting, locals)
@@ -161,9 +208,12 @@ module Heucristic
 
         return Unknown.new(:cycle, name) if visiting.includes?(name)
 
-        if (from_block = block_parameter(name, context, locals))
+        if (from_block = block_parameter(name, context, locals, visiting + [name]))
           return from_block
         end
+
+        rescued = RescueVariables.find(definition.body, name)
+        return rescued_type(rescued, context) if rescued
 
         assignments = LocalAssignments.find(definition.body, name)
         if assignments.empty?
@@ -172,7 +222,35 @@ module Heucristic
           )
         end
 
-        union(assignments.map { |value| type_of(value, context, visiting + [name], locals) })
+        assigned = Array(Resolution).new(assignments.size)
+        assignments.each { |value| assigned << type_of(value, context, visiting + [name], locals) }
+        union(assigned)
+      end
+
+      private def elements(
+        nodes : Array(Crystal::ASTNode),
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+        & : Resolution -> Resolution
+      ) : Resolution
+        if nodes.empty?
+          return Unknown.new(:no_annotation, "an empty literal needs `of T` to state its type")
+        end
+
+        typed = Array(Resolution).new(nodes.size)
+        nodes.each { |element| typed << type_of(element, context, visiting, locals) }
+        inner = union(typed)
+        return inner if inner.is_a?(Unknown)
+
+        yield inner
+      end
+
+      private def rescued_type(rescued : Crystal::Rescue, context : Syntax::Context) : Resolution
+        types = rescued.types
+        return TypeRef.new("Exception", Array(Resolution).new) unless types
+
+        union(types.map { |type| declared(Syntax::TypeReader.read(type), scope(context)) })
       end
 
       private def union(resolutions : Array(Resolution)) : Resolution
@@ -310,6 +388,7 @@ module Heucristic
         name : String,
         context : Syntax::Context,
         locals : Array(Binding),
+        visiting : Array(String),
       ) : Resolution?
         context.blocks.reverse_each do |call|
           block = call.block
@@ -321,14 +400,15 @@ module Heucristic
           outer = Syntax::Context.new(
             context.enclosing, context.type_vars, context.def_node, enclosing_blocks
           )
-          receiver = of_call(call, outer, locals)
+          receiver = of_call(call, outer, locals, visiting)
           return receiver if receiver.is_a?(Unknown)
 
-          shape = shape_of(call, outer, locals)
+          shape = shape_of(call, outer, locals, visiting)
           defs = @methods.lookup(receiver, shape)
           return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
 
-          inputs = defs.map { |entry| block_input(entry, receiver, shape.arguments, index) }
+          inputs = Array(Resolution).new(defs.size)
+          defs.each { |entry| inputs << block_input(entry, receiver, shape.arguments, index) }
           distinct = inputs.uniq
           return distinct[0] if distinct.size == 1
 
@@ -391,7 +471,7 @@ module Heucristic
         body = last_expression(block.body)
         return unless body
 
-        result = type_of(body, site.context, Array(String).new, locals)
+        result = type_of(body, site.context, site.visiting, locals)
         Unify.bind(output, result, entry.free_vars, bindings, @types, scope)
       end
 

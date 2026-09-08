@@ -17,6 +17,9 @@ module Enumerable(T)
   def each_with_index(offset = 0, & : T, Int32 ->) : Nil
   end
 
+  def find(if_none : U = nil, & : T ->) : T | U forall U
+  end
+
   def flat_map(& : T -> Array(U) | Iterator(U) | U) : Array(U) forall U
   end
 

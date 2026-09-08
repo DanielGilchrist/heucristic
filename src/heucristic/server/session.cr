@@ -283,7 +283,9 @@ module Heucristic
         found = @methods.lookup(receiver, shape)
         return Answer.note("no `#{call.name}` indexed on #{receiver}") if found.empty?
 
-        site = Resolve::Receiver::Site.new(call.block, target.context, Array(Resolve::Binding).new)
+        site = Resolve::Receiver::Site.new(
+          call.block, target.context, Array(Resolve::Binding).new, Array(String).new
+        )
         sections = found.map { |entry| describe_resolved(entry, receiver, shape.arguments, site) }
         entries = Array(Index::Entry).new(found.size)
         found.each { |entry| entries << entry }

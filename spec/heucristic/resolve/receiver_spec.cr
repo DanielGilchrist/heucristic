@@ -501,3 +501,29 @@ describe Heucristic::Resolve::Receiver, "constants" do
     receiver_of_size(source, "Fibers.size").should eq("Fibers.class")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "cycles" do
+  it "terminates when a variable is reassigned through a block over itself" do
+    source = <<-CR
+      module Enumerable(T)
+        def map(& : T -> U) : Array(U) forall U
+        end
+      end
+
+      class Array(T)
+        include Enumerable(T)
+      end
+
+      def go : Nil
+        list = build
+        list = list.map { |item| item }
+        list.size
+        other = 1
+        other = other.to_s
+        other.size
+      end
+      CR
+    receiver_of_size(source, "list.size").should start_with("unknown")
+    receiver_of_size(source, "other.size").should start_with("unknown")
+  end
+end

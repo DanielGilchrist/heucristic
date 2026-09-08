@@ -51,7 +51,7 @@ module ShimsCheck
       end
       if target.nil?
         orphans << "#{shim.entry.identity}  (#{shim.entry.path})"
-      elsif !target.return_type.is_a?(Heucristic::Index::Unrestricted)
+      elsif typed?(target) && !adds_block_type?(shim.entry, target)
         redundant << "#{shim.entry.identity}  stdlib says : #{target.return_type} (#{target.path})"
       end
     end
@@ -61,6 +61,19 @@ module ShimsCheck
     report("redundant (stdlib now has a return type)", redundant)
     report("generated defs the stdlib now declares in source", duplicated)
     orphans.empty? && redundant.empty? && duplicated.empty? ? 0 : 1
+  end
+
+  private def typed?(target : Heucristic::Index::Def) : Bool
+    !target.return_type.is_a?(Heucristic::Index::Unrestricted)
+  end
+
+  private def adds_block_type?(
+    shim : Heucristic::Index::Def,
+    target : Heucristic::Index::Def,
+  ) : Bool
+    shimmed = shim.parameters.find(&.kind.block?).try(&.restriction)
+    original = target.parameters.find(&.kind.block?).try(&.restriction)
+    shimmed.is_a?(Heucristic::Syntax::Type) && !original.is_a?(Heucristic::Syntax::Type)
   end
 
   private def report(title : String, lines : Array(String)) : Nil

@@ -66,6 +66,12 @@ module Heucristic
       end
 
       private def admits?(restriction : Resolution, argument : Resolved) : Bool
+        if argument.is_a?(UnionRef)
+          return argument.members.all? do |member|
+            member.is_a?(Unknown) || admits?(restriction, member)
+          end
+        end
+
         case restriction
         in Unknown then true
         in UnionRef
@@ -75,9 +81,8 @@ module Heucristic
           case argument
           in TypeRef
             argument.name == restriction.name || ancestor?(argument.name, restriction.name)
-          in UnionRef
-            argument.members.all? { |member| member.is_a?(Unknown) || admits?(restriction, member) }
-          in MetaRef then restriction.name == "Class"
+          in UnionRef then false
+          in MetaRef  then restriction.name == "Class"
           end
         end
       end

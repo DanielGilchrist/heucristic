@@ -25,5 +25,7 @@ targets:
     main: tools/probe.cr
   shims-check:
     main: tools/shims_check.cr
+  score:
+    main: tools/score.cr
   ameba:
     main: lint/ameba.cr

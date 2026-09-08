@@ -184,10 +184,46 @@ module Heucristic
             superclass: Unrestricted.new,
           )
         end
-        node.args.skip(1).each { |field| record_field(field) }
+        fields = node.args.skip(1)
+        fields.each { |field| record_field(field) }
+        record_initializer(name, fields)
         node.block.try(&.accept(self))
         @owners.pop
         false
+      end
+
+      private def record_initializer(name : Crystal::Path, fields : Array(Crystal::ASTNode)) : Nil
+        span = span_of(name, name.to_s.size)
+        return unless span
+
+        parameters = fields.compact_map do |field|
+          case field
+          when Crystal::TypeDeclaration
+            var = field.var
+            next unless var.is_a?(Crystal::Var)
+            restriction = Syntax::TypeReader.read(field.declared_type)
+            Parameter.new(var.name, var.name, restriction, field.value.try(&.to_s), :positional)
+          when Crystal::Assign
+            target = field.target
+            next unless target.is_a?(Crystal::Var)
+            evident = Evident.type(field.value)
+            type = evident.is_a?(Syntax::Type) ? evident : Unrestricted.new
+            Parameter.new(target.name, target.name, type, field.value.to_s, :positional)
+          end
+        end
+        required = parameters.count(&.default.nil?)
+        @defs << Def.new(
+          name: "initialize",
+          owner: owner,
+          receiver: :instance,
+          path: @path,
+          name_span: span,
+          arity: Arity.new(required, parameters.size - required, false),
+          parameters: parameters,
+          return_type: Unrestricted.new,
+          free_vars: Array(String).new,
+          yields: false,
+        )
       end
 
       def visit(node : Crystal::ASTNode) : Bool
