@@ -34,11 +34,22 @@ module Heucristic
 
       def visit(node : Crystal::Call) : Bool
         @blocks << node if node.block
+        if (name = record_name(node))
+          @enclosing << qualify(name)
+        end
         true
       end
 
       def end_visit(node : Crystal::Call) : Nil
         @blocks.pop if node.block
+        @enclosing.pop if record_name(node)
+      end
+
+      private def record_name(node : Crystal::Call) : Crystal::Path?
+        return unless node.name == "record" && node.obj.nil?
+
+        name = node.args[0]?
+        name.is_a?(Crystal::Path) ? name : nil
       end
 
       def visit(

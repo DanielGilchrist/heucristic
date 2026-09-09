@@ -349,8 +349,15 @@ module Heucristic
         members = Array(Resolution).new
         resolutions.each do |resolution|
           return resolution if resolution.is_a?(Unknown)
-          members << resolution unless members.includes?(resolution)
+          next if resolution.is_a?(TypeRef) && resolution.name == "NoReturn"
+          if resolution.is_a?(UnionRef)
+            resolution.members.each { |inner| members << inner unless members.includes?(inner) }
+          else
+            members << resolution unless members.includes?(resolution)
+          end
         end
+        return TypeRef.new("NoReturn", Array(Resolution).new) if members.empty?
+
         members.size == 1 ? members[0] : UnionRef.new(members)
       end
 
@@ -446,6 +453,7 @@ module Heucristic
           inherited = instance.is_a?(TypeRef) ? @types.bindings(instance, owner) : bindings
           return inherited if inherited.is_a?(Unknown)
           bindings = inherited.dup
+          bindings << Binding.new("self", instance)
           type_vars = @types.type_vars_of(owner) + type_vars
         end
 
@@ -511,26 +519,50 @@ module Heucristic
           next unless index
 
           enclosing_blocks = context.blocks[0...context.blocks.index!(call)]
+          upto = context.ancestors.index(&.same?(call))
+          outer_ancestors = upto ? context.ancestors[0..upto] : Array(Crystal::ASTNode).new
           outer = Syntax::Context.new(
-            context.enclosing, context.type_vars, context.def_node, enclosing_blocks
+            context.enclosing,
+            context.type_vars,
+            context.def_node,
+            enclosing_blocks,
+            outer_ancestors,
           )
           receiver = of_call(call, outer, locals, visiting)
           return receiver if receiver.is_a?(Unknown)
 
           shape = shape_of(call, outer, locals, visiting)
-          defs = @methods.lookup(receiver, shape)
-          return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
-
-          inputs = Array(Resolution).new(defs.size)
-          defs.each { |entry| inputs << block_input(entry, receiver, shape.arguments, index) }
-          distinct = inputs.uniq
-          return distinct[0] if distinct.size == 1
-
-          return Unknown.new(
-            :ambiguous, "#{defs.size} overloads of `#{call.name}` yield different types"
-          )
+          return block_inputs(receiver, shape, index, block.args.size)
         end
         nil
+      end
+
+      private def block_inputs(
+        receiver : Resolved,
+        shape : Methods::Call,
+        index : Int32,
+        parameters : Int32,
+      ) : Resolution
+        if receiver.is_a?(UnionRef)
+          per_member = Array(Resolution).new(receiver.members.size)
+          receiver.members.each do |member|
+            per_member << if member.is_a?(Unknown)
+              member
+            else
+              block_inputs(member, shape, index, parameters)
+            end
+          end
+          return union(per_member)
+        end
+
+        defs = @methods.lookup(receiver, shape)
+        return Unknown.new(:unresolved_name, "no `#{shape.name}` on #{receiver}") if defs.empty?
+
+        inputs = Array(Resolution).new(defs.size)
+        defs.each do |entry|
+          inputs << block_input(entry, receiver, shape.arguments, index, parameters)
+        end
+        union(inputs)
       end
 
       private def block_input(
@@ -538,16 +570,24 @@ module Heucristic
         receiver : Resolved,
         arguments : Array(Resolution),
         index : Int32,
+        parameters : Int32,
       ) : Resolution
         restriction = block_restriction(entry)
         unless restriction
           return Unknown.new(:no_annotation, "#{entry.qualified} does not state what it yields")
         end
-        input = restriction.inputs[index]?
-        return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values") unless input
-
         scope = return_scope(entry, receiver, arguments, Site::NONE)
         return scope if scope.is_a?(Unknown)
+
+        if restriction.inputs.size == 1 && parameters > 1
+          yielded = @types.resolve(restriction.inputs[0], scope)
+          if yielded.is_a?(TypeRef) && yielded.name == "Tuple"
+            element = yielded.arguments[index]?
+            return element if element
+          end
+        end
+        input = restriction.inputs[index]?
+        return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values") unless input
 
         @types.resolve(input, scope)
       end

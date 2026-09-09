@@ -51,6 +51,7 @@ module Score
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
 
+    at = args.index("--at").try { |index| args[index + 1]? }
     outcomes = Array(Outcome).new
     elapsed = Time.measure do
       Dir.glob(File.join(root, "src", "**", "*.cr")).sort.each do |path|
@@ -66,6 +67,13 @@ module Score
 
           result = receiver.result_of(call, site.context)
           targets = targets_of(call, site.context, receiver, methods)
+          if at == "#{path.sub(root + "/", "")}:#{location.line_number}:#{location.column_number}"
+            puts "#{call.name} at #{at}: #{result}"
+            puts "  receiver: #{receiver.of_call(call, site.context)}"
+            chain = site.context.ancestors.map(&.class.name.sub("Crystal::", ""))
+            puts "  ancestors: #{chain.join(" > ")}"
+            puts "  def: #{site.context.def_node.try(&.name)}, blocks: #{site.context.blocks.size}"
+          end
           outcomes << Outcome.new(
             path, location.line_number, location.column_number, call.name, result, targets
           )

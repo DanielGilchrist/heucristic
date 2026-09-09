@@ -17,15 +17,6 @@ module Heucristic
         new(enclosing, type_vars, def_node, Array(Crystal::Call).new, Array(Crystal::ASTNode).new)
       end
 
-      def self.new(
-        enclosing : Array(String),
-        type_vars : Array(String),
-        def_node : Crystal::Def?,
-        blocks : Array(Crystal::Call),
-      ) : Context
-        new(enclosing, type_vars, def_node, blocks, Array(Crystal::ASTNode).new)
-      end
-
       def owner : Index::Owner
         enclosing.last? || Index::TopLevel.new
       end

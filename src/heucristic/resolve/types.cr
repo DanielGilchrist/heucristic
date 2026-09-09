@@ -194,12 +194,15 @@ module Heucristic
         members.each do |member|
           resolution = resolve(member, scope, with_ancestors)
           return resolution if resolution.is_a?(Unknown)
+          next if resolution.is_a?(TypeRef) && resolution.name == "NoReturn"
           if resolution.is_a?(UnionRef)
             resolution.members.each { |inner| resolved << inner unless resolved.includes?(inner) }
           else
             resolved << resolution unless resolved.includes?(resolution)
           end
         end
+        return TypeRef.new("NoReturn", Array(Resolution).new) if resolved.empty?
+
         resolved.size == 1 ? resolved[0] : UnionRef.new(resolved)
       end
 
@@ -216,6 +219,10 @@ module Heucristic
       end
 
       private def resolve_self(scope : Scope) : Resolution
+        if (bound = scope.bound("self"))
+          return bound
+        end
+
         case (namespace = scope.namespace)
         in Index::TopLevel then Unknown.new(:unsupported, "self outside a type")
         in String

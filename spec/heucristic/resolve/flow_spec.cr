@@ -146,3 +146,95 @@ describe Heucristic::Resolve::Flow do
     narrowed("maybe.size\n", 2).should eq("Path")
   end
 end
+
+describe Heucristic::Resolve::Flow, "inside blocks" do
+  source = <<-CR
+    module Enumerable(T)
+      def find(& : T ->) : T?
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+    end
+
+    class Node
+      def args : Array(String)
+      end
+    end
+
+    class Finder
+      def find(node : Node?, name : String) : Nil
+        return unless node
+        node.args.find { |arg| arg.size }
+      end
+    end
+    CR
+
+  it "keeps guards in force when typing a block parameter's call" do
+    receiver_of_size(source, "node.args.find { |arg| arg.size }").should eq("String")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "records, defaults, tuples and try" do
+  source = <<-CR
+    class Hash(K, V)
+      def each(& : Tuple(K, V) ->) : Nil
+      end
+    end
+
+    class Object
+      def try(& : self -> U) : U forall U
+      end
+    end
+
+    struct Nil
+      def try(&block : NoReturn -> U) : Nil forall U
+      end
+    end
+
+    class String
+      def upcase : String
+      end
+    end
+
+    module Index
+      record Def, name : String do
+        def label : Nil
+          name.size
+        end
+      end
+    end
+
+    class Store
+      def initialize(@counts = Hash(String, Int32).new, @label : String? = nil) : Nil
+      end
+
+      def run(word : String?) : Nil
+        @counts.size
+        @counts.each { |key, count| count.size }
+        @counts.each { |key, count| key.size }
+        word.try { |present| present.size }
+        word.try(&.upcase).size
+      end
+    end
+    CR
+
+  it "treats a record body as the record's own scope" do
+    receiver_of_size(source, "name.size").should eq("String")
+  end
+
+  it "declares an ivar from a parameter default when there is no restriction" do
+    receiver_of_size(source, "@counts.size").should eq("Hash(String, Int32)")
+  end
+
+  it "splats a yielded tuple across block parameters" do
+    receiver_of_size(source, "count.size").should eq("Int32")
+    receiver_of_size(source, "key.size").should eq("String")
+  end
+
+  it "drops NoReturn so try yields the non nil member and returns a nilable result" do
+    receiver_of_size(source, "present.size").should eq("String")
+    receiver_of_size(source, "word.try(&.upcase).size").should eq("String | Nil")
+  end
+end

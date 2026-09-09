@@ -297,9 +297,7 @@ module Heucristic
           break unless target.is_a?(Crystal::InstanceVar) && value.is_a?(Crystal::Var)
 
           parameter = node.args.find(&.name.==(value.name))
-          restriction = parameter.try(&.restriction)
-          next unless parameter && restriction
-
+          next unless parameter
           location = parameter.location
           next unless location
 
@@ -307,7 +305,12 @@ module Heucristic
           span = @text.span(start, start.advance(target.name.size))
           next unless span.is_a?(Document::Span)
 
-          instance_var(target.name, Syntax::TypeReader.read(restriction), span, :declared)
+          if (restriction = parameter.restriction)
+            instance_var(target.name, Syntax::TypeReader.read(restriction), span, :declared)
+          elsif (default = parameter.default_value)
+            evident = Evident.type(default)
+            instance_var(target.name, evident, span, :assigned) if evident.is_a?(Syntax::Type)
+          end
         end
       end
 
