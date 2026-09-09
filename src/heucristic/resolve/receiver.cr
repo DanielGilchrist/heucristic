@@ -11,6 +11,7 @@ require "./render"
 require "./local_declarations"
 require "./local_assignments"
 require "./rescue_variables"
+require "./flow"
 
 module Heucristic
   module Resolve
@@ -190,7 +191,98 @@ module Heucristic
         if (local = locals.find(&.name.==(name)))
           return local.value
         end
+        return Unknown.new(:cycle, name) if visiting.includes?(name)
 
+        narrow(declared_variable(name, context, visiting, locals), name, context, visiting, locals)
+      end
+
+      private def narrow(
+        base : Resolution,
+        name : String,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
+        Flow.steps(name, context.ancestors).reduce(base) do |current, step|
+          case step
+          in Flow::Assigned then type_of(step.value, context, visiting + [name], locals)
+          in Flow::Truthy   then truthy(current, step.positive)
+          in Flow::IsA      then narrow_is_a(current, step.types, step.positive, context)
+          end
+        end
+      end
+
+      private def truthy(current : Resolution, positive : Bool) : Resolution
+        return current if current.is_a?(Unknown)
+
+        members = current.is_a?(UnionRef) ? current.members : [current] of Resolution
+        kept = members.select do |member|
+          next true if member.is_a?(Unknown)
+          falsey = member.is_a?(TypeRef) && FALSEY.includes?(member.name)
+          positive ? !(member.is_a?(TypeRef) && member.name == "Nil") : falsey
+        end
+        return current if kept.empty?
+
+        kept.size == 1 ? kept[0] : UnionRef.new(kept)
+      end
+
+      FALSEY = {"Nil", "Bool", "Pointer"}
+
+      private def narrow_is_a(
+        current : Resolution,
+        types : Array(Crystal::ASTNode),
+        positive : Bool,
+        context : Syntax::Context,
+      ) : Resolution
+        targets = Array(TypeRef).new
+        types.each do |type|
+          resolved = declared(Syntax::TypeReader.read(type), scope(context))
+          return current unless resolved.is_a?(TypeRef)
+          targets << resolved
+        end
+
+        if current.is_a?(Unknown)
+          return current unless positive
+          return targets[0] if targets.size == 1
+
+          widened = Array(Resolution).new(targets.size)
+          targets.each { |target| widened << target }
+          return UnionRef.new(widened)
+        end
+
+        members = current.is_a?(UnionRef) ? current.members : [current] of Resolution
+        kept = Array(Resolution).new
+        members.each do |member|
+          unless member.is_a?(TypeRef)
+            kept << member
+            next
+          end
+          matched = targets.any? { |target| covers?(target, member) }
+          if positive
+            kept << member if matched
+            targets.each { |target| kept << target if !matched && covers?(member, target) }
+          else
+            kept << member unless matched
+          end
+        end
+        return current if kept.empty?
+
+        kept.size == 1 ? kept[0] : UnionRef.new(kept)
+      end
+
+      private def covers?(ancestor : TypeRef, descendant : TypeRef) : Bool
+        return true if ancestor.name == descendant.name
+
+        chain = @types.ancestors(descendant.name)
+        !chain.is_a?(Unknown) && chain.includes?(ancestor.name)
+      end
+
+      private def declared_variable(
+        name : String,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
         definition = context.def_node
         return Unknown.new(:no_annotation, "#{name} is outside any method") unless definition
 
@@ -285,6 +377,9 @@ module Heucristic
         in Index::Unrestricted
           shim = @shims.find(entry)
           return return_type(shim.entry, receiver, arguments, site) if shim
+          if (target = entry.forwards_to)
+            return forwarded(entry, target, arguments, site)
+          end
 
           Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
         in Syntax::TypeReader::Unsupported
@@ -316,6 +411,25 @@ module Heucristic
         Index::Signature.render(receiver_name, entry.name, parameters) do |io|
           io << " : " << returning if returning.is_a?(Resolved)
         end
+      end
+
+      private def forwarded(
+        entry : Index::Def,
+        target : Crystal::ASTNode,
+        arguments : Array(Resolution),
+        site : Site,
+      ) : Resolution
+        owner = entry.owner
+        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
+        context = Syntax::Context.new(enclosing, Array(String).new, nil)
+        return Unknown.new(:cycle, entry.qualified) if site.visiting.includes?(entry.qualified)
+
+        visiting = site.visiting + [entry.qualified]
+        delegate = type_of(target, context, visiting, Array(Binding).new)
+        return delegate if delegate.is_a?(Unknown)
+
+        shape = Methods::Call.new(entry.name, arguments.size, !site.block.nil?, arguments)
+        result_of(delegate, shape, Site.new(site.block, site.context, site.locals, visiting))
       end
 
       private def return_scope(

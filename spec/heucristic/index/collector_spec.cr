@@ -299,3 +299,19 @@ describe Heucristic::Index::Collector, "accessor macros" do
     ivars.map(&.[0]).should_not contain("@registry")
   end
 end
+
+describe Heucristic::Index::Collector, "delegate" do
+  it "declares a forwarding def per delegated name" do
+    source = <<-CR
+      class Config
+        delegate :token, :save!, to: current
+        delegate name, to: @inner
+      end
+      CR
+    file = index(source)
+    forwards = file.defs.map { |entry| {entry.qualified, entry.forwards_to.to_s} }
+    forwards.should eq([
+      {"Config#token", "current"}, {"Config#save!", "current"}, {"Config#name", "@inner"},
+    ])
+  end
+end

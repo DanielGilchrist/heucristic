@@ -87,28 +87,6 @@ describe Heucristic::Resolve::Receiver do
   end
 end
 
-private def receiver_at(source : String, line : Int32, column : Int32) : String
-  tree = Heucristic::Syntax.parse(source, "a.cr")
-  raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
-
-  workspace = Heucristic::Index::Workspace.new
-  workspace.update(
-    Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
-  )
-  types = Heucristic::Resolve::Types.new(workspace)
-  methods = Heucristic::Resolve::Methods.new(workspace, types)
-  shims = Heucristic::Index::Shims.new
-  receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
-  target = Heucristic::Syntax::Cursor.find(tree, Heucristic::Document::Point.new(line, column))
-  case target
-  in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s
-  in Heucristic::Syntax::OnVar         then receiver.variable(target.name, target.context).to_s
-  in Heucristic::Syntax::OnInstanceVar then receiver.instance_var(target.name, target.context).to_s
-  in Heucristic::Syntax::OnDef, Heucristic::Syntax::OnPath, Nil
-    raise "cursor did not land on a call or variable at #{line}:#{column}"
-  end
-end
-
 describe Heucristic::Resolve::Receiver, "expressions" do
   source = <<-CR
     class Thing
@@ -184,8 +162,8 @@ describe Heucristic::Resolve::Receiver, "assignments" do
     receiver_at(source, 19, 10).should eq("String")
   end
 
-  it "unions the evident assignments of a local" do
-    receiver_at(source, 22, 12).should eq("Store | Int32")
+  it "uses the latest assignment before the reference" do
+    receiver_at(source, 22, 12).should eq("Int32")
   end
 
   it "refuses a local assigned from a call it cannot find" do
@@ -196,12 +174,6 @@ describe Heucristic::Resolve::Receiver, "assignments" do
     receiver_at(source, 25, 12).should eq("Store")
     receiver_at(source, 26, 12).should eq("Store | Nil")
   end
-end
-
-private def receiver_of_size(source : String, line_text : String) : String
-  line = source.lines.index!(&.includes?(line_text)) + 1
-  column = source.lines[line - 1].index!(line_text) + line_text.rindex!("size") + 1
-  receiver_at(source, line, column)
 end
 
 describe Heucristic::Resolve::Receiver, "call results" do
@@ -525,5 +497,42 @@ describe Heucristic::Resolve::Receiver, "cycles" do
       CR
     receiver_of_size(source, "list.size").should start_with("unknown")
     receiver_of_size(source, "other.size").should start_with("unknown")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "delegate" do
+  source = <<-CR
+    class Environment
+      def token : String
+      end
+
+      def organisation(id : Int32) : Int32
+      end
+    end
+
+    class Config
+      delegate :token, :organisation, to: current
+      delegate missing, to: current
+
+      def current : Environment
+      end
+
+      def run(config : Config) : Nil
+        config.token.size
+        config.organisation(1).size
+        config.missing.size
+      end
+    end
+    CR
+
+  it "types a delegated call through the target's method" do
+    receiver_of_size(source, "config.token.size").should eq("String")
+    receiver_of_size(source, "config.organisation(1).size").should eq("Int32")
+  end
+
+  it "reports a delegated name the target lacks" do
+    receiver_of_size(source, "config.missing.size").should eq(
+      "unknown (unresolved name: no `missing` on Environment)"
+    )
   end
 end

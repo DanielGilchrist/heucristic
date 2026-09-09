@@ -50,7 +50,7 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
-  it "explains a receiver it cannot type and gives no definition" do
+  it "explains a call it cannot resolve and gives no definition" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")
     client.await_notification("$/heucristic/indexed")
@@ -58,7 +58,7 @@ describe Heucristic::Server::Loop do
     client.open(URI_A, "x = 1\nx.abs\n")
     client.await_notification("textDocument/publishDiagnostics")
 
-    hover_text(client.hover(URI_A, 1, 2)).to_s.should contain("receiver of `abs`: unknown")
+    hover_text(client.hover(URI_A, 1, 2)).to_s.should eq("no `abs` indexed on Int32")
     client.definition(URI_A, 1, 2).result.try(&.raw).should be_nil
     client.shutdown
   end

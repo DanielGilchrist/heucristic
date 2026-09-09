@@ -9,6 +9,16 @@ module Heucristic
         @type_vars = Array(String).new
         @defs = Array(Crystal::Def).new
         @blocks = Array(Crystal::Call).new
+        @nodes = Array(Crystal::ASTNode).new
+      end
+
+      def visit_any(node : Crystal::ASTNode) : Bool
+        @nodes << node
+        true
+      end
+
+      def end_visit_any(node : Crystal::ASTNode) : Nil
+        @nodes.pop
       end
 
       def visit(node : Crystal::Def) : Bool
@@ -51,7 +61,7 @@ module Heucristic
       end
 
       protected def context : Context
-        Context.new(@enclosing.dup, @type_vars.dup, @defs.last?, @blocks.dup)
+        Context.new(@enclosing.dup, @type_vars.dup, @defs.last?, @blocks.dup, @nodes.dup)
       end
 
       private def type_vars_of(node : Crystal::ASTNode) : Array(String)

@@ -168,6 +168,7 @@ module Heucristic
 
       def visit(node : Crystal::Call) : Bool
         return accessors(node) if node.obj.nil? && ACCESSORS.includes?(node.name)
+        return delegates(node) if node.obj.nil? && node.name == "delegate"
         return true unless node.name == "record" && node.obj.nil?
         name = node.args[0]?
         return true unless name.is_a?(Crystal::Path)
@@ -308,6 +309,38 @@ module Heucristic
 
           instance_var(target.name, Syntax::TypeReader.read(restriction), span, :declared)
         end
+      end
+
+      private def delegates(node : Crystal::Call) : Bool
+        return false if owner.is_a?(TopLevel)
+        target = node.named_args.try(&.find(&.name.==("to"))).try(&.value)
+        return false unless target
+
+        node.args.each do |arg|
+          name = case arg
+                 when Crystal::SymbolLiteral, Crystal::StringLiteral then arg.value
+                 when Crystal::Call
+                   arg.obj.nil? && arg.args.empty? ? arg.name : nil
+                 end
+          next unless name
+          span = span_of(arg, name.size + 1)
+          next unless span
+
+          @defs << Def.new(
+            name: name,
+            owner: owner,
+            receiver: :instance,
+            path: @path,
+            name_span: span,
+            arity: Arity.new(0, 0, true),
+            parameters: [Parameter.new("args", "args", Unrestricted.new, nil, :splat)],
+            return_type: Unrestricted.new,
+            free_vars: Array(String).new,
+            yields: false,
+            forwards_to: target,
+          )
+        end
+        false
       end
 
       private def accessors(node : Crystal::Call) : Bool

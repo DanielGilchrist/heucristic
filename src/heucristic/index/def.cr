@@ -21,7 +21,8 @@ module Heucristic
       parameters : Array(Parameter),
       return_type : Restriction,
       free_vars : Array(String),
-      yields : Bool do
+      yields : Bool,
+      forwards_to : Crystal::ASTNode? = nil do
       def qualified : String
         case (namespace = owner)
         in TopLevel then name
