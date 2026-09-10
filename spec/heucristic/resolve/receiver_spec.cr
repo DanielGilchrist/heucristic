@@ -559,3 +559,43 @@ describe Heucristic::Resolve::Receiver, "extended class methods" do
     receiver_of_size(source, %(Digest::SHA256.hexdigest("x").size)).should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "inherited instance variables" do
+  source = <<-CR
+    class Model
+      def id : Int32
+      end
+    end
+
+    class Base(T)
+      def initialize(@object : T) : Nil
+      end
+    end
+
+    class Presenter < Base(Model)
+      def render : Nil
+        @object.size
+        @object.id.size
+      end
+    end
+
+    class Plain
+      @count : Int32 = 0
+    end
+
+    class Child < Plain
+      def go : Nil
+        @count.size
+      end
+    end
+    CR
+
+  it "finds an ivar declared in a generic superclass with the type argument bound" do
+    receiver_of_size(source, "@object.size").should eq("Model")
+    receiver_of_size(source, "@object.id.size").should eq("Int32")
+  end
+
+  it "finds an ivar declared in a plain superclass" do
+    receiver_of_size(source, "@count.size").should eq("Int32")
+  end
+end

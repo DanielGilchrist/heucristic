@@ -169,17 +169,34 @@ module Heucristic
           return Unknown.new(:no_annotation, "#{name} outside any type")
         end
 
-        entries = @workspace.instance_vars_of(owner).select(&.name.==(name))
-        declared = entries.select(&.origin.declared?)
-        sources = declared.empty? ? entries : declared
-        if sources.empty?
-          return Unknown.new(
-            :no_annotation, "#{name} is never declared or assigned an evident type in #{owner}"
-          )
+        levels = [owner]
+        chain = @types.ancestors(owner)
+        levels.concat(chain) unless chain.is_a?(Unknown)
+        levels.each do |level|
+          entries = @workspace.instance_vars_of(level).select(&.name.==(name))
+          next if entries.empty?
+
+          declared = entries.select(&.origin.declared?)
+          sources = declared.empty? ? entries : declared
+          scope = ivar_scope(owner, level)
+          return scope if scope.is_a?(Unknown)
+
+          return union(sources.map { |entry| declared(entry.type, scope) })
         end
 
-        scope = Scope.of(owner)
-        union(sources.map { |entry| declared(entry.type, scope) })
+        Unknown.new(
+          :no_annotation, "#{name} is never declared or assigned an evident type in #{owner}"
+        )
+      end
+
+      private def ivar_scope(owner : String, level : String) : Scope | Unknown
+        return Scope.of(owner) if level == owner
+
+        this = TypeRef.new(owner, Array(Resolution).new)
+        bindings = @types.bindings(this, level)
+        return bindings if bindings.is_a?(Unknown)
+
+        Scope.new(level, @types.type_vars_of(level), bindings)
       end
 
       private def type_of(
