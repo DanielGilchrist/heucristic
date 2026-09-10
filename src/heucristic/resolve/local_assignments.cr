@@ -21,6 +21,12 @@ module Heucristic
         true
       end
 
+      def visit(node : Crystal::OpAssign) : Bool
+        target = node.target
+        @values << node.value if target.is_a?(Crystal::Var) && target.name == @name
+        true
+      end
+
       def visit(node : Crystal::Def) : Bool
         false
       end

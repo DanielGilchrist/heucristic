@@ -903,3 +903,37 @@ describe Heucristic::Resolve::Receiver, "narrowing an inline assignment" do
     receiver_of_size(source, "name.size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "or-assignment and cyclic branches" do
+  source = <<-CR
+    class Array(T)
+      def dup : self
+      end
+    end
+
+    class Loader
+      def load : Array(String)?
+      end
+
+      def fallback : Array(String)
+      end
+
+      def run(shifts : Array(String)?) : Nil
+        shifts ||= fallback
+        shifts.size
+        bindings = Array(Int32).new
+        inherited = shifts ? fallback : bindings
+        bindings = inherited.dup
+        bindings.size
+      end
+    end
+    CR
+
+  it "drops Nil from a variable after an or-assignment" do
+    receiver_of_size(source, "shifts.size").should eq("Array(String)")
+  end
+
+  it "ignores a cyclic branch when the other branches resolve" do
+    receiver_of_size(source, "bindings.size").should eq("Array(String)")
+  end
+end

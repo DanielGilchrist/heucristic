@@ -8,8 +8,9 @@ module Heucristic
       record Truthy, positive : Bool
       record IsA, types : Array(Crystal::ASTNode), positive : Bool
       record Assigned, value : Crystal::ASTNode
+      record OrAssigned, value : Crystal::ASTNode
 
-      alias Step = Truthy | IsA | Assigned
+      alias Step = Truthy | IsA | Assigned | OrAssigned
 
       EXITS = {"raise", "exit", "abort"}
 
@@ -71,6 +72,11 @@ module Heucristic
           return unless target.is_a?(Crystal::Var) && target.name == name
 
           steps << Assigned.new(statement.value)
+        when Crystal::OpAssign
+          target = statement.target
+          return unless target.is_a?(Crystal::Var) && target.name == name && statement.op == "||"
+
+          steps << OrAssigned.new(statement.value)
         when Crystal::If
           if exits?(statement.then) && empty?(statement.else)
             condition(name, statement.cond, false, steps)

@@ -413,8 +413,11 @@ module Heucristic
         Flow.steps(name, context.ancestors).reduce(base) do |current, step|
           case step
           in Flow::Assigned then type_of(step.value, context, visiting + [name], locals)
-          in Flow::Truthy   then truthy(current, step.positive)
-          in Flow::IsA      then narrow_is_a(current, step.types, step.positive, context)
+          in Flow::OrAssigned
+            value = type_of(step.value, context, visiting + [name], locals)
+            union([truthy(current, true), value] of Resolution)
+          in Flow::Truthy then truthy(current, step.positive)
+          in Flow::IsA    then narrow_is_a(current, step.types, step.positive, context)
           end
         end
       end
@@ -565,6 +568,10 @@ module Heucristic
 
       private def union(resolutions : Array(Resolution)) : Resolution
         members = Array(Resolution).new
+        cyclic = resolutions.select(Unknown).select(&.reason.cycle?)
+        unless cyclic.size == resolutions.size
+          resolutions = resolutions.reject { |resolution| cyclic.includes?(resolution) }
+        end
         resolutions.each do |resolution|
           return resolution if resolution.is_a?(Unknown)
           next if resolution.is_a?(TypeRef) && resolution.name == "NoReturn"
