@@ -28,7 +28,19 @@ module Heucristic
         end
 
         def accepts?(entry : Index::Def) : Bool
-          entry.arity.accepts?(arity) && entry.yields == block && keywords_satisfied?(entry)
+          positional_satisfied?(entry) && entry.yields == block && keywords_satisfied?(entry)
+        end
+
+        private def positional_satisfied?(entry : Index::Def) : Bool
+          positional = entry.parameters.select(&.kind.positional?)
+          by_name = positional.count { |parameter| named.includes?(parameter.external_name) }
+          required = positional.count { |parameter| parameter.default.nil? }
+          required_by_name = positional.count do |parameter|
+            parameter.default.nil? && named.includes?(parameter.external_name)
+          end
+          return false if arity + by_name > positional.size && !entry.arity.splat
+
+          arity >= required - required_by_name
         end
 
         private def keywords_satisfied?(entry : Index::Def) : Bool
@@ -140,7 +152,10 @@ module Heucristic
         return extended unless extended.empty?
         return extended unless call.name == "new"
 
-        instance_methods(type, Call.new("initialize", call.arity, call.block))
+        constructor = Call.new(
+          "initialize", call.arity, call.block, call.arguments, call.named, call.named_arguments
+        )
+        instance_methods(type, constructor)
       end
 
       private def extended_methods(type : String, call : Call) : Array(Index::Def)

@@ -233,4 +233,30 @@ describe Heucristic::Resolve::Methods do
       ["def record(name : String, origin : Origin) : Nil"]
     )
   end
+
+  it "lets named arguments satisfy positional parameters, as record constructors are called" do
+    source = <<-CR
+      class Point
+        def initialize(x : Int32, y : Int32, label : String = "p") : Nil
+        end
+      end
+      CR
+    int = Heucristic::Resolve::TypeRef.new("Int32", Array(Heucristic::Resolve::Resolution).new)
+    by_name = Heucristic::Resolve::Methods::Call.new(
+      "new", 0, false, Array(Heucristic::Resolve::Resolution).new, ["x", "y"]
+    )
+    mixed = Heucristic::Resolve::Methods::Call.new(
+      "new", 1, false, [int] of Heucristic::Resolve::Resolution, ["y", "label"]
+    )
+    missing = Heucristic::Resolve::Methods::Call.new(
+      "new", 0, false, Array(Heucristic::Resolve::Resolution).new, ["x"]
+    )
+    too_many = Heucristic::Resolve::Methods::Call.new(
+      "new", 3, false, [int, int, int] of Heucristic::Resolve::Resolution, ["x"]
+    )
+    lookup_meta(source, "Point", by_name).size.should eq(1)
+    lookup_meta(source, "Point", mixed).size.should eq(1)
+    lookup_meta(source, "Point", missing).should be_empty
+    lookup_meta(source, "Point", too_many).should be_empty
+  end
 end
