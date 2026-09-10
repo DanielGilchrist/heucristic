@@ -93,7 +93,13 @@ module Heucristic
         steps : Array(Step),
       ) : Nil
         subject = parent.cond
-        return unless subject.is_a?(Crystal::Var) && subject.name == name
+        if subject.is_a?(Crystal::Assign) && (target = subject.target).is_a?(Crystal::Var)
+          return unless target.name == name
+
+          steps << Assigned.new(subject.value)
+        elsif !(subject.is_a?(Crystal::Var) && subject.name == name)
+          return
+        end
 
         if (taken = parent.whens.find(&.same?(child)))
           types = type_conditions(taken.conds)

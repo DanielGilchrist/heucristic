@@ -369,3 +369,27 @@ describe Heucristic::Resolve::Receiver, "implicit case objects" do
     receiver_at(source, line, lines[line - 1].index!("small?") + 1).should eq("Kind")
   end
 end
+
+describe Heucristic::Resolve::Flow, "case on an assignment" do
+  source = <<-CR
+    class Failure
+    end
+
+    class Parser
+      def parse : Int32 | Failure
+      end
+
+      def run : Nil
+        case parsed = parse
+        in Int32   then parsed.size
+        in Failure then parsed.size
+        end
+      end
+    end
+    CR
+
+  it "narrows the assigned variable per branch" do
+    receiver_of_size(source, "in Int32   then parsed.size").should eq("Int32")
+    receiver_of_size(source, "in Failure then parsed.size").should eq("Failure")
+  end
+end
