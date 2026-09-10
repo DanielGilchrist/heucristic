@@ -287,6 +287,11 @@ module Heucristic
         yield span if span.is_a?(Document::Span)
       end
 
+      private def yielding_without_restriction?(node : Crystal::Def) : Bool
+        yields = !node.block_arity.nil? || !node.block_arg.nil?
+        yields && node.block_arg.try(&.restriction).nil?
+      end
+
       private def record_ivar_parameters(node : Crystal::Def) : Nil
         body = node.body
         statements = body.is_a?(Crystal::Expressions) ? body.expressions : [body]
@@ -493,6 +498,7 @@ module Heucristic
           return_type: Restrictions.of(node.return_type),
           free_vars: node.free_vars || Array(String).new,
           yields: !node.block_arity.nil? || !node.block_arg.nil?,
+          node: yielding_without_restriction?(node) ? node : nil,
         )
       end
     end

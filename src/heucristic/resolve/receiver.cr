@@ -12,6 +12,7 @@ require "./local_declarations"
 require "./local_assignments"
 require "./rescue_variables"
 require "./flow"
+require "../syntax/yield_sites"
 
 module Heucristic
   module Resolve
@@ -37,7 +38,41 @@ module Heucristic
         return receiver if receiver.is_a?(Unknown)
 
         shape = shape_of(call, context, locals, visiting)
-        result_of(receiver, shape, Site.new(call.block, context, locals, visiting))
+        site = Site.new(call.block, context, locals, visiting, shape.named_arguments)
+        if call.obj.nil? && call.name == "super"
+          return super_result(call, receiver, shape, site)
+        end
+
+        result_of(receiver, shape, site)
+      end
+
+      private def super_result(
+        call : Crystal::Call,
+        receiver : Resolved,
+        shape : Methods::Call,
+        site : Site,
+      ) : Resolution
+        definition = site.context.def_node
+        owner = site.context.owner
+        unless definition && owner.is_a?(String)
+          return Unknown.new(:no_annotation, "super outside a method")
+        end
+
+        arity = call.has_parentheses? ? shape.arity : definition.args.size
+        parent_call = Methods::Call.new(
+          definition.name, arity, shape.block, shape.arguments, shape.named
+        )
+        defs = @methods.lookup_super(receiver, owner, parent_call)
+        if defs.empty?
+          return Unknown.new(:unresolved_name, "no `#{definition.name}` above #{owner}")
+        end
+
+        results = Array(Resolution).new(defs.size)
+        defs.each { |entry| results << return_type(entry, receiver, shape.arguments, site) }
+        distinct = results.uniq
+        return distinct[0] if distinct.size == 1
+
+        Unknown.new(:ambiguous, "#{defs.size} overloads of `super` do not agree on a type")
       end
 
       def shape_of(
@@ -49,7 +84,14 @@ module Heucristic
         arguments = Array(Resolution).new(call.args.size)
         call.args.each { |argument| arguments << type_of(argument, context, visiting, locals) }
         named = call.named_args.try(&.map(&.name)) || Array(String).new
-        Methods::Call.new(call.name, call.args.size, !call.block.nil?, arguments, named)
+        named_arguments = Array(Binding).new
+        call.named_args.try &.each do |argument|
+          value = type_of(argument.value, context, visiting, locals)
+          named_arguments << Binding.new(argument.name, value)
+        end
+        Methods::Call.new(
+          call.name, call.args.size, !call.block.nil?, arguments, named, named_arguments
+        )
       end
 
       def result_of(receiver : Resolved, call : Methods::Call) : Resolution
@@ -79,7 +121,8 @@ module Heucristic
         block : Crystal::Block?,
         context : Syntax::Context,
         locals : Array(Binding),
-        visiting : Array(String) do
+        visiting : Array(String),
+        named : Array(Binding) = Array(Binding).new do
         NONE = new(
           nil,
           Syntax::Context.new(Array(String).new, Array(String).new, nil),
@@ -379,6 +422,13 @@ module Heucristic
         if entry.name == "initialize" && receiver.is_a?(MetaRef)
           return receiver.of
         end
+        if entry.qualified == "Object#class"
+          return MetaRef.new(receiver) if receiver.is_a?(TypeRef)
+          return receiver if receiver.is_a?(MetaRef)
+        end
+        if entry.qualified == "Array#compact" && receiver.is_a?(TypeRef)
+          return compacted(receiver)
+        end
 
         case (restriction = entry.return_type)
         in Index::Unrestricted
@@ -420,6 +470,14 @@ module Heucristic
         end
       end
 
+      private def compacted(receiver : TypeRef) : Resolution
+        element = receiver.arguments[0]?
+        return receiver unless element.is_a?(UnionRef)
+
+        kept = element.members.reject { |member| member.is_a?(TypeRef) && member.name == "Nil" }
+        TypeRef.new("Array", [union(kept)] of Resolution)
+      end
+
       private def forwarded(
         entry : Index::Def,
         target : Crystal::ASTNode,
@@ -459,6 +517,7 @@ module Heucristic
 
         scope = Scope.new(owner, type_vars, bindings)
         bind_arguments(entry, arguments, bindings, scope)
+        bind_named(entry, site.named, bindings, scope)
         bind_block(entry, site, bindings, scope)
         scope
       end
@@ -516,6 +575,8 @@ module Heucristic
           block = call.block
           next unless block
           index = block.args.index(&.name.==(name))
+          unpacked = index ? nil : unpacked_position(block, name)
+          index ||= unpacked.try(&.[0])
           next unless index
 
           enclosing_blocks = context.blocks[0...context.blocks.index!(call)]
@@ -532,9 +593,32 @@ module Heucristic
           return receiver if receiver.is_a?(Unknown)
 
           shape = shape_of(call, outer, locals, visiting)
-          return block_inputs(receiver, shape, index, block.args.size)
+          input = block_inputs(receiver, shape, index, block.args.size)
+          return input unless unpacked
+
+          return tuple_element(input, unpacked[1], name)
         end
         nil
+      end
+
+      private def unpacked_position(block : Crystal::Block, name : String) : Tuple(Int32, Int32)?
+        block.unpacks.try &.each do |index, expressions|
+          position = expressions.expressions.index do |var|
+            var.is_a?(Crystal::Var) && var.name == name
+          end
+          return {index, position} if position
+        end
+        nil
+      end
+
+      private def tuple_element(input : Resolution, position : Int32, name : String) : Resolution
+        return input if input.is_a?(Unknown)
+        unless input.is_a?(TypeRef) && input.name == "Tuple"
+          return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not a Tuple")
+        end
+
+        element = input.arguments[position]?
+        element || Unknown.new(:unsupported, "#{name} unpacks past the tuple's size")
       end
 
       private def block_inputs(
@@ -573,9 +657,8 @@ module Heucristic
         parameters : Int32,
       ) : Resolution
         restriction = block_restriction(entry)
-        unless restriction
-          return Unknown.new(:no_annotation, "#{entry.qualified} does not state what it yields")
-        end
+        return yielded(entry, index) unless restriction
+
         scope = return_scope(entry, receiver, arguments, Site::NONE)
         return scope if scope.is_a?(Unknown)
 
@@ -590,6 +673,30 @@ module Heucristic
         return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values") unless input
 
         @types.resolve(input, scope)
+      end
+
+      private def yielded(entry : Index::Def, index : Int32) : Resolution
+        definition = entry.node
+        unless definition
+          return Unknown.new(:no_annotation, "#{entry.qualified} does not state what it yields")
+        end
+
+        owner = entry.owner
+        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
+        sites = Syntax::YieldSites.in(definition, enclosing, entry.free_vars)
+        if sites.empty?
+          return Unknown.new(:no_annotation, "#{entry.qualified} never yields")
+        end
+
+        values = Array(Resolution).new(sites.size)
+        sites.each do |site|
+          expression = site.node.exps[index]?
+          unless expression
+            return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values")
+          end
+          values << type_of(expression, site.context, [entry.qualified], Array(Binding).new)
+        end
+        union(values)
       end
 
       private def block_restriction(entry : Index::Def) : Syntax::Proc?
@@ -649,6 +756,21 @@ module Heucristic
           next unless argument && restriction.is_a?(Syntax::Type)
 
           Unify.bind(restriction, argument, entry.free_vars, bindings, @types, scope)
+        end
+      end
+
+      private def bind_named(
+        entry : Index::Def,
+        named : Array(Binding),
+        bindings : Array(Binding),
+        scope : Scope,
+      ) : Nil
+        named.each do |argument|
+          parameter = entry.parameters.find(&.external_name.==(argument.name))
+          restriction = parameter.try(&.restriction)
+          next unless restriction.is_a?(Syntax::Type)
+
+          Unify.bind(restriction, argument.value, entry.free_vars, bindings, @types, scope)
         end
       end
 

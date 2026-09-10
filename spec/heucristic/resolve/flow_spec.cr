@@ -238,3 +238,97 @@ describe Heucristic::Resolve::Receiver, "records, defaults, tuples and try" do
     receiver_of_size(source, "word.try(&.upcase).size").should eq("String | Nil")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "unpacking, yields, super, named arguments and class" do
+  source = <<-CR
+    class Hash(K, V)
+      def each(& : Tuple(K, V) ->) : Nil
+      end
+
+      def each_with_index(& : Tuple(K, V), Int32 ->) : Nil
+      end
+    end
+
+    class Object
+      def class
+      end
+    end
+
+    class Array(T)
+      def compact
+      end
+
+      def each(& : T ->) : Nil
+      end
+    end
+
+    class Bag
+      def initialize(@items : Array(String)) : Nil
+      end
+
+      def each_item(&) : Nil
+        @items.each { |item| yield item, 1 }
+      end
+    end
+
+    class Base
+      def describe(count : Int32) : String
+      end
+    end
+
+    class Child < Base
+      def describe(count : Int32) : String
+        super.size
+        super(count).size
+        ""
+      end
+    end
+
+    class Boxes
+      def wrap(value : T, *, label : L) : Tuple(T, L) forall T, L
+      end
+    end
+
+    class Runner
+      def run(counts : Hash(String, Int32), bag : Bag, words : Array(String?), boxes : Boxes) : Nil
+        counts.each_with_index { |(key, value), position| key.size }
+        counts.each_with_index { |(key, value), position| value.size }
+        counts.each_with_index { |(key, value), position| position.size }
+        bag.each_item { |item, number| item.size }
+        bag.each_item { |item, number| number.size }
+        words.compact.size
+        counts.class.size
+        boxes.wrap(1, label: "a").size
+      end
+    end
+    CR
+
+  it "types unpacked block parameters from the yielded tuple" do
+    each = "counts.each_with_index { |(key, value), position| "
+    receiver_of_size(source, "#{each}key.size }").should eq("String")
+    receiver_of_size(source, "#{each}value.size }").should eq("Int32")
+    receiver_of_size(source, "#{each}position.size }").should eq("Int32")
+  end
+
+  it "types block parameters of a project def from its yield expressions" do
+    receiver_of_size(source, "bag.each_item { |item, number| item.size }").should eq("String")
+    receiver_of_size(source, "bag.each_item { |item, number| number.size }").should eq("Int32")
+  end
+
+  it "types super through the ancestor's def" do
+    receiver_of_size(source, "super.size").should eq("String")
+    receiver_of_size(source, "super(count).size").should eq("String")
+  end
+
+  it "removes Nil from the element type of Array#compact" do
+    receiver_of_size(source, "words.compact.size").should eq("Array(String)")
+  end
+
+  it "answers the receiver's metaclass for Object#class" do
+    receiver_of_size(source, "counts.class.size").should eq("Hash(String, Int32).class")
+  end
+
+  it "binds free variables from named arguments" do
+    receiver_of_size(source, %(boxes.wrap(1, label: "a").size)).should eq("Tuple(Int32, String)")
+  end
+end

@@ -12,6 +12,18 @@ module Heucristic
         @nodes = Array(Crystal::ASTNode).new
       end
 
+      def initialize(
+        enclosing : Array(String),
+        type_vars : Array(String),
+        definition : Crystal::Def,
+      ) : Nil
+        @enclosing = enclosing.dup
+        @type_vars = type_vars.dup
+        @defs = [definition]
+        @blocks = Array(Crystal::Call).new
+        @nodes = Array(Crystal::ASTNode).new
+      end
+
       def visit_any(node : Crystal::ASTNode) : Bool
         @nodes << node
         true

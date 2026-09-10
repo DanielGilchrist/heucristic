@@ -12,7 +12,8 @@ module Heucristic
         arity : Int32,
         block : Bool,
         arguments : Array(Resolution),
-        named : Array(String) do
+        named : Array(String),
+        named_arguments : Array(Binding) = Array(Binding).new do
         def self.new(name : String, arity : Int32, block : Bool) : Call
           new(name, arity, block, Array(Resolution).new, Array(String).new)
         end
@@ -101,6 +102,20 @@ module Heucristic
         end
       end
 
+      def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
+        case receiver
+        in TypeRef
+          first_level(receiver.name, call, after: owner) do |entry|
+            entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
+          end
+        in MetaRef
+          first_level(receiver.of.name, call, after: owner) do |entry|
+            entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
+          end
+        in UnionRef then Array(Index::Def).new
+        end
+      end
+
       private def instance_methods(type : String, call : Call) : Array(Index::Def)
         first_level(type, call) do |entry|
           entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
@@ -147,10 +162,15 @@ module Heucristic
       private def first_level(
         type : String,
         call : Call,
+        after : String? = nil,
         & : Index::Def -> Bool
       ) : Array(Index::Def)
         candidates = @workspace.named(call.name)
-        levels(type).each do |level|
+        searched = levels(type)
+        if after && (start = searched.index(after))
+          searched = searched[(start + 1)..]
+        end
+        searched.each do |level|
           found = candidates.select { |entry| entry.owner == level && yield entry }
           return most_specific(found, call) unless found.empty?
         end

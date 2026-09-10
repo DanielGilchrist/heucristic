@@ -429,7 +429,7 @@ describe Heucristic::Resolve::Receiver, "block parameters" do
 
   it "says so when the def does not state what it yields" do
     receiver_of_size(source, "names.sort_by { |name| name.size }").should eq(
-      "unknown (no annotation: Enumerable#sort_by does not state what it yields)"
+      "unknown (no annotation: Enumerable#sort_by never yields)"
     )
   end
 end

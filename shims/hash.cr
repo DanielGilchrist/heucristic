@@ -1,4 +1,10 @@
 class Hash(K, V)
+  def self.new(initial_capacity = nil, &block : (Hash(K, V), K -> V)) : self
+  end
+
+  def self.new(default_value : V, initial_capacity = nil) : self
+  end
+
   def self.zip(ary1 : Array(K), ary2 : Array(V)) : Hash(K, V)
   end
 
