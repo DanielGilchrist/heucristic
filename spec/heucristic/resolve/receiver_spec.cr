@@ -1476,3 +1476,36 @@ describe Heucristic::Resolve::Receiver, "yield expressions" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "hash literals" do
+  source = <<-CR
+    class Hash(K, V)
+    end
+
+    module HTTP
+      class Headers
+      end
+    end
+
+    class Client
+      def initialize(@token : String) : Nil
+        @headers = HTTP::Headers{"Authorization" => "Bearer"}
+      end
+
+      def run(user_id : Int32) : Nil
+        {"time" => "now", "user" => user_id}.size
+        @headers.size
+      end
+    end
+    CR
+
+  it "types a hash literal from the union of its keys and values" do
+    receiver_of_size(source, "{\"time\" => \"now\", \"user\" => user_id}.size").should eq(
+      "Hash(String, String | Int32)"
+    )
+  end
+
+  it "types a hash-like literal with a receiver type as that type" do
+    receiver_of_size(source, "@headers.size").should eq("HTTP::Headers")
+  end
+end

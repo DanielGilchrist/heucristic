@@ -387,6 +387,30 @@ module Heucristic
         end
       end
 
+      private def hash_literal(
+        node : Crystal::HashLiteral,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
+        if node.entries.empty?
+          return Unknown.new(:no_annotation, "an empty hash literal needs `of K => V`")
+        end
+
+        keys = Array(Resolution).new(node.entries.size)
+        values = Array(Resolution).new(node.entries.size)
+        node.entries.each do |entry|
+          keys << type_of(entry.key, context, visiting, locals)
+          values << type_of(entry.value, context, visiting, locals)
+        end
+        key = union(keys)
+        return key if key.is_a?(Unknown)
+        value = union(values)
+        return value if value.is_a?(Unknown)
+
+        TypeRef.new("Hash", [key, value] of Resolution)
+      end
+
       private def yielded_result(context : Syntax::Context) : Resolution
         definition = context.def_node
         return Unknown.new(:no_annotation, "yield outside any method") unless definition
@@ -582,6 +606,7 @@ module Heucristic
           elements(node.elements, context, visiting, locals) do |inner|
             TypeRef.new("Array", [inner] of Resolution)
           end
+        when Crystal::HashLiteral then hash_literal(node, context, visiting, locals)
         when Crystal::TupleLiteral
           members = Array(Resolution).new(node.elements.size)
           node.elements.each { |element| members << type_of(element, context, visiting, locals) }

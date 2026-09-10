@@ -23,7 +23,7 @@ module Heucristic
         when Crystal::Cast                   then read(node.to)
         when Crystal::NilableCast            then nilable(node.to)
         when Crystal::ArrayLiteral           then collection("Array", node.of)
-        when Crystal::HashLiteral            then hash(node.of)
+        when Crystal::HashLiteral            then hash(node)
         when Crystal::Expressions
           node.expressions.size == 1 ? type(node.expressions[0]) : NotEvident.new
         else
@@ -63,7 +63,11 @@ module Heucristic
         Syntax::Generic.new(builtin(base), arguments, Array(Syntax::Generic::NamedArgument).new)
       end
 
-      private def hash(of : Crystal::HashLiteral::Entry?) : Syntax::Type | NotEvident
+      private def hash(node : Crystal::HashLiteral) : Syntax::Type | NotEvident
+        name = node.name
+        return read(name) if name
+
+        of = node.of
         return NotEvident.new unless of
 
         key = read(of.key)
