@@ -87,12 +87,24 @@ module Heucristic
             head = qualify(namespace, first)
             next unless declared?(head, constants)
 
+            head = through_alias(head) unless rest.empty?
             full = rest.empty? ? head : "#{head}::#{rest.join("::")}"
             return declared?(full, constants) ? full : Unknown.new(:unresolved_name, full)
           end
         end
 
         Unknown.new(:unresolved_name, path.to_s)
+      end
+
+      private def through_alias(name : String) : String
+        aliases = @workspace.aliases(name)
+        return name if aliases.empty?
+
+        target = aliases[0].target
+        return name unless target.is_a?(Syntax::Named)
+
+        resolved = resolve_named(target, Scope.of(name.rpartition("::")[0]), [name], false)
+        resolved.is_a?(TypeRef) ? resolved.name : name
       end
 
       private def search_in(

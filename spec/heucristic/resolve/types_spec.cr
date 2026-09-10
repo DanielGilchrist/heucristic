@@ -195,4 +195,22 @@ describe Heucristic::Resolve::Types do
     resolve(ws, "Thing | Thing", "Outer").should eq("Outer::Thing")
     resolve(ws, "(Thing | Nil) | Nil", "Outer").should eq("Outer::Thing | Nil")
   end
+
+  it "follows an alias used as a path prefix" do
+    source = <<-CR
+      module Config
+        module Environment
+          alias Any = Int32 | String
+        end
+      end
+
+      module Commands
+        alias Environment = Config::Environment
+
+        class Login
+        end
+      end
+      CR
+    resolve(workspace(source), "Environment::Any", "Commands::Login").should eq("Int32 | String")
+  end
 end
