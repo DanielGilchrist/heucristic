@@ -184,6 +184,7 @@ module Heucristic
       private def extended_module(mixin : Index::Mixin, owner : String) : String?
         target = mixin.target
         return if target.is_a?(Syntax::TypeReader::Unsupported)
+        return owner if target.is_a?(Syntax::SelfType)
 
         scope = Scope.new(owner, @types.type_vars_of(owner))
         resolved = @types.resolve_lexically(target, scope)

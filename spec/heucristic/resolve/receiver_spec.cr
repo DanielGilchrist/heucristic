@@ -1002,3 +1002,58 @@ describe Heucristic::Resolve::Receiver, "lib declarations" do
     receiver_of_size(source, "event.mask.size").should eq("UInt32")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "extend self and widened reassignment" do
+  source = <<-CR
+    class String
+      def [](range : Range) : String
+      end
+    end
+
+    module Parsing
+      extend self
+
+      def parse(source : String) : Int32
+      end
+    end
+
+    class Directory
+    end
+
+    class Walker
+      def entries : Array(String)
+      end
+
+      def run(base : Directory?, text : String) : Nil
+        Parsing.parse(text).size
+        stack = nil
+        entries.each do |entry|
+          stack ||= Array(String).new
+          stack << entry
+        end
+        return if stack.nil?
+
+        stack.size
+        base_directory = base if base
+        base_directory.size
+        text[(1)..].size
+      end
+    end
+    CR
+
+  it "finds module methods exposed through extend self" do
+    receiver_of_size(source, "Parsing.parse(text).size").should eq("Int32")
+  end
+
+  it "widens a variable reassigned inside a block before a guard" do
+    receiver_of_size(source, "stack.size").should eq("Array(String)")
+  end
+
+  it "types a conditional assignment as the value or nil" do
+    receiver_of_size(source, "base_directory.size").should eq("Nil | Directory")
+  end
+
+  it "types a range literal from its bounds" do
+    receiver_of_size(source, "text[(1)..].size").should eq("String")
+  end
+end

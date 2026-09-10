@@ -67,11 +67,8 @@ module Heucristic
         true
       end
 
-      def end_visit(
-        node : Crystal::ClassDef | Crystal::ModuleDef | Crystal::EnumDef | Crystal::LibDef,
-      ) : Nil
-        @enclosing.pop
-        type_vars_of(node).size.times { @type_vars.pop }
+      def visit(node : Crystal::Macro | Crystal::MacroFor | Crystal::MacroExpression) : Bool
+        false
       end
 
       def visit(node : Crystal::MacroIf) : Bool
@@ -87,6 +84,13 @@ module Heucristic
 
       def visit(node : Crystal::ASTNode) : Bool
         true
+      end
+
+      def end_visit(
+        node : Crystal::ClassDef | Crystal::ModuleDef | Crystal::EnumDef | Crystal::LibDef,
+      ) : Nil
+        @enclosing.pop
+        type_vars_of(node).size.times { @type_vars.pop }
       end
 
       protected def context : Context

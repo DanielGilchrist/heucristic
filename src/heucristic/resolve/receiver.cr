@@ -144,6 +144,9 @@ module Heucristic
         if entry.name == "initialize" && receiver.is_a?(MetaRef)
           return receiver.of
         end
+        if entry.name == "new" && receiver.is_a?(MetaRef)
+          return receiver.of if entry.return_type.is_a?(Index::Unrestricted)
+        end
         if entry.qualified == "Object#class"
           return MetaRef.new(receiver) if receiver.is_a?(TypeRef)
           return receiver if receiver.is_a?(MetaRef)
@@ -270,7 +273,9 @@ module Heucristic
           scope = ivar_scope(owner, level)
           return scope if scope.is_a?(Unknown)
 
-          return union(sources.map { |entry| declared(entry.type, scope) })
+          typed = Array(Resolution).new(sources.size)
+          sources.each { |entry| typed << declared(entry.type, scope) }
+          return union(typed)
         end
 
         from_includers = includers_instance_var(name, owner, visiting)
@@ -308,7 +313,7 @@ module Heucristic
       end
 
       private def ivar_scope(owner : String, level : String) : Scope | Unknown
-        return Scope.of(owner) if level == owner
+        return Scope.new(owner, @types.type_vars_of(owner)) if level == owner
 
         this = TypeRef.new(owner, Array(Resolution).new)
         bindings = @types.bindings(this, level)
@@ -347,7 +352,7 @@ module Heucristic
 
         case node
         when Crystal::Var         then variable(node.name, context, visiting, locals)
-        when Crystal::InstanceVar then instance_var(node.name, context)
+        when Crystal::InstanceVar then instance_var(node.name, context, visiting)
         when Crystal::Call        then result_of(node, context, locals, visiting)
         when Crystal::Path        then constant(node, context, visiting)
         when Crystal::ImplicitObj then case_subject(context, visiting, locals)
@@ -357,6 +362,11 @@ module Heucristic
           branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
           union(branches)
         when Crystal::Return, Crystal::Break then TypeRef.new("NoReturn", Array(Resolution).new)
+        when Crystal::RangeLiteral
+          bounds = Array(Resolution).new(2)
+          bounds << type_of(node.from, context, visiting, locals)
+          bounds << type_of(node.to, context, visiting, locals)
+          bounds.find(&.is_a?(Unknown)) || TypeRef.new("Range", bounds)
         when Crystal::Or
           left = type_of(node.left, context.inside(node, node.left), visiting, locals)
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
@@ -396,28 +406,42 @@ module Heucristic
         locals : Array(Binding),
       ) : Resolution
         return implicit_self(context) if name == "self"
+        exits = CallExits.new(@methods, implicit_self(context))
+        steps = Flow.steps(name, context.ancestors, exits)
         if (local = locals.find(&.name.==(name)))
-          return narrow(local.value, name, context, visiting, locals)
+          return narrow(local.value, name, steps, context, visiting, locals)
         end
         return Unknown.new(:cycle, name) if visiting.includes?(name)
 
-        narrow(declared_variable(name, context, visiting, locals), name, context, visiting, locals)
+        base = declared_variable(name, context, visiting, locals, steps)
+        narrow(base, name, steps, context, visiting, locals)
       end
 
       private def narrow(
         base : Resolution,
         name : String,
+        steps : Array(Flow::Step),
         context : Syntax::Context,
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
-        exits = CallExits.new(@methods, implicit_self(context))
-        Flow.steps(name, context.ancestors, exits).reduce(base) do |current, step|
+        steps.reduce(base) do |current, step|
           case step
           in Flow::Assigned then type_of(step.value, context, visiting + [name], locals)
+          in Flow::Reassigned
+            within = step.within.reduce(context) { |inner, node| inner.inside(node) }
+            values = Array(Resolution).new(step.values.size + 1)
+            values << current
+            step.values.each { |value| values << type_of(value, within, visiting + [name], locals) }
+            union(values)
           in Flow::OrAssigned
             value = type_of(step.value, context, visiting + [name], locals)
-            union([truthy(current, true), value] of Resolution)
+            present = truthy(current, true)
+            if present.is_a?(TypeRef) && present.name == "Nil"
+              value
+            else
+              union([present, value] of Resolution)
+            end
           in Flow::Truthy then truthy(current, step.positive)
           in Flow::IsA    then narrow_is_a(current, step.types, step.positive, context)
           end
@@ -492,6 +516,7 @@ module Heucristic
         context : Syntax::Context,
         visiting : Array(String),
         locals : Array(Binding),
+        steps : Array(Flow::Step),
       ) : Resolution
         definition = context.def_node
         return Unknown.new(:no_annotation, "#{name} is outside any method") unless definition
@@ -535,6 +560,9 @@ module Heucristic
           return Unknown.new(
             :no_annotation, "#{name} is not a parameter and is never assigned here"
           )
+        end
+        if steps.any?(Flow::Assigned | Flow::Reassigned | Flow::OrAssigned)
+          return TypeRef.new("Nil", Array(Resolution).new)
         end
 
         assigned = Array(Resolution).new(assignments.size)

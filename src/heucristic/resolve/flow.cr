@@ -1,5 +1,6 @@
 require "compiler/crystal/syntax"
 require "./terminator"
+require "./local_assignments"
 
 module Heucristic
   module Resolve
@@ -10,8 +11,9 @@ module Heucristic
       record IsA, types : Array(Crystal::ASTNode), positive : Bool
       record Assigned, value : Crystal::ASTNode
       record OrAssigned, value : Crystal::ASTNode
+      record Reassigned, values : Array(Crystal::ASTNode), within : Array(Crystal::ASTNode)
 
-      alias Step = Truthy | IsA | Assigned | OrAssigned
+      alias Step = Truthy | IsA | Assigned | OrAssigned | Reassigned
 
       def steps(
         name : String,
@@ -88,18 +90,40 @@ module Heucristic
 
           steps << OrAssigned.new(statement.value)
         when Crystal::If
-          if exits?(statement.then, exits) && empty?(statement.else)
+          branch = statement.then
+          if branch.is_a?(Crystal::Assign) && assigns?(branch, name) && empty?(statement.else)
+            values = [branch.value] of Crystal::ASTNode
+            steps << Reassigned.new(values, [statement, branch] of Crystal::ASTNode)
+          elsif exits?(branch, exits) && empty?(statement.else)
             condition(name, statement.cond, false, steps)
-          elsif exits?(statement.else, exits) && empty?(statement.then)
+          elsif exits?(statement.else, exits) && empty?(branch)
             condition(name, statement.cond, true, steps)
+          else
+            nested(name, statement, steps)
           end
         when Crystal::Unless
-          return unless exits?(statement.then, exits) && empty?(statement.else)
-
-          condition(name, statement.cond, true, steps)
+          if exits?(statement.then, exits) && empty?(statement.else)
+            condition(name, statement.cond, true, steps)
+          else
+            nested(name, statement, steps)
+          end
         when Crystal::Or
           condition(name, statement.left, true, steps) if exits?(statement.right, exits)
+        else
+          nested(name, statement, steps)
         end
+      end
+
+      private def assigns?(node : Crystal::ASTNode, name : String) : Bool
+        return false unless node.is_a?(Crystal::Assign)
+
+        target = node.target
+        target.is_a?(Crystal::Var) && target.name == name
+      end
+
+      private def nested(name : String, statement : Crystal::ASTNode, steps : Array(Step)) : Nil
+        values = LocalAssignments.find(statement, name)
+        steps << Reassigned.new(values, [statement] of Crystal::ASTNode) unless values.empty?
       end
 
       private def case_branch(
