@@ -168,6 +168,9 @@ module Heucristic
         if entry.qualified.in?("Enumerable#zip", "Enumerable#zip?") && !site.block
           return zipped(receiver, arguments, entry.name == "zip?")
         end
+        if entry.qualified == "Enumerable#to_h" && !site.block && receiver.is_a?(TypeRef)
+          return pairs_to_hash(receiver)
+        end
 
         case (restriction = entry.return_type)
         in Index::Unrestricted
@@ -493,6 +496,16 @@ module Heucristic
           members << (nilable ? union([other, nil_type] of Resolution) : other)
         end
         TypeRef.new("Array", [TypeRef.new("Tuple", members)] of Resolution)
+      end
+
+      private def pairs_to_hash(receiver : TypeRef) : Resolution
+        element = element_of(receiver)
+        return element if element.is_a?(Unknown)
+        unless element.is_a?(TypeRef) && element.name == "Tuple" && element.arguments.size == 2
+          return Unknown.new(:no_annotation, "to_h needs elements typed as two-element tuples")
+        end
+
+        TypeRef.new("Hash", element.arguments)
       end
 
       private def element_of(collection : TypeRef) : Resolution

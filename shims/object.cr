@@ -17,6 +17,9 @@ class Object
 
   def !=(other) : Bool
   end
+
+  def ===(other) : Bool
+  end
 end
 
 struct Value

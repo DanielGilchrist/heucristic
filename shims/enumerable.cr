@@ -35,6 +35,12 @@ module Enumerable(T)
   def zip?(*others : Indexable | Iterable | Iterator, &) : Nil
   end
 
+  def reject(& : T ->) : Array(T)
+  end
+
+  def to_h(& : T -> Tuple(K, V)) : Hash(K, V) forall K, V
+  end
+
   def reduce(& : T, T -> T) : T
   end
 

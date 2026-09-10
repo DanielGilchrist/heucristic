@@ -1,0 +1,2 @@
+def loop(&) : Nil
+end

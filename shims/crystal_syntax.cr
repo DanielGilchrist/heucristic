@@ -1,6 +1,12 @@
 class Crystal::ASTNode
   def accept(visitor) : Nil
   end
+
+  def at(location : Location?) : self
+  end
+
+  def at(node : ASTNode) : self
+  end
 end
 
 class Crystal::Location
