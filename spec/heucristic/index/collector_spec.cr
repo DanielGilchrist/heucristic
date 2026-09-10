@@ -341,3 +341,51 @@ describe Heucristic::Index::Collector, "explicit receivers" do
     file.defs.map(&.qualified).should eq(["Object.from_yaml", "M::Codec.parse"])
   end
 end
+
+describe Heucristic::Index::Collector, "macro regions" do
+  source = <<-CR
+    class File
+      {% begin %}
+        def self.read(
+          name : String,
+          {% if compare_versions(Crystal::VERSION, "1.5.0") >= 0 %} @[Deprecated] {% end %}
+          blocking = nil
+        ) : String
+        end
+      {% end %}
+
+      {% if flag?(:win32) %}
+        def self.windows_only : Nil
+        end
+      {% else %}
+        def self.elsewhere : Nil
+        end
+      {% end %}
+
+      {% unless flag?(:win32) %}
+        def self.posix : Nil
+        end
+      {% end %}
+
+      {% if flag?(:mystery) %}
+        def self.undecidable : Nil
+        end
+      {% end %}
+    end
+    CR
+
+  it "collects defs from macro regions whose conditions it can decide for this host" do
+    names = index(source).defs.map(&.qualified)
+    names.should contain("File.read")
+    names.should contain("File.elsewhere")
+    names.should contain("File.posix")
+    names.should_not contain("File.windows_only")
+    names.should_not contain("File.undecidable")
+  end
+
+  it "keeps absolute locations for defs inside macro regions" do
+    read = index(source).defs.find!(&.name.==("read"))
+    read.name_span.start_line.should eq(2)
+    read.signature.should eq("def self.read(name : String, blocking = nil) : String")
+  end
+end

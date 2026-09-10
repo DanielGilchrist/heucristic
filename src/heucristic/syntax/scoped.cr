@@ -1,5 +1,7 @@
 require "compiler/crystal/syntax"
 require "./target"
+require "./parse"
+require "../index/macro_text"
 
 module Heucristic
   module Syntax
@@ -77,6 +79,17 @@ module Heucristic
       ) : Nil
         @enclosing.pop
         type_vars_of(node).size.times { @type_vars.pop }
+      end
+
+      def visit(node : Crystal::MacroIf) : Bool
+        expanded = Index::MacroText.expand(node)
+        return false if expanded.is_a?(Index::MacroText::Undecidable)
+        location = node.location
+        return false unless location
+
+        fragment = Syntax.parse_fragment(expanded, "", location)
+        fragment.accept(self) unless fragment.is_a?(Syntax::Broken)
+        false
       end
 
       def visit(node : Crystal::ASTNode) : Bool

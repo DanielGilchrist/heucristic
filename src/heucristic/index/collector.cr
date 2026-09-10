@@ -3,6 +3,8 @@ require "../document/text"
 require "./file"
 require "./signature"
 require "./evident"
+require "./macro_text"
+require "../syntax/parse"
 
 module Heucristic
   module Index
@@ -170,6 +172,17 @@ module Heucristic
       def visit(node : Crystal::Def) : Bool
         record_def(node)
         true
+      end
+
+      def visit(node : Crystal::MacroIf) : Bool
+        expanded = MacroText.expand(node)
+        return false if expanded.is_a?(MacroText::Undecidable)
+        location = node.location
+        return false unless location
+
+        fragment = Syntax.parse_fragment(expanded, @path, location)
+        fragment.accept(self) unless fragment.is_a?(Syntax::Broken)
+        false
       end
 
       ACCESSORS = {

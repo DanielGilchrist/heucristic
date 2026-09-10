@@ -58,6 +58,12 @@ module Heucristic
         @target.nil?
       end
 
+      def visit(node : Crystal::MacroIf) : Bool
+        return false unless @target.nil?
+
+        super
+      end
+
       def visit(node : Crystal::ASTNode) : Bool
         @target.nil?
       end
