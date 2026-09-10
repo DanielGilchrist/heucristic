@@ -80,10 +80,10 @@ module Heucristic
 
       def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
         case receiver
-        in TypeRef  then instance_methods(receiver.name, call)
-        in MetaRef  then class_methods(receiver.of.name, call)
-        in UnionRef then receiver.members.flat_map { |member| lookup(member, call) }.uniq!
-        in Unknown  then Array(Index::Def).new
+        in TypeRef          then instance_methods(receiver.name, call)
+        in MetaRef          then class_methods(receiver.of.name, call)
+        in UnionRef         then receiver.members.flat_map { |member| lookup(member, call) }.uniq!
+        in TypeVar, Unknown then Array(Index::Def).new
         end
       end
 
@@ -97,7 +97,7 @@ module Heucristic
           first_level(receiver.of.name, call, after: owner) do |entry|
             entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
           end
-        in UnionRef then Array(Index::Def).new
+        in UnionRef, TypeVar then Array(Index::Def).new
         end
       end
 
@@ -109,7 +109,7 @@ module Heucristic
         end
 
         case restriction
-        in Unknown then true
+        in Unknown, TypeVar then true
         in UnionRef
           restriction.members.any? { |member| member.is_a?(Unknown) || admits?(member, argument) }
         in MetaRef then argument.is_a?(MetaRef)
@@ -121,6 +121,7 @@ module Heucristic
               autocast?(argument, restriction)
           in UnionRef then false
           in MetaRef  then restriction.name == "Class"
+          in TypeVar  then true
           end
         end
       end

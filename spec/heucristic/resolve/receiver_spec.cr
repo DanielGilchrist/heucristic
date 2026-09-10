@@ -790,9 +790,7 @@ describe Heucristic::Resolve::Receiver, "proc types" do
   end
 
   it "binds a free variable from a forwarded block parameter" do
-    receiver_of_size(source, "fetch(\"k\", &block).size").should eq(
-      "unknown (free variable: T = T)"
-    )
+    receiver_of_size(source, "fetch(\"k\", &block).size").should eq("T")
   end
 end
 
@@ -843,6 +841,47 @@ describe Heucristic::Resolve::Receiver, "free variables from defaults and metacl
 
   it "binds the type variables of a generic module from a class method call" do
     receiver_of_size(source, "Pool.run(names) { |name| 1 }.size").should eq("Array(Int32)")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "type variables" do
+  source = <<-CR
+    class Base(T, E)
+    end
+
+    class Result(T) < Base(T, String)
+      def self.from(raw : String) : self
+        parse(raw).size
+      end
+
+      private def self.parse(raw : String) : T | E
+      end
+
+      def value : T
+      end
+
+      def show : Nil
+        value.size
+      end
+    end
+
+    class Consumer
+      def use(result : Result(Int32)) : Nil
+        result.value.size
+      end
+    end
+    CR
+
+  it "resolves a type's own type variable to itself inside its body" do
+    receiver_of_size(source, "parse(raw).size").should eq("T | String")
+  end
+
+  it "keeps a call result that is the owner's type variable as the variable" do
+    receiver_of_size(source, "value.size").should eq("T")
+  end
+
+  it "binds the type variable when the receiver is instantiated" do
+    receiver_of_size(source, "result.value.size").should eq("Int32")
   end
 end
 

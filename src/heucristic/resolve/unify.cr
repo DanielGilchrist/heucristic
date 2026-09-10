@@ -75,7 +75,7 @@ module Heucristic
             members << instance
           end
           UnionRef.new(members)
-        in TypeRef, Unknown then nil
+        in TypeRef, TypeVar, Unknown then nil
         end
       end
 

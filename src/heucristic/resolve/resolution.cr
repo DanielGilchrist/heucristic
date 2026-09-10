@@ -23,7 +23,13 @@ module Heucristic
       end
     end
 
-    alias Resolved = TypeRef | UnionRef | MetaRef
+    record TypeVar, name : String do
+      def to_s(io : IO) : Nil
+        io << name
+      end
+    end
+
+    alias Resolved = TypeRef | UnionRef | MetaRef | TypeVar
 
     record Unknown, reason : Reason, detail : String do
       enum Reason

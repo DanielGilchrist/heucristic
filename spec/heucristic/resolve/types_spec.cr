@@ -102,12 +102,12 @@ describe Heucristic::Resolve::Types do
     resolve(ws, "Thing?", "Outer").should eq("Outer::Thing | Nil")
   end
 
-  it "keeps generic arguments it cannot resolve as unknown members" do
-    resolve(ws, "Array(T)", "Outer", ["T"]).should eq("Array(unknown (free variable: T))")
+  it "keeps a type variable argument as the variable itself" do
+    resolve(ws, "Array(T)", "Outer", ["T"]).should eq("Array(T)")
   end
 
-  it "treats a free type variable as unknown" do
-    resolve(ws, "T", "Outer", ["T"]).should eq("unknown (free variable: T)")
+  it "resolves a type variable in scope to itself" do
+    resolve(ws, "T", "Outer", ["T"]).should eq("T")
   end
 
   it "resolves self to the enclosing type" do

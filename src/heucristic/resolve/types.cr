@@ -10,6 +10,7 @@ module Heucristic
     class Types
       def initialize(@workspace : Index::Workspace) : Nil
         @ancestors = Ancestors.new(@workspace)
+        @inheriting = Array(String).new
       end
 
       def invalidate : Nil
@@ -135,14 +136,52 @@ module Heucristic
         visiting : Array(String),
         with_ancestors : Bool,
       ) : Resolution
-        if type.names.size == 1 && !type.global? && (bound = scope.bound(type.names[0]))
-          return bound
+        if type.names.size == 1 && !type.global?
+          name = type.names[0]
+          bound = scope.bound(name)
+          return bound if bound
+          return TypeVar.new(name) if scope.type_vars.includes?(name)
         end
 
         located = locate(type, scope, with_ancestors, false)
-        return located if located.is_a?(Unknown)
+        if located.is_a?(Unknown)
+          inherited = inherited_type_var(type, scope) if located.reason.unresolved_name?
+          return inherited || located
+        end
 
         follow(located, visiting, with_ancestors)
+      end
+
+      private def inherited_type_var(type : Syntax::Named, scope : Scope) : Resolution?
+        return if type.names.size != 1 || type.global?
+
+        owner = scope.namespace
+        return unless owner.is_a?(String)
+        return if @inheriting.includes?(owner)
+
+        @inheriting << owner
+        begin
+          inherited_type_var(type.names[0], owner, scope)
+        ensure
+          @inheriting.pop
+        end
+      end
+
+      private def inherited_type_var(name : String, owner : String, scope : Scope) : Resolution?
+        chain = ancestors(owner)
+        return if chain.is_a?(Unknown)
+
+        parent = chain.find { |ancestor| type_vars_of(ancestor).includes?(name) }
+        return unless parent
+
+        own = Array(Resolution).new
+        type_vars_of(owner).each do |type_var|
+          own << (scope.bound(type_var) || TypeVar.new(type_var))
+        end
+        bindings = bindings(TypeRef.new(owner, own), parent)
+        return if bindings.is_a?(Unknown)
+
+        bindings.find(&.name.==(name)).try(&.value)
       end
 
       private def follow(

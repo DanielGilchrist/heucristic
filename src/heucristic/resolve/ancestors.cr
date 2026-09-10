@@ -164,7 +164,7 @@ module Heucristic
         case resolved
         in TypeRef then Parent.new(resolved.name, generic_arguments(target))
         in Unknown then resolved
-        in UnionRef, MetaRef
+        in UnionRef, MetaRef, TypeVar
           Unknown.new(:unsupported, "#{owner} inherits from #{resolved}")
         end
       end

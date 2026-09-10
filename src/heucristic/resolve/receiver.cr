@@ -96,6 +96,13 @@ module Heucristic
           return union(members)
         end
 
+        if receiver.is_a?(TypeVar)
+          return Unknown.new(
+            :free_variable,
+            "#{receiver} is a type variable; `#{call.name}` depends on its instantiation",
+          )
+        end
+
         defs = @methods.lookup(receiver, call)
         return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
 
@@ -439,7 +446,7 @@ module Heucristic
           targets << resolved
         end
 
-        if current.is_a?(Unknown)
+        if current.is_a?(Unknown) || current.is_a?(TypeVar)
           return current unless positive
           return targets[0] if targets.size == 1
 
@@ -659,6 +666,12 @@ module Heucristic
         visiting : Array(String),
       ) : Resolution
         scope = scope(context)
+        if path.names.size == 1 && !path.global? && scope.type_vars.includes?(path.names[0])
+          return Unknown.new(
+            :free_variable,
+            "#{path.names[0]} is a type variable; its class methods depend on its instantiation",
+          )
+        end
         located = @types.locate_any(Syntax::Named.new(path.names, path.global?), scope)
         return located if located.is_a?(Unknown)
 
@@ -679,7 +692,7 @@ module Heucristic
           members = Array(Resolution).new(resolved.members.size)
           resolved.members.each { |member| members << metaclass_of(member) }
           UnionRef.new(members)
-        in MetaRef, Unknown then resolved
+        in MetaRef, TypeVar, Unknown then resolved
         end
       end
 
