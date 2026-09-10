@@ -1,4 +1,6 @@
+require "../index/def"
 require "../index/workspace"
+require "../syntax/type"
 require "./types"
 
 module Heucristic
@@ -161,9 +163,36 @@ module Heucristic
           )
           constructed = instance_methods(type, constructor)
           return constructed unless constructed.empty?
+
+          implicit = default_constructor(type, call)
+          return implicit unless implicit.empty?
         end
 
         first_level(type, call) { |entry| entry.receiver.metaclass? && call.accepts?(entry) }
+      end
+
+      private def default_constructor(type : String, call : Call) : Array(Index::Def)
+        return Array(Index::Def).new if call.arity > 0 || call.block || !call.named.empty?
+
+        searched = levels(type)
+        declared = @workspace.named("initialize").any? { |entry| searched.includes?(entry.owner) }
+        return Array(Index::Def).new if declared
+
+        entry = @workspace.namespaces(type).select(Index::ClassNamespace).first?
+        return Array(Index::Def).new unless entry
+
+        [Index::Def.new(
+          name: "new",
+          owner: type,
+          receiver: :metaclass,
+          path: entry.path,
+          name_span: entry.name_span,
+          arity: Index::Arity.new(0, 0, false),
+          parameters: Array(Index::Parameter).new,
+          return_type: Syntax::SelfType.new,
+          free_vars: Array(String).new,
+          yields: false,
+        )]
       end
 
       private def extended_methods(type : String, call : Call) : Array(Index::Def)

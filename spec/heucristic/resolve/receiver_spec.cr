@@ -1226,3 +1226,26 @@ describe Heucristic::Resolve::Receiver, "parenthesised case subjects" do
     receiver_of_size(source, "in Metadata then found.size").should eq("Metadata")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "default constructors" do
+  source = <<-CR
+    abstract struct Credential
+    end
+
+    struct GitHubCLI < Credential
+    end
+
+    struct Grouping
+      def self.build : Grouping
+        grouping = new
+        grouping.size
+        GitHubCLI.new.size
+      end
+    end
+    CR
+
+  it "constructs a type without initialize through the implicit new" do
+    receiver_of_size(source, "grouping.size").should eq("Grouping")
+    receiver_of_size(source, "GitHubCLI.new.size").should eq("GitHubCLI")
+  end
+end
