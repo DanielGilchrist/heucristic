@@ -15,6 +15,7 @@ module Heucristic
         when Crystal::Path          then Named.new(node.names, node.global?)
         when Crystal::Union         then read_union(node)
         when Crystal::Generic       then read_generic(node)
+        when Crystal::TupleLiteral  then read_tuple(node)
         when Crystal::ProcNotation  then read_proc(node)
         when Crystal::Metaclass     then wrap(node.name) { |inner| Metaclass.new(inner) }
         when Crystal::Splat         then wrap(node.exp) { |inner| Splat.new(inner) }
@@ -24,6 +25,17 @@ module Heucristic
         when Crystal::Underscore    then Underscore.new
         else                             Unsupported.new(node.class.name, node.to_s)
         end
+      end
+
+      private def read_tuple(node : Crystal::TupleLiteral) : Outcome
+        arguments = Array(Type).new(node.elements.size)
+        node.elements.each do |element|
+          inner = read(element)
+          return inner if inner.is_a?(Unsupported)
+
+          arguments << inner
+        end
+        Generic.new(Named.new(["Tuple"], false), arguments, Array(Generic::NamedArgument).new)
       end
 
       private def read_union(node : Crystal::Union) : Outcome

@@ -41,7 +41,7 @@ module Heucristic
             nil
           end
         end
-        Array(String).new
+        Builtins.type_vars(name)
       end
 
       private def walk(
@@ -96,7 +96,7 @@ module Heucristic
         @workspace.namespaces(name).each do |entry|
           return entry.splat_index if entry.is_a?(Index::ClassNamespace) && entry.splat_index
         end
-        nil
+        Builtins.splat_index(name)
       end
 
       private def compute(name : String, types : Types, visiting : Array(String)) : Chain

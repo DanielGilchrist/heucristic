@@ -1152,7 +1152,7 @@ describe Heucristic::Resolve::Receiver, "tuple packs and zip" do
       include Indexable(T)
     end
 
-    struct Tuple(*T)
+    struct Tuple
       include Indexable(Union(*T))
 
       def first
@@ -1166,12 +1166,16 @@ describe Heucristic::Resolve::Receiver, "tuple packs and zip" do
     end
 
     class Mixer
+      def split(names : Array(String)) : {Array(String), Array(String)}
+      end
+
       def run(pair : Tuple(Int32, String), names : Array(String), counts : Array(Int32)) : Nil
         pair.first.size
         pair.first?.size
         pair.map { |member| "x" }.size
         pair.each { |member| member.size }
         names.zip(counts).size
+        split(names).size
       end
     end
     CR
@@ -1191,5 +1195,9 @@ describe Heucristic::Resolve::Receiver, "tuple packs and zip" do
 
   it "types zip as an array of tuples" do
     receiver_of_size(source, "names.zip(counts).size").should eq("Array(Tuple(String, Int32))")
+  end
+
+  it "reads a tuple literal restriction as Tuple" do
+    receiver_of_size(source, "split(names).size").should eq("Tuple(Array(String), Array(String))")
   end
 end

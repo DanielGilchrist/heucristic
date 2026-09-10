@@ -2,6 +2,16 @@ module Heucristic
   module Resolve
     module Builtins
       record NoSuperclass
+      record Generic, name : String, type_vars : Array(String), splat_index : Int32?
+
+      GENERICS = [
+        Generic.new("Tuple", ["T"], 0),
+        Generic.new("NamedTuple", ["T"], 0),
+        Generic.new("Proc", ["T", "R"], 0),
+        Generic.new("Union", ["T"], 0),
+        Generic.new("Pointer", ["T"], nil),
+        Generic.new("StaticArray", ["T", "N"], nil),
+      ]
 
       ROOTS = {"Object", "NoReturn", "Void", "Enumerable", "Indexable", "Crystal"}
 
@@ -19,6 +29,14 @@ module Heucristic
 
       def self.includes?(name : String) : Bool
         ROOTS.includes?(name) || SUPERCLASSES.any? { |entry| entry[0] == name }
+      end
+
+      def self.type_vars(name : String) : Array(String)
+        GENERICS.find(&.name.==(name)).try(&.type_vars) || Array(String).new
+      end
+
+      def self.splat_index(name : String) : Int32?
+        GENERICS.find(&.name.==(name)).try(&.splat_index)
       end
 
       def self.superclass(name : String) : String | NoSuperclass
