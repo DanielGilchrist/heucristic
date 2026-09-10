@@ -972,3 +972,33 @@ describe Heucristic::Resolve::Receiver, "exits through NoReturn methods" do
     receiver_of_size(source, "take(mixed).size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "lib declarations" do
+  source = <<-CR
+    lib LibWatch
+      type Handle = Void*
+
+      struct Event
+        mask : UInt32
+        name : LibC::Char*
+      end
+
+      fun read = watch_read(handle : Handle, buffer : Void*) : Event
+    end
+
+    class Watcher
+      def poll(handle : LibWatch::Handle, event : LibWatch::Event) : Nil
+        LibWatch.read(handle, nil).size
+        event.mask.size
+      end
+    end
+    CR
+
+  it "types a fun call from its return type" do
+    receiver_of_size(source, "LibWatch.read(handle, nil).size").should eq("LibWatch::Event")
+  end
+
+  it "types a C struct field from its declaration" do
+    receiver_of_size(source, "event.mask.size").should eq("UInt32")
+  end
+end

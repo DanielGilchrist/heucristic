@@ -715,6 +715,54 @@ struct Int8
 
   def *(other : Float64) : Float64
   end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
+  end
 end
 
 struct Int16
@@ -1433,6 +1481,54 @@ struct Int16
   end
 
   def *(other : Float64) : Float64
+  end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
   end
 end
 
@@ -2153,6 +2249,54 @@ struct Int32
 
   def *(other : Float64) : Float64
   end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
+  end
 end
 
 struct Int64
@@ -2871,6 +3015,54 @@ struct Int64
   end
 
   def *(other : Float64) : Float64
+  end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
   end
 end
 
@@ -3591,6 +3783,54 @@ struct Int128
 
   def *(other : Float64) : Float64
   end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
+  end
 end
 
 struct UInt8
@@ -4309,6 +4549,54 @@ struct UInt8
   end
 
   def *(other : Float64) : Float64
+  end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
   end
 end
 
@@ -5029,6 +5317,54 @@ struct UInt16
 
   def *(other : Float64) : Float64
   end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
+  end
 end
 
 struct UInt32
@@ -5747,6 +6083,54 @@ struct UInt32
   end
 
   def *(other : Float64) : Float64
+  end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
   end
 end
 
@@ -6467,6 +6851,54 @@ struct UInt64
 
   def *(other : Float64) : Float64
   end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
+  end
 end
 
 struct UInt128
@@ -7186,6 +7618,54 @@ struct UInt128
 
   def *(other : Float64) : Float64
   end
+
+  def /(other : Int8) : Float64
+  end
+
+  def /(other : Int16) : Float64
+  end
+
+  def /(other : Int32) : Float64
+  end
+
+  def /(other : Int64) : Float64
+  end
+
+  def /(other : Int128) : Float64
+  end
+
+  def /(other : UInt8) : Float64
+  end
+
+  def /(other : UInt16) : Float64
+  end
+
+  def /(other : UInt32) : Float64
+  end
+
+  def /(other : UInt64) : Float64
+  end
+
+  def /(other : UInt128) : Float64
+  end
+
+  def /(other : Float32) : Float32
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Int) : self
+  end
+
+  def %(other : Int) : self
+  end
+
+  def >>(other : Int) : self
+  end
+
+  def <<(other : Int) : self
+  end
 end
 
 struct Float32
@@ -7641,6 +8121,18 @@ struct Float32
 
   def /(other : Float32) : Float32
   end
+
+  def /(other : Int) : self
+  end
+
+  def /(other : Float64) : Float64
+  end
+
+  def //(other : Number) : self
+  end
+
+  def %(other : Number) : self
+  end
 end
 
 struct Float64
@@ -8095,5 +8587,17 @@ struct Float64
   end
 
   def /(other : Float64) : Float64
+  end
+
+  def /(other : Int) : self
+  end
+
+  def /(other : Float32) : Float64
+  end
+
+  def //(other : Number) : self
+  end
+
+  def %(other : Number) : self
   end
 end

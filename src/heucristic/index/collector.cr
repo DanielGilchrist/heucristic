@@ -83,6 +83,58 @@ module Heucristic
         true
       end
 
+      def visit(node : Crystal::CStructOrUnionDef) : Bool
+        path = Crystal::Path.new([node.name]).at(node.location)
+        name = enter(path)
+        with_span(path) do |span|
+          @namespaces << ClassNamespace.new(
+            name: name,
+            path: @path,
+            name_span: span,
+            kind: ClassKind::Struct,
+            abstract_type: false,
+            type_vars: Array(String).new,
+            superclass: Restrictions.of(nil),
+          )
+        end
+        body = node.body
+        fields = body.is_a?(Crystal::Expressions) ? body.expressions : [body]
+        fields.each { |field| c_field(field) }
+        false
+      end
+
+      def visit(node : Crystal::FunDef) : Bool
+        name_location = node.name_location
+        return false unless name_location
+
+        start = Document::Point.from(name_location)
+        span = @text.span(start, start.advance(node.name.size))
+        return false unless span.is_a?(Document::Span)
+
+        parameters = node.args.map { |arg| Parameter.from(arg, :positional) }
+        @defs << Def.new(
+          name: node.name,
+          owner: owner,
+          receiver: :metaclass,
+          path: @path,
+          name_span: span,
+          arity: Arity.new(node.args.size, 0, node.varargs?),
+          parameters: parameters,
+          return_type: Restrictions.of(node.return_type),
+          free_vars: Array(String).new,
+          yields: false,
+        )
+        false
+      end
+
+      def visit(node : Crystal::TypeDef) : Bool
+        path = Crystal::Path.new([node.name]).at(node.name_location)
+        with_span(path) do |span|
+          @aliases << Alias.new(qualify(path), Syntax::TypeReader.read(node.type_spec), @path, span)
+        end
+        false
+      end
+
       def visit(node : Crystal::AnnotationDef) : Bool
         name = enter(node.name)
         with_span(node.name) do |span|
@@ -93,7 +145,7 @@ module Heucristic
 
       def end_visit(
         node : Crystal::ClassDef | Crystal::ModuleDef | Crystal::EnumDef | Crystal::LibDef |
-               Crystal::AnnotationDef,
+               Crystal::AnnotationDef | Crystal::CStructOrUnionDef,
       ) : Nil
         @owners.pop
       end
@@ -135,15 +187,15 @@ module Heucristic
         return constant(target, node.value) if target.is_a?(Crystal::Path)
         return true unless target.is_a?(Crystal::InstanceVar)
 
-        type = Evident.type(node.value)
-        return true if type.is_a?(Evident::NotEvident)
-
         location = target.location
         return true unless location
 
         start = Document::Point.from(location)
         span = @text.span(start, start.advance(target.name.size))
         return true unless span.is_a?(Document::Span)
+
+        type = Evident.type(node.value)
+        return true if type.is_a?(Evident::NotEvident)
 
         instance_var(target.name, type, span, :assigned)
         true
@@ -504,6 +556,33 @@ module Heucristic
           name_span: span,
           arity: Arity.new(0, 0, false),
           parameters: Array(Parameter).new,
+          return_type: type,
+          free_vars: Array(String).new,
+          yields: false,
+        )
+      end
+
+      private def c_field(field : Crystal::ASTNode) : Nil
+        record_field(field)
+        return unless field.is_a?(Crystal::TypeDeclaration)
+        var = field.var
+        return unless var.is_a?(Crystal::Var)
+        location = var.location
+        return unless location
+
+        start = Document::Point.from(location)
+        span = @text.span(start, start.advance(var.name.size))
+        return unless span.is_a?(Document::Span)
+
+        type = Syntax::TypeReader.read(field.declared_type)
+        @defs << Def.new(
+          name: "#{var.name}=",
+          owner: owner,
+          receiver: :instance,
+          path: @path,
+          name_span: span,
+          arity: Arity.new(1, 0, false),
+          parameters: [Parameter.new("value", "value", type, nil, :positional)],
           return_type: type,
           free_vars: Array(String).new,
           yields: false,
