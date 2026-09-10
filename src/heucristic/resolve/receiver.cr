@@ -58,6 +58,8 @@ module Heucristic
           return Unknown.new(:no_annotation, "super outside a method")
         end
 
+        return TypeRef.new("Nil", Array(Resolution).new) if definition.name == "initialize"
+
         arity = call.has_parentheses? ? shape.arity : definition.args.size
         parent_call = Methods::Call.new(
           definition.name, arity, shape.block, shape.arguments, shape.named

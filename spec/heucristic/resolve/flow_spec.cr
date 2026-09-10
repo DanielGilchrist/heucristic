@@ -277,6 +277,10 @@ describe Heucristic::Resolve::Receiver, "unpacking, yields, super, named argumen
     end
 
     class Child < Base
+      def initialize(count : Int32) : Nil
+        super.size
+      end
+
       def describe(count : Int32) : String
         super.size
         super(count).size
@@ -315,9 +319,13 @@ describe Heucristic::Resolve::Receiver, "unpacking, yields, super, named argumen
     receiver_of_size(source, "bag.each_item { |item, number| number.size }").should eq("Int32")
   end
 
-  it "types super through the ancestor's def" do
-    receiver_of_size(source, "super.size").should eq("String")
+  it "types super through the ancestor's def and as Nil inside initialize" do
     receiver_of_size(source, "super(count).size").should eq("String")
+    lines = source.lines
+    first = lines.index!(&.includes?("super.size")) + 1
+    second = lines.rindex!(&.includes?("super.size")) + 1
+    receiver_at(source, first, lines[first - 1].index!("size") + 1).should eq("Nil")
+    receiver_at(source, second, lines[second - 1].index!("size") + 1).should eq("String")
   end
 
   it "removes Nil from the element type of Array#compact" do
