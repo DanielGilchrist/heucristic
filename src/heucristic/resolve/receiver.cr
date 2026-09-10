@@ -598,6 +598,8 @@ module Heucristic
         when Crystal::Assign                 then type_of(node.value, context, visiting, locals)
         when Crystal::OpAssign               then op_assigned(node, context, visiting, locals)
         when Crystal::Yield                  then yielded_result(context)
+        when Crystal::SizeOf, Crystal::InstanceSizeOf, Crystal::AlignOf, Crystal::InstanceAlignOf
+          TypeRef.new("Int32", Array(Resolution).new)
         when Crystal::RangeLiteral
           bounds = Array(Resolution).new(2)
           bounds << type_of(node.from, context, visiting, locals)

@@ -1531,3 +1531,22 @@ describe Heucristic::Resolve::Receiver, "class variables" do
     receiver_of_size(source, "@@count.size").should eq("Int32")
   end
 end
+describe Heucristic::Resolve::Receiver, "sizeof and proc literals" do
+  source = <<-CR
+    class Disk
+      def initialize : Nil
+        @supply = -> : String { "x" }
+      end
+
+      def run : Nil
+        sizeof(Int32).size
+        @supply.size
+      end
+    end
+    CR
+
+  it "types sizeof as Int32 and a proc literal from its signature" do
+    receiver_of_size(source, "sizeof(Int32).size").should eq("Int32")
+    receiver_of_size(source, "@supply.size").should eq("Proc(String)")
+  end
+end

@@ -24,6 +24,7 @@ module Heucristic
         when Crystal::NilableCast            then nilable(node.to)
         when Crystal::ArrayLiteral           then collection("Array", node.of)
         when Crystal::HashLiteral            then hash(node)
+        when Crystal::ProcLiteral            then proc_literal(node.def)
         when Crystal::Expressions
           node.expressions.size == 1 ? type(node.expressions[0]) : NotEvident.new
         else
@@ -77,6 +78,26 @@ module Heucristic
 
         arguments = [key, value] of Syntax::Type
         Syntax::Generic.new(builtin("Hash"), arguments, Array(Syntax::Generic::NamedArgument).new)
+      end
+
+      private def proc_literal(definition : Crystal::Def) : Syntax::Type | NotEvident
+        output = definition.return_type
+        return NotEvident.new unless output
+
+        inputs = Array(Syntax::Type).new(definition.args.size)
+        definition.args.each do |argument|
+          restriction = argument.restriction
+          return NotEvident.new unless restriction
+
+          input = read(restriction)
+          return input if input.is_a?(NotEvident)
+
+          inputs << input
+        end
+        result = read(output)
+        return result if result.is_a?(NotEvident)
+
+        Syntax::Proc.new(inputs, result)
       end
 
       private def read(node : Crystal::ASTNode) : Syntax::Type | NotEvident
