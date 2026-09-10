@@ -325,3 +325,19 @@ describe Heucristic::Index::Collector, "delegate" do
     ])
   end
 end
+
+describe Heucristic::Index::Collector, "explicit receivers" do
+  it "files a def with a type receiver under that type" do
+    source = <<-CR
+      def Object.from_yaml(source : String) : self
+      end
+
+      module M
+        def Codec.parse : Nil
+        end
+      end
+      CR
+    file = index(source)
+    file.defs.map(&.qualified).should eq(["Object.from_yaml", "M::Codec.parse"])
+  end
+end

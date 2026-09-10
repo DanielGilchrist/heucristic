@@ -299,6 +299,13 @@ module Heucristic
         yield span if span.is_a?(Document::Span)
       end
 
+      private def def_owner(node : Crystal::Def) : Owner
+        receiver = node.receiver
+        return owner unless receiver.is_a?(Crystal::Path)
+
+        qualify(receiver)
+      end
+
       private def yielding_without_restriction?(node : Crystal::Def) : Bool
         yields = !node.block_arity.nil? || !node.block_arg.nil?
         yields && node.block_arg.try(&.restriction).nil?
@@ -501,7 +508,7 @@ module Heucristic
 
         @defs << Def.new(
           name: node.name,
-          owner: owner,
+          owner: def_owner(node),
           receiver: node.receiver ? Receiver::Metaclass : Receiver::Instance,
           path: @path,
           name_span: span,
