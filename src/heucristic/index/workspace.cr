@@ -64,6 +64,10 @@ module Heucristic
         @mixins[owner]? || Array(Mixin).new
       end
 
+      def each_mixin(& : Mixin ->) : Nil
+        @mixins.each_value { |mixins| mixins.each { |mixin| yield mixin } }
+      end
+
       def instance_vars_of(owner : String) : Array(InstanceVar)
         @instance_vars[owner]? || Array(InstanceVar).new
       end

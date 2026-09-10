@@ -124,29 +124,7 @@ module Heucristic
       end
 
       def instance_var(name : String, context : Syntax::Context) : Resolution
-        owner = context.owner
-        if owner.is_a?(Index::TopLevel)
-          return Unknown.new(:no_annotation, "#{name} outside any type")
-        end
-
-        levels = [owner]
-        chain = @types.ancestors(owner)
-        levels.concat(chain) unless chain.is_a?(Unknown)
-        levels.each do |level|
-          entries = @workspace.instance_vars_of(level).select(&.name.==(name))
-          next if entries.empty?
-
-          declared = entries.select(&.origin.declared?)
-          sources = declared.empty? ? entries : declared
-          scope = ivar_scope(owner, level)
-          return scope if scope.is_a?(Unknown)
-
-          return union(sources.map { |entry| declared(entry.type, scope) })
-        end
-
-        Unknown.new(
-          :no_annotation, "#{name} is never declared or assigned an evident type in #{owner}"
-        )
+        instance_var(name, context, Array(String).new)
       end
 
       def return_type(
@@ -257,6 +235,65 @@ module Heucristic
 
       private def blocky?(call : Crystal::Call) : Bool
         !call.block.nil? || !call.block_arg.nil?
+      end
+
+      private def instance_var(
+        name : String,
+        context : Syntax::Context,
+        visiting : Array(String),
+      ) : Resolution
+        owner = context.owner
+        if owner.is_a?(Index::TopLevel)
+          return Unknown.new(:no_annotation, "#{name} outside any type")
+        end
+
+        levels = [owner]
+        chain = @types.ancestors(owner)
+        levels.concat(chain) unless chain.is_a?(Unknown)
+        levels.each do |level|
+          entries = @workspace.instance_vars_of(level).select(&.name.==(name))
+          next if entries.empty?
+
+          declared = entries.select(&.origin.declared?)
+          sources = declared.empty? ? entries : declared
+          scope = ivar_scope(owner, level)
+          return scope if scope.is_a?(Unknown)
+
+          return union(sources.map { |entry| declared(entry.type, scope) })
+        end
+
+        from_includers = includers_instance_var(name, owner, visiting)
+        return from_includers if from_includers
+
+        Unknown.new(
+          :no_annotation, "#{name} is never declared or assigned an evident type in #{owner}"
+        )
+      end
+
+      private def includers_instance_var(
+        name : String,
+        owner : String,
+        visiting : Array(String),
+      ) : Resolution?
+        return unless @workspace.namespaces(owner).any?(Index::ModuleNamespace)
+        return if visiting.includes?(owner)
+
+        found = Array(Resolution).new
+        @workspace.each_mixin do |mixin|
+          next unless mixin.kind.include?
+          target = mixin.target
+          next unless target.is_a?(Syntax::Type)
+
+          resolved = @types.resolve_lexically(target, Scope.of(mixin.owner))
+          next unless resolved.is_a?(TypeRef) && resolved.name == owner
+
+          context = Syntax::Context.new([mixin.owner], Array(String).new, nil)
+          resolution = instance_var(name, context, visiting + [owner])
+          found << resolution unless resolution.is_a?(Unknown)
+        end
+        return if found.empty?
+
+        union(found)
       end
 
       private def ivar_scope(owner : String, level : String) : Scope | Unknown

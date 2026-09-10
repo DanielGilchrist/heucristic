@@ -662,3 +662,38 @@ describe Heucristic::Resolve::Receiver, "proc block arguments and splat paramete
     receiver_of_size(source, "args.to_a.size").should eq("Array(String)")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "module instance variables" do
+  source = <<-CR
+    class Event
+      def id : Int32
+      end
+    end
+
+    module Notification
+      module Base
+        def id : Int32
+          @event.id.size
+        end
+      end
+
+      struct Kept
+        include Base
+
+        def initialize(@event : Event) : Nil
+        end
+      end
+
+      struct Purged
+        include Base
+
+        def initialize(@event : Event) : Nil
+        end
+      end
+    end
+    CR
+
+  it "types an ivar used in a module from the types that include it" do
+    receiver_of_size(source, "@event.id.size").should eq("Int32")
+  end
+end
