@@ -79,6 +79,18 @@ module Heucristic
         value = member.default_value.try(&.to_s) || Constant::ImplicitValue.new
         type = Syntax::Named.new([owner], false)
         @constants << Constant.new("#{owner}::#{member.name}", @path, span, value, type, nil)
+        @defs << Def.new(
+          name: "#{member.name.underscore}?",
+          owner: owner,
+          receiver: :instance,
+          path: @path,
+          name_span: span,
+          arity: Arity.new(0, 0, false),
+          parameters: Array(Parameter).new,
+          return_type: Syntax::Named.new(["Bool"], true),
+          free_vars: Array(String).new,
+          yields: false,
+        )
       end
 
       def visit(node : Crystal::LibDef) : Bool

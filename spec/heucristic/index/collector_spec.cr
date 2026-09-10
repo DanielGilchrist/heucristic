@@ -146,7 +146,7 @@ describe Heucristic::Index::Collector, "namespaces" do
   end
 
   it "attributes defs to the qualified owner" do
-    index(source).defs.map(&.qualified).should eq(["Outer::Base#initialize"])
+    index(source).defs.map(&.qualified).should eq(["Outer::Base#initialize", "Outer::Colour#red?"])
   end
 end
 
@@ -246,6 +246,16 @@ describe Heucristic::Index::Collector, "constants" do
 end
 
 describe Heucristic::Index::Collector, "enum members" do
+  it "declares a predicate def per member" do
+    file = index("enum Receiver\n  Instance\n  Metaclass\n  BlinkFast\nend\n")
+    predicates = file.defs.map { |entry| {entry.qualified, entry.signature} }
+    predicates.should eq([
+      {"Receiver#instance?", "def instance? : ::Bool"},
+      {"Receiver#metaclass?", "def metaclass? : ::Bool"},
+      {"Receiver#blink_fast?", "def blink_fast? : ::Bool"},
+    ])
+  end
+
   it "records each member as a constant typed as the enum" do
     file = index("module M\n  enum Kind\n    Splat\n    Block = 4\n  end\nend\n")
     recorded = file.constants.map do |constant|
