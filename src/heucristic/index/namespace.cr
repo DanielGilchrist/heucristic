@@ -1,13 +1,9 @@
 require "../document/span"
 require "./restriction"
+require "./class_kind"
 
 module Heucristic
   module Index
-    enum ClassKind
-      Class
-      Struct
-    end
-
     record ClassNamespace,
       name : String,
       path : String,

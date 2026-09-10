@@ -3,14 +3,10 @@ require "./arity"
 require "./owner"
 require "./parameter"
 require "./signature"
+require "./receiver"
 
 module Heucristic
   module Index
-    enum Receiver
-      Instance
-      Metaclass
-    end
-
     record Def,
       name : String,
       owner : Owner,

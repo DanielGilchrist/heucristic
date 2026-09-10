@@ -1,16 +1,9 @@
 require "./restriction"
 require "./evident"
+require "./parameter_kind"
 
 module Heucristic
   module Index
-    enum ParameterKind
-      Positional
-      Splat
-      Keyword
-      DoubleSplat
-      Block
-    end
-
     record Parameter,
       name : String,
       external_name : String,

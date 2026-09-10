@@ -1,13 +1,9 @@
 require "../document/span"
 require "../syntax/type_reader"
+require "./origin"
 
 module Heucristic
   module Index
-    enum Origin
-      Declared
-      Assigned
-    end
-
     record InstanceVar,
       name : String,
       owner : String,

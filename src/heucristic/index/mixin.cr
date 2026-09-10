@@ -1,12 +1,8 @@
 require "../syntax/type_reader"
+require "./mixin_kind"
 
 module Heucristic
   module Index
-    enum MixinKind
-      Include
-      Extend
-    end
-
     record Mixin,
       owner : String,
       kind : MixinKind,
