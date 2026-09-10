@@ -536,3 +536,26 @@ describe Heucristic::Resolve::Receiver, "delegate" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "extended class methods" do
+  source = <<-CR
+    module Digest
+      module ClassMethods
+        def hexdigest(data : String) : String
+        end
+      end
+
+      class SHA256
+        extend ClassMethods
+      end
+    end
+
+    def go : Nil
+      Digest::SHA256.hexdigest("x").size
+    end
+    CR
+
+  it "types a class method reached through an extended module" do
+    receiver_of_size(source, %(Digest::SHA256.hexdigest("x").size)).should eq("String")
+  end
+end

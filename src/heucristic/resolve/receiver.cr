@@ -509,7 +509,11 @@ module Heucristic
         unless owner.is_a?(Index::TopLevel)
           instance = receiver.is_a?(MetaRef) ? receiver.of : receiver
           inherited = instance.is_a?(TypeRef) ? @types.bindings(instance, owner) : bindings
-          return inherited if inherited.is_a?(Unknown)
+          if inherited.is_a?(Unknown)
+            return inherited unless receiver.is_a?(MetaRef) && @types.type_vars_of(owner).empty?
+
+            inherited = Array(Binding).new
+          end
           bindings = inherited.dup
           bindings << Binding.new("self", instance)
           type_vars = @types.type_vars_of(owner) + type_vars
