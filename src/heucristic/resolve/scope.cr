@@ -3,7 +3,11 @@ require "./binding"
 
 module Heucristic
   module Resolve
-    record Scope, namespace : Index::Owner, type_vars : Array(String), bindings : Array(Binding) do
+    record Scope,
+      namespace : Index::Owner,
+      type_vars : Array(String),
+      bindings : Array(Binding),
+      path : String? = nil do
       TOP = new(Index::TopLevel.new, Array(String).new, Array(Binding).new)
 
       def self.new(namespace : Index::Owner, type_vars : Array(String)) : Scope

@@ -8,13 +8,22 @@ module Heucristic
       type_vars : Array(String),
       def_node : Crystal::Def?,
       blocks : Array(Crystal::Call),
-      ancestors : Array(Crystal::ASTNode) do
+      ancestors : Array(Crystal::ASTNode),
+      path : String? = nil do
       def self.new(
         enclosing : Array(String),
         type_vars : Array(String),
         def_node : Crystal::Def?,
+        path : String? = nil,
       ) : Context
-        new(enclosing, type_vars, def_node, Array(Crystal::Call).new, Array(Crystal::ASTNode).new)
+        new(
+          enclosing,
+          type_vars,
+          def_node,
+          Array(Crystal::Call).new,
+          Array(Crystal::ASTNode).new,
+          path,
+        )
       end
 
       def owner : Index::Owner
@@ -24,7 +33,7 @@ module Heucristic
       def inside(node : Crystal::ASTNode) : Context
         return self if ancestors.last?.try(&.same?(node))
 
-        Context.new(enclosing, type_vars, def_node, blocks, ancestors + [node])
+        Context.new(enclosing, type_vars, def_node, blocks, ancestors + [node], path)
       end
 
       def inside(parent : Crystal::ASTNode, child : Crystal::ASTNode) : Context

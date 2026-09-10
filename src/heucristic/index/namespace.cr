@@ -11,7 +11,8 @@ module Heucristic
       kind : ClassKind,
       abstract_type : Bool,
       type_vars : Array(String),
-      superclass : Restriction do
+      superclass : Restriction,
+      private_path : String? = nil do
       def keyword : String
         kind.struct? ? "struct" : "class"
       end
@@ -21,7 +22,8 @@ module Heucristic
       name : String,
       path : String,
       name_span : Document::Span,
-      type_vars : Array(String) do
+      type_vars : Array(String),
+      private_path : String? = nil do
       def keyword : String
         "module"
       end
@@ -31,19 +33,28 @@ module Heucristic
       name : String,
       path : String,
       name_span : Document::Span,
-      base_type : Restriction do
+      base_type : Restriction,
+      private_path : String? = nil do
       def keyword : String
         "enum"
       end
     end
 
-    record LibNamespace, name : String, path : String, name_span : Document::Span do
+    record LibNamespace,
+      name : String,
+      path : String,
+      name_span : Document::Span,
+      private_path : String? = nil do
       def keyword : String
         "lib"
       end
     end
 
-    record AnnotationNamespace, name : String, path : String, name_span : Document::Span do
+    record AnnotationNamespace,
+      name : String,
+      path : String,
+      name_span : Document::Span,
+      private_path : String? = nil do
       def keyword : String
         "annotation"
       end

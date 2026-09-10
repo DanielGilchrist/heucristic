@@ -679,7 +679,7 @@ module Heucristic
           end
         end
 
-        scope = Scope.new(owner, type_vars, bindings)
+        scope = Scope.new(owner, type_vars, bindings, entry.path)
         bind_arguments(entry, arguments, free_vars, bindings, scope)
         bind_named(entry, site.named, free_vars, bindings, scope)
         bind_block(entry, site, free_vars, bindings, scope)
@@ -882,7 +882,7 @@ module Heucristic
 
         owner = entry.owner
         enclosing = owner.is_a?(String) ? [owner] : Array(String).new
-        sites = Syntax::YieldSites.in(definition, enclosing, entry.free_vars)
+        sites = Syntax::YieldSites.in(definition, enclosing, entry.free_vars, entry.path)
         if sites.empty?
           return Unknown.new(:no_annotation, "#{entry.qualified} never yields")
         end
@@ -1030,7 +1030,7 @@ module Heucristic
       end
 
       private def scope(context : Syntax::Context) : Scope
-        Scope.new(context.owner, context.type_vars)
+        Scope.new(context.owner, context.type_vars, Array(Binding).new, context.path)
       end
 
       private def declared(type : Syntax::TypeReader::Outcome, scope : Scope) : Resolution

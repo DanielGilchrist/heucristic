@@ -59,7 +59,7 @@ module Score
         tree = Heucristic::Syntax.parse(source, path)
         next unless tree.is_a?(Crystal::ASTNode)
 
-        Heucristic::Syntax::Calls.in(tree).each do |site|
+        Heucristic::Syntax::Calls.in(tree, path).each do |site|
           call = site.call
           next if SKIPPED.includes?(call.name) && call.obj.nil?
           location = call.name_location

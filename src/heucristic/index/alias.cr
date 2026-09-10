@@ -7,6 +7,7 @@ module Heucristic
       name : String,
       target : Syntax::TypeReader::Outcome,
       path : String,
-      name_span : Document::Span
+      name_span : Document::Span,
+      private_path : String? = nil
   end
 end

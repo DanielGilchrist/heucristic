@@ -6,7 +6,7 @@ require "../index/macro_text"
 module Heucristic
   module Syntax
     class Scoped < Crystal::Visitor
-      def initialize : Nil
+      def initialize(@path : String?) : Nil
         @enclosing = Array(String).new
         @type_vars = Array(String).new
         @defs = Array(Crystal::Def).new
@@ -18,6 +18,7 @@ module Heucristic
         enclosing : Array(String),
         type_vars : Array(String),
         definition : Crystal::Def,
+        @path : String?,
       ) : Nil
         @enclosing = enclosing.dup
         @type_vars = type_vars.dup
@@ -94,7 +95,7 @@ module Heucristic
       end
 
       protected def context : Context
-        Context.new(@enclosing.dup, @type_vars.dup, @defs.last?, @blocks.dup, @nodes.dup)
+        Context.new(@enclosing.dup, @type_vars.dup, @defs.last?, @blocks.dup, @nodes.dup, @path)
       end
 
       private def record_name(node : Crystal::Call) : Crystal::Path?

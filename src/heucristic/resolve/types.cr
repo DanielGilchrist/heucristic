@@ -87,25 +87,27 @@ module Heucristic
         scopes.each do |prefix|
           search_in(prefix, with_ancestors) do |namespace|
             head = qualify(namespace, first)
-            next unless declared?(head, constants)
+            next unless declared?(head, constants, scope)
 
-            head = through_alias(head) unless rest.empty?
+            head = through_alias(head, scope) unless rest.empty?
             full = rest.empty? ? head : "#{head}::#{rest.join("::")}"
-            return declared?(full, constants) ? full : Unknown.new(:unresolved_name, full)
+            return declared?(full, constants, scope) ? full : Unknown.new(:unresolved_name, full)
           end
         end
 
         Unknown.new(:unresolved_name, path.to_s)
       end
 
-      private def through_alias(name : String) : String
-        aliases = @workspace.aliases(name)
+      private def through_alias(name : String, scope : Scope) : String
+        aliases = visible_aliases(name, scope)
         return name if aliases.empty?
 
         target = aliases[0].target
         return name unless target.is_a?(Syntax::Named)
 
-        resolved = resolve_named(target, Scope.of(name.rpartition("::")[0]), [name], false)
+        owner = name.rpartition("::")[0]
+        owner_scope = Scope.new(owner, Array(String).new, Array(Binding).new, scope.path)
+        resolved = resolve_named(target, owner_scope, [name], false)
         resolved.is_a?(TypeRef) ? resolved.name : name
       end
 
@@ -149,7 +151,7 @@ module Heucristic
           return inherited || located
         end
 
-        follow(located, visiting, with_ancestors)
+        follow(located, visiting, with_ancestors, scope)
       end
 
       private def inherited_type_var(type : Syntax::Named, scope : Scope) : Resolution?
@@ -188,8 +190,9 @@ module Heucristic
         full : String,
         visiting : Array(String),
         with_ancestors : Bool,
+        scope : Scope,
       ) : Resolution
-        aliases = @workspace.aliases(full)
+        aliases = visible_aliases(full, scope)
         return TypeRef.new(full, Array(Resolution).new) if aliases.empty?
         return Unknown.new(:cycle, full) if visiting.includes?(full)
 
@@ -206,11 +209,24 @@ module Heucristic
         resolve(target, scope, with_ancestors)
       end
 
-      private def declared?(name : String, constants : Bool) : Bool
-        return true if !@workspace.namespaces(name).empty? || !@workspace.aliases(name).empty?
-        return true if constants && !@workspace.constants(name).empty?
+      private def declared?(name : String, constants : Bool, scope : Scope) : Bool
+        namespaces = @workspace.namespaces(name)
+        return true if namespaces.any? { |entry| visible?(entry.private_path, scope) }
+        return true unless visible_aliases(name, scope).empty?
+        if constants
+          constants_named = @workspace.constants(name)
+          return true if constants_named.any? { |entry| visible?(entry.private_path, scope) }
+        end
 
         !name.includes?("::") && Builtins.includes?(name)
+      end
+
+      private def visible_aliases(name : String, scope : Scope) : Array(Index::Alias)
+        @workspace.aliases(name).select { |entry| visible?(entry.private_path, scope) }
+      end
+
+      private def visible?(private_path : String?, scope : Scope) : Bool
+        private_path.nil? || private_path == scope.path
       end
 
       private def resolve_generic(

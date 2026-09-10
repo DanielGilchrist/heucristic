@@ -10,7 +10,8 @@ module Heucristic
       name_span : Document::Span,
       value : String | ImplicitValue,
       type : Syntax::Type | Evident::NotEvident,
-      expression : Crystal::ASTNode? do
+      expression : Crystal::ASTNode?,
+      private_path : String? = nil do
       record ImplicitValue
     end
   end

@@ -45,7 +45,9 @@ private def receiver_of(marker : String) : String
 
   line = SOURCE.lines.index!(&.includes?(marker)) + 1
   column = SOURCE.lines[line - 1].index!(marker) + 1
-  target = Heucristic::Syntax::Cursor.find(tree, Heucristic::Document::Point.new(line, column))
+  target = Heucristic::Syntax::Cursor.find(
+    tree, Heucristic::Document::Point.new(line, column), "a.cr"
+  )
   case target
   in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s
   in Heucristic::Syntax::OnVar         then receiver.variable(target.name, target.context).to_s
@@ -1055,5 +1057,42 @@ describe Heucristic::Resolve::Receiver, "extend self and widened reassignment" d
 
   it "types a range literal from its bounds" do
     receiver_of_size(source, "text[(1)..].size").should eq("String")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "file-private declarations" do
+  files = {
+    "a.cr" => <<-CR,
+      class Foo
+      end
+
+      private alias Sync = Foo
+
+      class Local
+        def go : Nil
+          Sync.new.size
+        end
+      end
+      CR
+    "b.cr" => <<-CR,
+      module Sync
+        class Mutex
+        end
+      end
+
+      class User
+        def go : Nil
+          Sync::Mutex.new.size
+        end
+      end
+      CR
+  }
+
+  it "resolves a file-private alias inside its own file" do
+    receiver_across(files, "a.cr", "Sync.new.size").should eq("Foo")
+  end
+
+  it "keeps a file-private alias out of other files" do
+    receiver_across(files, "b.cr", "Sync::Mutex.new.size").should eq("Sync::Mutex")
   end
 end

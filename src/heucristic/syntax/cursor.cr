@@ -7,14 +7,14 @@ module Heucristic
     class Cursor < Scoped
       getter target : Target?
 
-      def self.find(tree : Crystal::ASTNode, point : Document::Point) : Target?
-        cursor = new(point)
+      def self.find(tree : Crystal::ASTNode, point : Document::Point, path : String?) : Target?
+        cursor = new(point, path)
         tree.accept(cursor)
         cursor.target
       end
 
-      def initialize(@point : Document::Point) : Nil
-        super()
+      def initialize(@point : Document::Point, path : String?) : Nil
+        super(path)
       end
 
       def visit(node : Crystal::Def) : Bool

@@ -8,14 +8,14 @@ module Heucristic
 
       getter sites : Array(Site)
 
-      def self.in(tree : Crystal::ASTNode) : Array(Site)
-        calls = new
+      def self.in(tree : Crystal::ASTNode, path : String?) : Array(Site)
+        calls = new(path)
         tree.accept(calls)
         calls.sites
       end
 
-      def initialize : Nil
-        super
+      def initialize(path : String?) : Nil
+        super(path)
         @sites = Array(Site).new
       end
 

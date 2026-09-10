@@ -242,7 +242,9 @@ module Heucristic
         point = document.text.point(position)
         return Answer.note("position is outside the document") if point.is_a?(Document::OutOfRange)
 
-        case (target = Syntax::Cursor.find(tree, point))
+        path = Uri.to_path(document.uri)
+        path = document.uri if path.is_a?(Uri::NotAFile)
+        case (target = Syntax::Cursor.find(tree, point, path))
         in Nil
           Answer.note("no def, call, constant, variable or instance variable under the cursor")
         in Syntax::OnDef         then answer_def(target)
@@ -296,16 +298,27 @@ module Heucristic
 
       private def answer_path(target : Syntax::OnPath) : Answer
         node = target.node
-        scope = Resolve::Scope.new(target.context.owner, target.context.type_vars)
+        context = target.context
+        scope = Resolve::Scope.new(
+          context.owner, context.type_vars, Array(Resolve::Binding).new, context.path
+        )
         names = node.names[0, target.segment + 1]
         located = @types.locate_any(Syntax::Named.new(names, node.global?), scope)
         return Answer.note(located.to_s) if located.is_a?(Resolve::Unknown)
 
         entries = Array(Index::Entry).new
-        @workspace.namespaces(located).each { |entry| entries << entry }
-        @workspace.aliases(located).each { |entry| entries << entry }
-        @workspace.constants(located).each { |entry| entries << entry }
+        @workspace.namespaces(located).each { |entry| entries << entry if visible?(entry, context) }
+        @workspace.aliases(located).each { |entry| entries << entry if visible?(entry, context) }
+        @workspace.constants(located).each { |entry| entries << entry if visible?(entry, context) }
         Answer.of(entries)
+      end
+
+      private def visible?(
+        entry : Index::Namespace | Index::Alias | Index::Constant,
+        context : Syntax::Context,
+      ) : Bool
+        private_path = entry.private_path
+        private_path.nil? || private_path == context.path
       end
 
       private def answer_var(target : Syntax::OnVar, text : Document::Text) : Answer
