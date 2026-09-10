@@ -4,7 +4,7 @@ require "./file"
 require "./signature"
 require "./evident"
 require "./macro_text"
-require "../syntax/parse"
+require "../syntax"
 
 module Heucristic
   module Index

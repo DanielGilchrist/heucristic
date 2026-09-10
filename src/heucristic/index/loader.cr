@@ -1,7 +1,7 @@
 require "../fibers"
 require "../disk"
 require "../log"
-require "../syntax/parse"
+require "../syntax"
 require "./collector"
 require "./event"
 

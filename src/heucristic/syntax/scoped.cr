@@ -1,6 +1,6 @@
 require "compiler/crystal/syntax"
 require "./target"
-require "./parse"
+require "../syntax"
 require "../index/macro_text"
 
 module Heucristic

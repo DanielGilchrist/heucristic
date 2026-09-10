@@ -1,5 +1,5 @@
 require "compiler/crystal/syntax"
-require "./broken"
+require "./syntax/broken"
 
 module Heucristic
   module Syntax
