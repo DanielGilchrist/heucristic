@@ -630,3 +630,35 @@ describe Heucristic::Resolve::Receiver, "unpacking indexable elements" do
     receiver_of_size(source, "pairs.each { |(first, second)| first.size }").should eq("Entry")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "proc block arguments and splat parameters" do
+  source = <<-CR
+    class Object
+      def try(& : self -> U) : U forall U
+      end
+    end
+
+    struct Tuple(*T)
+      def to_a : Array(Union(*T))
+      end
+    end
+
+    class Runner
+      def shout(text : String) : String
+      end
+
+      def run(body : String?, *args : String) : Nil
+        body.try(&->shout(String)).size
+        args.to_a.size
+      end
+    end
+    CR
+
+  it "treats a proc passed with & as a block" do
+    receiver_of_size(source, "body.try(&->shout(String)).size").should eq("String")
+  end
+
+  it "types a splat parameter as a tuple of its restriction" do
+    receiver_of_size(source, "args.to_a.size").should eq("Array(String)")
+  end
+end

@@ -38,7 +38,9 @@ module Heucristic
         return receiver if receiver.is_a?(Unknown)
 
         shape = shape_of(call, context, locals, visiting)
-        site = Site.new(call.block, context, locals, visiting, shape.named_arguments)
+        site = Site.new(
+          call.block, context, locals, visiting, shape.named_arguments, call.block_arg
+        )
         if call.obj.nil? && call.name == "super"
           return super_result(call, receiver, shape, site)
         end
@@ -106,8 +108,12 @@ module Heucristic
           named_arguments << Binding.new(argument.name, value)
         end
         Methods::Call.new(
-          call.name, call.args.size, !call.block.nil?, arguments, named, named_arguments
+          call.name, call.args.size, blocky?(call), arguments, named, named_arguments
         )
+      end
+
+      private def blocky?(call : Crystal::Call) : Bool
+        !call.block.nil? || !call.block_arg.nil?
       end
 
       def result_of(receiver : Resolved, call : Methods::Call) : Resolution
@@ -138,7 +144,8 @@ module Heucristic
         context : Syntax::Context,
         locals : Array(Binding),
         visiting : Array(String),
-        named : Array(Binding) = Array(Binding).new do
+        named : Array(Binding) = Array(Binding).new,
+        block_arg : Crystal::ASTNode? = nil do
         NONE = new(
           nil,
           Syntax::Context.new(Array(String).new, Array(String).new, nil),
@@ -368,7 +375,11 @@ module Heucristic
           unless restriction
             return Unknown.new(:no_annotation, "parameter #{name} has no type restriction")
           end
-          return declared(Syntax::TypeReader.read(restriction), scope(context))
+          typed = declared(Syntax::TypeReader.read(restriction), scope(context))
+          return typed if typed.is_a?(Unknown)
+          return typed unless definition.splat_index == definition.args.index(parameter)
+
+          return TypeRef.new("Tuple", [typed] of Resolution)
         end
 
         if (declaration = LocalDeclarations.find(definition.body, name))
@@ -765,12 +776,20 @@ module Heucristic
         bindings : Array(Binding),
         scope : Scope,
       ) : Nil
-        block = site.block
-        return unless block
         restriction = block_restriction(entry)
         return unless restriction
         output = restriction.output
         return unless output
+
+        block = site.block
+        unless block
+          pointer = site.block_arg
+          return unless pointer.is_a?(Crystal::ProcPointer)
+
+          result = proc_pointer_result(pointer, site, scope, restriction)
+          Unify.bind(output, result, entry.free_vars, bindings, @types, scope)
+          return
+        end
 
         inputs = restriction.inputs.map { |input| @types.resolve(input, scope) }
         locals = site.locals.dup
@@ -783,6 +802,34 @@ module Heucristic
 
         result = type_of(body, site.context, site.visiting, locals)
         Unify.bind(output, result, entry.free_vars, bindings, @types, scope)
+      end
+
+      private def proc_pointer_result(
+        pointer : Crystal::ProcPointer,
+        site : Site,
+        scope : Scope,
+        restriction : Syntax::Proc,
+      ) : Resolution
+        inputs = restriction.inputs.map { |input| @types.resolve(input, scope) }
+        arguments = Array(Resolution).new(pointer.args.size)
+        pointer.args.each_with_index do |argument, index|
+          typed = Syntax::TypeReader.read(argument)
+          arguments << if typed.is_a?(Syntax::Type)
+            @types.resolve(typed, scope(site.context))
+          else
+            inputs[index]? || Unknown.new(:unsupported, "proc pointer argument #{argument}")
+          end
+        end
+        obj = pointer.obj
+        receiver = if obj
+                     type_of(obj, site.context, site.visiting, site.locals)
+                   else
+                     implicit_self(site.context)
+                   end
+        return receiver if receiver.is_a?(Unknown)
+
+        shape = Methods::Call.new(pointer.name, arguments.size, false, arguments)
+        result_of(receiver, shape, Site::NONE)
       end
 
       private def last_expression(body : Crystal::ASTNode) : Crystal::ASTNode?

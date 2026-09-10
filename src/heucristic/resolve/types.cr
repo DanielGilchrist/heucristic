@@ -63,7 +63,8 @@ module Heucristic
         in Syntax::Metaclass then resolve_metaclass(type, scope, with_ancestors)
         in Syntax::SelfType  then resolve_self(scope)
         in Syntax::Proc      then Unknown.new(:unsupported, "proc types are not resolved yet")
-        in Syntax::TypeOf, Syntax::Splat, Syntax::Underscore
+        in Syntax::Splat     then resolve_splat(type, scope)
+        in Syntax::TypeOf, Syntax::Underscore
           Unknown.new(:unsupported, type.to_s)
         in Syntax::Literal then Unknown.new(:non_type_argument, type.source)
         end
@@ -186,7 +187,35 @@ module Heucristic
         return base unless base.is_a?(TypeRef)
 
         arguments = type.arguments.map { |argument| resolve(argument, scope, with_ancestors) }
+        return union_of(arguments) if base.name == "Union"
+
         TypeRef.new(base.name, arguments)
+      end
+
+      private def resolve_splat(type : Syntax::Splat, scope : Scope) : Resolution
+        inner = type.inner
+        return Unknown.new(:unsupported, type.to_s) unless inner.is_a?(Syntax::Named)
+        if inner.names.size == 1 && (bound = scope.bound(inner.names[0]))
+          return bound
+        end
+
+        Unknown.new(:unsupported, type.to_s)
+      end
+
+      private def union_of(members : Array(Resolution)) : Resolution
+        flat = Array(Resolution).new
+        members.each do |member|
+          return member if member.is_a?(Unknown)
+          next if member.is_a?(TypeRef) && member.name == "NoReturn"
+          if member.is_a?(UnionRef)
+            member.members.each { |inner| flat << inner unless flat.includes?(inner) }
+          else
+            flat << member unless flat.includes?(member)
+          end
+        end
+        return TypeRef.new("NoReturn", Array(Resolution).new) if flat.empty?
+
+        flat.size == 1 ? flat[0] : UnionRef.new(flat)
       end
 
       private def resolve_nilable(
