@@ -1372,3 +1372,74 @@ describe Heucristic::Resolve::Receiver, "Class methods and top-level defs" do
     receiver_of_size(source, "spawn { 1 }.size").should eq("Fiber")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "case, begin and assignment expressions" do
+  source = <<-CR
+    class Int32
+      def +(other : Int32) : Int32
+      end
+    end
+
+    class Hash(K, V)
+      def [](key : K) : V
+      end
+
+      def []=(key : K, value : V) : V
+      end
+    end
+
+    enum Kind
+      Fast
+      Slow
+    end
+
+    class Picker
+      def kind : Kind
+      end
+
+      def risky : String
+      end
+
+      def run(table : Hash(String, Array(Int32)), cache : Array(Int32)?, count : Int32) : Nil
+        label = case kind
+                in .fast? then "f"
+                in .slow? then "s"
+                end
+        label.size
+        loose = case count
+                when 1 then "one"
+                end
+        loose.size
+        guarded = begin
+          risky
+        rescue
+          1
+        end
+        guarded.size
+        (table["k"] ||= Array(Int32).new).size
+        (cache ||= Array(Int32).new).size
+        (count += 1).size
+        (read = risky).size
+      end
+    end
+    CR
+
+  it "types an exhaustive case as the union of its branches" do
+    receiver_of_size(source, "label.size").should eq("String")
+  end
+
+  it "adds Nil to a non-exhaustive case without else" do
+    receiver_of_size(source, "loose.size").should eq("String | Nil")
+  end
+
+  it "types begin/rescue as the union of the body and handlers" do
+    receiver_of_size(source, "guarded.size").should eq("String | Int32")
+  end
+
+  it "types or-assignment, operator assignment and assignment expressions" do
+    receiver_of_size(source, "(table[\"k\"] ||= Array(Int32).new).size").should eq("Array(Int32)")
+    receiver_of_size(source, "(cache ||= Array(Int32).new).size").should eq("Array(Int32)")
+    receiver_of_size(source, "(count += 1).size").should eq("Int32")
+    receiver_of_size(source, "(read = risky).size").should eq("String")
+  end
+end

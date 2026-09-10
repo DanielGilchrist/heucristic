@@ -328,6 +328,65 @@ module Heucristic
         )
       end
 
+      private def case_value(
+        node : Crystal::Case,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
+        branches = Array(Resolution).new(node.whens.size + 1)
+        node.whens.each do |branch|
+          inner = context.inside(node, branch).inside(branch.body)
+          branches << type_of(branch.body, inner, visiting, locals)
+        end
+        otherwise = node.else
+        if otherwise
+          branches << type_of(otherwise, context.inside(node, otherwise), visiting, locals)
+        elsif !node.exhaustive?
+          branches << TypeRef.new("Nil", Array(Resolution).new)
+        end
+        union(branches)
+      end
+
+      private def rescued_value(
+        node : Crystal::ExceptionHandler,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
+        branches = Array(Resolution).new
+        normal = node.else || node.body
+        branches << type_of(normal, context.inside(node, normal), visiting, locals)
+        node.rescues.try &.each do |handler|
+          inner = context.inside(node, handler).inside(handler.body)
+          branches << type_of(handler.body, inner, visiting, locals)
+        end
+        union(branches)
+      end
+
+      private def op_assigned(
+        node : Crystal::OpAssign,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
+        current = type_of(node.target, context, visiting, locals)
+        value = type_of(node.value, context, visiting, locals)
+        case node.op
+        when "||"
+          present = truthy(current, true)
+          return value if present.is_a?(TypeRef) && present.name == "Nil"
+
+          union([present, value] of Resolution)
+        when "&&"
+          union([truthy(current, false), value] of Resolution)
+        else
+          return current if current.is_a?(Unknown)
+
+          result_of(current, Methods::Call.new(node.op, 1, false, [value] of Resolution))
+        end
+      end
+
       private def tuple_element_at(receiver : TypeRef, call : Crystal::Call) : Resolution?
         return unless call.name.in?("[]", "[]?") && call.args.size == 1
 
@@ -480,6 +539,10 @@ module Heucristic
           branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
           union(branches)
         when Crystal::Return, Crystal::Break then TypeRef.new("NoReturn", Array(Resolution).new)
+        when Crystal::Case                   then case_value(node, context, visiting, locals)
+        when Crystal::ExceptionHandler       then rescued_value(node, context, visiting, locals)
+        when Crystal::Assign                 then type_of(node.value, context, visiting, locals)
+        when Crystal::OpAssign               then op_assigned(node, context, visiting, locals)
         when Crystal::RangeLiteral
           bounds = Array(Resolution).new(2)
           bounds << type_of(node.from, context, visiting, locals)
