@@ -9,4 +9,7 @@ end
 class JSON::Builder
   def object(& : ->) : Nil
   end
+
+  def field(name, & : ->) : Nil
+  end
 end
