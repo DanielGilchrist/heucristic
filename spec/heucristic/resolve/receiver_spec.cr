@@ -1096,3 +1096,40 @@ describe Heucristic::Resolve::Receiver, "file-private declarations" do
     receiver_across(files, "b.cr", "Sync::Mutex.new.size").should eq("Sync::Mutex")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "instance variables assigned from calls" do
+  source = <<-CR
+    struct Instant
+    end
+
+    module Clock
+      def self.instant : Instant
+      end
+    end
+
+    class Reporter
+      def initialize : Nil
+        @started = Clock.instant
+        @computed = build
+      end
+
+      def build : Int32
+      end
+
+      def go : Nil
+        @started.size
+        @computed.size
+      end
+    end
+    CR
+
+  it "guesses the type from an annotated class method call, like the compiler" do
+    receiver_of_size(source, "@started.size").should eq("Instant")
+  end
+
+  it "explains an instance variable assigned only from an untyped expression" do
+    receiver_of_size(source, "@computed.size").should eq(
+      "unknown (no annotation: @computed is only assigned build; declare its type)"
+    )
+  end
+end

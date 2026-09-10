@@ -4,6 +4,7 @@ module Heucristic
   module Resolve
     class LocalAssignments < Crystal::Visitor
       getter values : Array(Crystal::ASTNode)
+      getter targets : Array(Crystal::Var)
 
       def self.find(body : Crystal::ASTNode, name : String) : Array(Crystal::ASTNode)
         finder = new(name)
@@ -11,19 +12,23 @@ module Heucristic
         finder.values
       end
 
+      def self.first_target(body : Crystal::ASTNode, name : String) : Crystal::Var?
+        finder = new(name)
+        body.accept(finder)
+        finder.targets.first?
+      end
+
       def initialize(@name : String) : Nil
         @values = Array(Crystal::ASTNode).new
+        @targets = Array(Crystal::Var).new
       end
 
-      def visit(node : Crystal::Assign) : Bool
+      def visit(node : Crystal::Assign | Crystal::OpAssign) : Bool
         target = node.target
-        @values << node.value if target.is_a?(Crystal::Var) && target.name == @name
-        true
-      end
+        return true unless target.is_a?(Crystal::Var) && target.name == @name
 
-      def visit(node : Crystal::OpAssign) : Bool
-        target = node.target
-        @values << node.value if target.is_a?(Crystal::Var) && target.name == @name
+        @values << node.value
+        @targets << target
         true
       end
 

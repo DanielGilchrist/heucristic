@@ -324,14 +324,30 @@ module Heucristic
       private def answer_var(target : Syntax::OnVar, text : Document::Text) : Answer
         note = typed(@receiver.variable(target.name, target.context))
         spans = Array(Document::Span).new
-        if (definition = target.context.def_node)
-          if (parameter = definition.args.find(&.name.==(target.name)))
-            add_span(spans, text, parameter.location, target.name.size)
-          elsif (declaration = Resolve::LocalDeclarations.find(definition.body, target.name))
-            add_span(spans, text, declaration.var.location, target.name.size)
-          end
-        end
+        add_span(spans, text, introduced_at(target), target.name.size)
         Answer.new(Array(Index::Entry).new, spans, [note], Array(String).new)
+      end
+
+      private def introduced_at(target : Syntax::OnVar) : Crystal::Location?
+        name = target.name
+        target.context.blocks.reverse_each do |call|
+          argument = call.block.try(&.args.find(&.name.==(name)))
+          return argument.location if argument
+        end
+
+        definition = target.context.def_node
+        return unless definition
+        if (parameter = definition.args.find(&.name.==(name)))
+          return parameter.location
+        end
+        if (block_arg = definition.block_arg) && block_arg.name == name
+          return block_arg.location
+        end
+        if (declaration = Resolve::LocalDeclarations.find(definition.body, name))
+          return declaration.var.location
+        end
+
+        Resolve::LocalAssignments.first_target(definition.body, name).try(&.location)
       end
 
       private def answer_instance_var(target : Syntax::OnInstanceVar) : Answer

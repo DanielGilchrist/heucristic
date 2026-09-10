@@ -211,9 +211,14 @@ module Heucristic
         return true unless span.is_a?(Document::Span)
 
         type = Evident.type(node.value)
-        return true if type.is_a?(Evident::NotEvident)
+        if type.is_a?(Evident::NotEvident)
+          return true if parameter_assignment?(target, node.value)
 
-        instance_var(target.name, type, span, :assigned)
+          unsupported = Syntax::TypeReader::Unsupported.new("assignment", node.value.to_s)
+          instance_var(target.name, unsupported, span, :assigned, node.value)
+        else
+          instance_var(target.name, type, span, :assigned)
+        end
         true
       end
 
@@ -354,11 +359,19 @@ module Heucristic
         type : Syntax::TypeReader::Outcome,
         span : Document::Span,
         origin : Origin,
+        expression : Crystal::ASTNode? = nil,
       ) : Nil
         namespace = owner
         return if namespace.is_a?(TopLevel)
 
-        @instance_vars << InstanceVar.new(name, namespace, type, @path, span, origin)
+        @instance_vars << InstanceVar.new(name, namespace, type, @path, span, origin, expression)
+      end
+
+      private def parameter_assignment?(
+        target : Crystal::InstanceVar,
+        value : Crystal::ASTNode,
+      ) : Bool
+        value.is_a?(Crystal::Var) && "@#{value.name}" == target.name
       end
 
       private def private_path(node : Crystal::ASTNode) : String?
@@ -420,9 +433,16 @@ module Heucristic
 
           if (restriction = parameter.restriction)
             instance_var(target.name, Syntax::TypeReader.read(restriction), span, :declared)
-          elsif (default = parameter.default_value)
-            evident = Evident.type(default)
-            instance_var(target.name, evident, span, :assigned) if evident.is_a?(Syntax::Type)
+            next
+          end
+
+          default = parameter.default_value
+          evident = default ? Evident.type(default) : Evident::NotEvident.new
+          if evident.is_a?(Syntax::Type)
+            instance_var(target.name, evident, span, :assigned)
+          else
+            unsupported = Syntax::TypeReader::Unsupported.new("parameter", parameter.name)
+            instance_var(target.name, unsupported, span, :assigned)
           end
         end
       end

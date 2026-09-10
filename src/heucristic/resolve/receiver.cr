@@ -268,14 +268,10 @@ module Heucristic
           entries = @workspace.instance_vars_of(level).select(&.name.==(name))
           next if entries.empty?
 
-          declared = entries.select(&.origin.declared?)
-          sources = declared.empty? ? entries : declared
           scope = ivar_scope(owner, level)
           return scope if scope.is_a?(Unknown)
 
-          typed = Array(Resolution).new(sources.size)
-          sources.each { |entry| typed << declared(entry.type, scope) }
-          return union(typed)
+          return instance_var_from(entries, level, scope, visiting + [name])
         end
 
         from_includers = includers_instance_var(name, owner, visiting)
@@ -283,6 +279,38 @@ module Heucristic
 
         Unknown.new(
           :no_annotation, "#{name} is never declared or assigned an evident type in #{owner}"
+        )
+      end
+
+      private def instance_var_from(
+        entries : Array(Index::InstanceVar),
+        level : String,
+        scope : Scope,
+        visiting : Array(String),
+      ) : Resolution
+        declared = entries.select(&.origin.declared?)
+        evident = entries.select { |entry| entry.type.is_a?(Syntax::Type) }
+        sources = declared.empty? ? evident : declared
+        unless sources.empty?
+          typed = Array(Resolution).new(sources.size)
+          sources.each { |entry| typed << declared(entry.type, scope) }
+          return union(typed)
+        end
+
+        guessed = Array(Resolution).new(entries.size)
+        entries.each do |entry|
+          expression = entry.expression
+          next unless expression.is_a?(Crystal::Call) && expression.obj.is_a?(Crystal::Path)
+
+          context = Syntax::Context.new([level], @types.type_vars_of(level), nil, entry.path)
+          guessed << type_of(expression, context, visiting, Array(Binding).new)
+        end
+        return union(guessed) unless guessed.empty?
+
+        assigned = entries.map(&.type).select(Syntax::TypeReader::Unsupported).map(&.source)
+        Unknown.new(
+          :no_annotation,
+          "#{entries[0].name} is only assigned #{assigned.join(", ")}; declare its type",
         )
       end
 

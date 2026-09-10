@@ -186,9 +186,10 @@ describe Heucristic::Index::Collector, "record" do
 end
 
 describe Heucristic::Index::Collector, "instance variables from parameters" do
-  it "declares an ivar from a typed @-parameter and ignores an untyped one" do
+  it "declares an ivar from a typed @-parameter and records an untyped one as unsupported" do
     file = index("class C\n  def initialize(@a : Int32, @b, c : String) : Nil\n  end\nend\n")
-    file.instance_vars.map { |ivar| {ivar.name, ivar.type.to_s} }.should eq([{"@a", "Int32"}])
+    typed = file.instance_vars.map { |ivar| {ivar.name, ivar.type.is_a?(Heucristic::Syntax::Type)} }
+    typed.should eq([{"@a", true}, {"@b", false}])
   end
 end
 
@@ -213,9 +214,13 @@ describe Heucristic::Index::Collector, "instance variables from assignments" do
     end
     CR
 
-  it "types an ivar from an evident right hand side, and skips a call result" do
+  it "types an ivar from an evident right hand side, and keeps a call result as a site" do
     file = index(source)
-    typed = file.instance_vars.map { |ivar| {ivar.name, ivar.type.to_s, ivar.origin} }
+    typed = file.instance_vars.map do |ivar|
+      type = ivar.type
+      text = type.is_a?(Heucristic::Syntax::TypeReader::Unsupported) ? "?#{type.source}" : type.to_s
+      {ivar.name, text, ivar.origin}
+    end
     typed.should eq([
       {"@store", "Document::Store", Heucristic::Index::Origin::Assigned},
       {"@trees", "Hash(String, Crystal::ASTNode)", Heucristic::Index::Origin::Assigned},
@@ -228,6 +233,7 @@ describe Heucristic::Index::Collector, "instance variables from assignments" do
       {"@kind", "Kind.class", Heucristic::Index::Origin::Assigned},
       {"@narrowed", "String", Heucristic::Index::Origin::Assigned},
       {"@optional", "String?", Heucristic::Index::Origin::Assigned},
+      {"@computed", "?build", Heucristic::Index::Origin::Assigned},
       {"@declared", "Int32", Heucristic::Index::Origin::Declared},
     ])
   end

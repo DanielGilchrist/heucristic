@@ -345,3 +345,38 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 end
+
+describe Heucristic::Server::Loop, "variable definitions" do
+  it "jumps from a variable to its first assignment and from an ivar to its assignment" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    source = <<-CR
+      class Sync
+        def initialize : Nil
+          @started = Time.instant
+        end
+
+        def run(items : Array(String)) : Nil
+          target = items.first
+          items.each do |item|
+            item.size
+          end
+          target.size
+          @started.to_s
+        end
+      end
+      CR
+    client.open(URI_A, source)
+    client.await_notification("textDocument/publishDiagnostics")
+
+    definition = client.definition(URI_A, 10, 5).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([6])
+    definition = client.definition(URI_A, 8, 7).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([7])
+    definition = client.definition(URI_A, 11, 5).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([2])
+    client.shutdown
+  end
+end
