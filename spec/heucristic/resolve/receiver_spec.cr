@@ -1531,6 +1531,39 @@ describe Heucristic::Resolve::Receiver, "class variables" do
     receiver_of_size(source, "@@count.size").should eq("Int32")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "case exits and either is_a?" do
+  source = <<-CR
+    record Problem
+    record Metadata
+
+    class Disk
+      def observe : Metadata | Problem | Nil
+      end
+
+      def run(node : Int32 | String | Nil) : Nil
+        case (found = observe)
+        in Nil then return
+        in Problem then return
+        in Metadata
+        end
+        found.size
+        return unless node.is_a?(Int32) || node.is_a?(String)
+
+        node.size
+      end
+    end
+    CR
+
+  it "narrows past an exhaustive case whose other branches exit" do
+    receiver_of_size(source, "found.size").should eq("Metadata")
+  end
+
+  it "narrows through a positive or of is_a? checks" do
+    receiver_of_size(source, "node.size").should eq("Int32 | String")
+  end
+end
+
 describe Heucristic::Resolve::Receiver, "sizeof and proc literals" do
   source = <<-CR
     class Disk

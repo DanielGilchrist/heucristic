@@ -112,9 +112,38 @@ module Heucristic
           end
         when Crystal::Or
           condition(name, statement.left, true, steps) if exits?(statement.right, exits)
+        when Crystal::Case
+          case_exits(name, statement, steps, exits)
         else
           nested(name, statement, steps)
         end
+      end
+
+      private def case_exits(
+        name : String,
+        statement : Crystal::Case,
+        steps : Array(Step),
+        exits : Terminator,
+      ) : Nil
+        subject = unwrapped(statement.cond)
+        if subject.is_a?(Crystal::Assign) && (target = subject.target).is_a?(Crystal::Var)
+          return nested(name, statement, steps) unless target.name == name
+
+          steps << Assigned.new(subject.value)
+        elsif !(subject.is_a?(Crystal::Var) && subject.name == name)
+          return nested(name, statement, steps)
+        end
+
+        excluded = Array(Crystal::ASTNode).new
+        statement.whens.each do |branch|
+          next unless exits?(branch.body, exits)
+
+          types = type_conditions(branch.conds)
+          return unless types
+
+          excluded.concat(types)
+        end
+        steps << IsA.new(excluded, false) unless excluded.empty?
       end
 
       private def unwrapped(node : Crystal::ASTNode?) : Crystal::ASTNode?
@@ -204,7 +233,7 @@ module Heucristic
           condition(name, cond.left, true, steps)
           condition(name, cond.right, true, steps)
         when Crystal::Or
-          return if positive
+          return either_is_a(name, cond, steps) if positive
 
           condition(name, cond.left, false, steps)
           condition(name, cond.right, false, steps)
@@ -217,6 +246,19 @@ module Heucristic
         when Crystal::Expressions
           condition(name, cond.expressions[0], positive, steps) if cond.expressions.size == 1
         end
+      end
+
+      private def either_is_a(name : String, cond : Crystal::Or, steps : Array(Step)) : Nil
+        left = Array(Step).new
+        right = Array(Step).new
+        condition(name, cond.left, true, left)
+        condition(name, cond.right, true, right)
+        first = left[0]?
+        second = right[0]?
+        return unless left.size == 1 && right.size == 1
+        return unless first.is_a?(IsA) && second.is_a?(IsA) && first.positive && second.positive
+
+        steps << IsA.new(first.types + second.types, true)
       end
 
       private def exits?(node : Crystal::ASTNode, exits : Terminator) : Bool
