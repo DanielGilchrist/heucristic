@@ -1443,3 +1443,36 @@ describe Heucristic::Resolve::Receiver, "case, begin and assignment expressions"
     receiver_of_size(source, "(read = risky).size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "yield expressions" do
+  source = <<-CR
+    class Store
+      def fetch(key : String, & : String -> Int32) : Nil
+        (yield key).size
+      end
+
+      def wrap(& : -> U) : Nil forall U
+        (yield).size
+      end
+
+      def silent(&) : Nil
+        (yield).size
+      end
+    end
+    CR
+
+  it "types yield from the block's declared output" do
+    receiver_of_size(source, "(yield key).size").should eq("Int32")
+  end
+
+  it "keeps a free variable output as the variable" do
+    receiver_of_size(source, "(yield).size").should eq("U")
+  end
+
+  it "explains a yield whose block has no declared output" do
+    line = source.lines.index!(&.includes?("def silent")) + 2
+    receiver_at(source, line, 13).should eq(
+      "unknown (no annotation: the block of silent has no declared result type)"
+    )
+  end
+end

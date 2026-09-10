@@ -387,6 +387,22 @@ module Heucristic
         end
       end
 
+      private def yielded_result(context : Syntax::Context) : Resolution
+        definition = context.def_node
+        return Unknown.new(:no_annotation, "yield outside any method") unless definition
+
+        block_arg = definition.block_arg
+        restriction = block_arg.try(&.restriction)
+        output = restriction.is_a?(Crystal::ProcNotation) ? restriction.output : nil
+        unless output
+          return Unknown.new(
+            :no_annotation, "the block of #{definition.name} has no declared result type"
+          )
+        end
+
+        declared(Syntax::TypeReader.read(output), scope(context))
+      end
+
       private def tuple_element_at(receiver : TypeRef, call : Crystal::Call) : Resolution?
         return unless call.name.in?("[]", "[]?") && call.args.size == 1
 
@@ -543,6 +559,7 @@ module Heucristic
         when Crystal::ExceptionHandler       then rescued_value(node, context, visiting, locals)
         when Crystal::Assign                 then type_of(node.value, context, visiting, locals)
         when Crystal::OpAssign               then op_assigned(node, context, visiting, locals)
+        when Crystal::Yield                  then yielded_result(context)
         when Crystal::RangeLiteral
           bounds = Array(Resolution).new(2)
           bounds << type_of(node.from, context, visiting, locals)
