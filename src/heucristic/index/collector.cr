@@ -57,6 +57,7 @@ module Heucristic
             type_vars: node.type_vars || Array(String).new,
             superclass: Restrictions.of(node.superclass),
             private_path: private_path(node),
+            splat_index: node.splat_index,
           )
         end
         true

@@ -12,7 +12,8 @@ module Heucristic
       abstract_type : Bool,
       type_vars : Array(String),
       superclass : Restriction,
-      private_path : String? = nil do
+      private_path : String? = nil,
+      splat_index : Int32? = nil do
       def keyword : String
         kind.struct? ? "struct" : "class"
       end

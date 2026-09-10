@@ -1133,3 +1133,63 @@ describe Heucristic::Resolve::Receiver, "instance variables assigned from calls"
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "tuple packs and zip" do
+  source = <<-CR
+    module Enumerable(T)
+      def zip(*others : Indexable | Iterable | Iterator) : Nil
+      end
+
+      def each(& : T ->) : Nil
+      end
+    end
+
+    module Indexable(T)
+      include Enumerable(T)
+    end
+
+    class Array(T)
+      include Indexable(T)
+    end
+
+    struct Tuple(*T)
+      include Indexable(Union(*T))
+
+      def first
+      end
+
+      def first?
+      end
+
+      def map(& : Union(*T) -> U) : Array(U) forall U
+      end
+    end
+
+    class Mixer
+      def run(pair : Tuple(Int32, String), names : Array(String), counts : Array(Int32)) : Nil
+        pair.first.size
+        pair.first?.size
+        pair.map { |member| "x" }.size
+        pair.each { |member| member.size }
+        names.zip(counts).size
+      end
+    end
+    CR
+
+  it "types the first element of a tuple" do
+    receiver_of_size(source, "pair.first.size").should eq("Int32")
+    receiver_of_size(source, "pair.first?.size").should eq("Int32 | Nil")
+  end
+
+  it "maps a tuple to a tuple of the block result" do
+    receiver_of_size(source, "pair.map { |member| \"x\" }.size").should eq("Tuple(String, String)")
+  end
+
+  it "yields the union of the pack from a tuple's Indexable" do
+    receiver_of_size(source, "member.size }").should eq("Int32 | String")
+  end
+
+  it "types zip as an array of tuples" do
+    receiver_of_size(source, "names.zip(counts).size").should eq("Array(Tuple(String, Int32))")
+  end
+end

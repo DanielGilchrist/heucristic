@@ -67,9 +67,36 @@ module Heucristic
       end
 
       private def bind(name : String, arguments : Array(Resolution)) : Array(Binding)
-        type_vars_of(name).zip?(arguments).compact_map do |type_var, argument|
-          Binding.new(type_var, argument) if argument
+        type_vars = type_vars_of(name)
+        splat = splat_index_of(name)
+        return bind_positional(type_vars, arguments) unless splat && splat < type_vars.size
+
+        trailing = type_vars.size - splat - 1
+        packed = arguments.size - splat - trailing
+        return bind_positional(type_vars, arguments) if packed < 0
+
+        bindings = bind_positional(type_vars[0, splat], arguments[0, splat])
+        pack = TypeRef.new("Tuple", arguments[splat, packed])
+        bindings << Binding.new(type_vars[splat], pack)
+        bindings.concat(bind_positional(type_vars[(splat + 1)..], arguments[(splat + packed)..]))
+      end
+
+      private def bind_positional(
+        type_vars : Array(String),
+        arguments : Array(Resolution),
+      ) : Array(Binding)
+        bindings = Array(Binding).new(type_vars.size)
+        type_vars.zip?(arguments) do |type_var, argument|
+          bindings << Binding.new(type_var, argument) if argument
         end
+        bindings
+      end
+
+      private def splat_index_of(name : String) : Int32?
+        @workspace.namespaces(name).each do |entry|
+          return entry.splat_index if entry.is_a?(Index::ClassNamespace) && entry.splat_index
+        end
+        nil
       end
 
       private def compute(name : String, types : Types, visiting : Array(String)) : Chain

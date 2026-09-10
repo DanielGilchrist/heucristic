@@ -157,6 +157,13 @@ module Heucristic
         if entry.qualified == "Proc#call" && receiver.is_a?(TypeRef)
           return receiver.arguments.last? || Unknown.new(:unsupported, "a proc without a signature")
         end
+        if receiver.is_a?(TypeRef) && receiver.name == "Tuple"
+          special = tuple_special(entry, receiver, arguments, site)
+          return special if special
+        end
+        if entry.qualified.in?("Enumerable#zip", "Enumerable#zip?") && !site.block
+          return zipped(receiver, arguments, entry.name == "zip?")
+        end
 
         case (restriction = entry.return_type)
         in Index::Unrestricted
@@ -312,6 +319,64 @@ module Heucristic
           :no_annotation,
           "#{entries[0].name} is only assigned #{assigned.join(", ")}; declare its type",
         )
+      end
+
+      private def tuple_special(
+        entry : Index::Def,
+        receiver : TypeRef,
+        arguments : Array(Resolution),
+        site : Site,
+      ) : Resolution?
+        members = receiver.arguments
+        case entry.qualified
+        when "Tuple#first", "Tuple#last"
+          member = entry.name == "first" ? members.first? : members.last?
+          member || Unknown.new(:no_annotation, "#{receiver} has no elements")
+        when "Tuple#first?", "Tuple#last?"
+          member = entry.name == "first?" ? members.first? : members.last?
+          member ? union([member, TypeRef.new("Nil", Array(Resolution).new)] of Resolution) : nil
+        when "Tuple#map"
+          scope = return_scope(entry, receiver, arguments, site)
+          return scope if scope.is_a?(Unknown)
+
+          mapped = scope.bound("U")
+          return unless mapped
+
+          TypeRef.new("Tuple", Array(Resolution).new(members.size, mapped))
+        end
+      end
+
+      private def zipped(
+        receiver : Resolved,
+        arguments : Array(Resolution),
+        nilable : Bool,
+      ) : Resolution
+        return Unknown.new(:unsupported, "zip on #{receiver}") unless receiver.is_a?(TypeRef)
+
+        element = element_of(receiver)
+        return element if element.is_a?(Unknown)
+
+        members = Array(Resolution).new(arguments.size + 1)
+        members << element
+        arguments.each do |argument|
+          return argument if argument.is_a?(Unknown)
+          return Unknown.new(:unsupported, "zip with #{argument}") unless argument.is_a?(TypeRef)
+
+          other = element_of(argument)
+          return other if other.is_a?(Unknown)
+
+          nil_type = TypeRef.new("Nil", Array(Resolution).new)
+          members << (nilable ? union([other, nil_type] of Resolution) : other)
+        end
+        TypeRef.new("Array", [TypeRef.new("Tuple", members)] of Resolution)
+      end
+
+      private def element_of(collection : TypeRef) : Resolution
+        bindings = @types.bindings(collection, "Enumerable")
+        return bindings if bindings.is_a?(Unknown)
+
+        bindings.find(&.name.==("T")).try(&.value) ||
+          Unknown.new(:no_annotation, "#{collection} does not state its element type")
       end
 
       private def includers_instance_var(

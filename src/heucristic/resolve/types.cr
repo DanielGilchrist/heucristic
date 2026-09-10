@@ -241,7 +241,15 @@ module Heucristic
         base = resolve_named(type.base, scope, Array(String).new, with_ancestors)
         return base unless base.is_a?(TypeRef)
 
-        arguments = type.arguments.map { |argument| resolve(argument, scope, with_ancestors) }
+        arguments = Array(Resolution).new(type.arguments.size)
+        type.arguments.each do |argument|
+          pack = argument.is_a?(Syntax::Splat) ? splat_pack(argument, scope) : nil
+          if pack
+            arguments.concat(pack.arguments)
+          else
+            arguments << resolve(argument, scope, with_ancestors)
+          end
+        end
         return union_of(arguments) if base.name == "Union"
 
         TypeRef.new(base.name, arguments)
@@ -271,6 +279,14 @@ module Heucristic
         end
 
         Unknown.new(:unsupported, type.to_s)
+      end
+
+      private def splat_pack(type : Syntax::Splat, scope : Scope) : TypeRef?
+        inner = type.inner
+        return unless inner.is_a?(Syntax::Named) && inner.names.size == 1
+
+        bound = scope.bound(inner.names[0])
+        bound.is_a?(TypeRef) && bound.name == "Tuple" ? bound : nil
       end
 
       private def union_of(members : Array(Resolution)) : Resolution
