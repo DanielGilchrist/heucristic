@@ -1,8 +1,20 @@
 class Log
+  def self.trace(*, exception : Exception) : Nil
+  end
+
+  def self.trace(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
+  end
+
   def trace(*, exception : Exception) : Nil
   end
 
   def trace(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
+  end
+
+  def self.debug(*, exception : Exception) : Nil
+  end
+
+  def self.debug(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
   end
 
   def debug(*, exception : Exception) : Nil
@@ -11,10 +23,22 @@ class Log
   def debug(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
   end
 
+  def self.info(*, exception : Exception) : Nil
+  end
+
+  def self.info(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
+  end
+
   def info(*, exception : Exception) : Nil
   end
 
   def info(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
+  end
+
+  def self.notice(*, exception : Exception) : Nil
+  end
+
+  def self.notice(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
   end
 
   def notice(*, exception : Exception) : Nil
@@ -23,16 +47,34 @@ class Log
   def notice(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
   end
 
+  def self.warn(*, exception : Exception) : Nil
+  end
+
+  def self.warn(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
+  end
+
   def warn(*, exception : Exception) : Nil
   end
 
   def warn(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
   end
 
+  def self.error(*, exception : Exception) : Nil
+  end
+
+  def self.error(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
+  end
+
   def error(*, exception : Exception) : Nil
   end
 
   def error(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
+  end
+
+  def self.fatal(*, exception : Exception) : Nil
+  end
+
+  def self.fatal(*, exception : Exception? = nil, & : Log::Emitter -> _) : Nil
   end
 
   def fatal(*, exception : Exception) : Nil
