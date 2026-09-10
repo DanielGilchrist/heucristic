@@ -186,7 +186,7 @@ module Heucristic
 
       def visit(node : Crystal::TypeDeclaration) : Bool
         var = node.var
-        return false unless var.is_a?(Crystal::InstanceVar)
+        return false unless var.is_a?(Crystal::InstanceVar) || var.is_a?(Crystal::ClassVar)
 
         location = var.location
         return false unless location
@@ -202,7 +202,7 @@ module Heucristic
       def visit(node : Crystal::Assign) : Bool
         target = node.target
         return constant(target, node.value, private_path(node)) if target.is_a?(Crystal::Path)
-        return true unless target.is_a?(Crystal::InstanceVar)
+        return true unless target.is_a?(Crystal::InstanceVar) || target.is_a?(Crystal::ClassVar)
 
         location = target.location
         return true unless location
@@ -369,7 +369,7 @@ module Heucristic
       end
 
       private def parameter_assignment?(
-        target : Crystal::InstanceVar,
+        target : Crystal::InstanceVar | Crystal::ClassVar,
         value : Crystal::ASTNode,
       ) : Bool
         value.is_a?(Crystal::Var) && "@#{value.name}" == target.name

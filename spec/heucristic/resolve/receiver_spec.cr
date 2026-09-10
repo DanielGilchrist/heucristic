@@ -1509,3 +1509,25 @@ describe Heucristic::Resolve::Receiver, "hash literals" do
     receiver_of_size(source, "@headers.size").should eq("HTTP::Headers")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "class variables" do
+  source = <<-CR
+    class Registry
+      @@contexts : Array(String)?
+      @@count = 0
+
+      def run : Nil
+        @@contexts.size
+        @@count.size
+      end
+    end
+    CR
+
+  it "types a declared class variable" do
+    receiver_of_size(source, "@@contexts.size").should eq("Array(String) | Nil")
+  end
+
+  it "types a class variable from its evident assignment" do
+    receiver_of_size(source, "@@count.size").should eq("Int32")
+  end
+end

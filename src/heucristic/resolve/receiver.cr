@@ -568,8 +568,9 @@ module Heucristic
         return declared(evident, scope(context)) if evident.is_a?(Syntax::Type)
 
         case node
-        when Crystal::Var         then variable(node.name, context, visiting, locals)
-        when Crystal::InstanceVar then instance_var(node.name, context, visiting)
+        when Crystal::Var then variable(node.name, context, visiting, locals)
+        when Crystal::InstanceVar, Crystal::ClassVar
+          instance_var(node.name, context, visiting)
         when Crystal::Call        then result_of(node, context, locals, visiting)
         when Crystal::Path        then constant(node, context, visiting)
         when Crystal::ImplicitObj then case_subject(context, visiting, locals)

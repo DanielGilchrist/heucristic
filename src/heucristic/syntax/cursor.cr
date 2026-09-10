@@ -46,7 +46,7 @@ module Heucristic
         @target.nil?
       end
 
-      def visit(node : Crystal::InstanceVar) : Bool
+      def visit(node : Crystal::InstanceVar | Crystal::ClassVar) : Bool
         @target = OnInstanceVar.new(node.name, context) if over?(node.location, node.name.size)
         @target.nil?
       end
