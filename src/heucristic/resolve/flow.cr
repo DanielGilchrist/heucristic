@@ -114,6 +114,12 @@ module Heucristic
         end
       end
 
+      private def unwrapped(node : Crystal::ASTNode?) : Crystal::ASTNode?
+        return node.expressions[0] if node.is_a?(Crystal::Expressions) && node.expressions.size == 1
+
+        node
+      end
+
       private def assigns?(node : Crystal::ASTNode, name : String) : Bool
         return false unless node.is_a?(Crystal::Assign)
 
@@ -132,7 +138,7 @@ module Heucristic
         child : Crystal::ASTNode,
         steps : Array(Step),
       ) : Nil
-        subject = parent.cond
+        subject = unwrapped(parent.cond)
         if subject.is_a?(Crystal::Assign) && (target = subject.target).is_a?(Crystal::Var)
           return unless target.name == name
 
@@ -178,8 +184,7 @@ module Heucristic
         when Crystal::Var
           steps << Truthy.new(positive) if cond.name == name
         when Crystal::IsA
-          obj = cond.obj
-          obj = obj.expressions[0] if obj.is_a?(Crystal::Expressions) && obj.expressions.size == 1
+          obj = unwrapped(cond.obj)
           if obj.is_a?(Crystal::Assign) && (target = obj.target).is_a?(Crystal::Var)
             return unless target.name == name
 

@@ -219,6 +219,9 @@ module Heucristic
         unless subject
           return Unknown.new(:unsupported, "an implicit object outside a case")
         end
+        if subject.is_a?(Crystal::Expressions) && subject.expressions.size == 1
+          subject = subject.expressions[0]
+        end
 
         type_of(subject, context, visiting, locals)
       end

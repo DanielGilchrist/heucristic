@@ -1201,3 +1201,28 @@ describe Heucristic::Resolve::Receiver, "tuple packs and zip" do
     receiver_of_size(source, "split(names).size").should eq("Tuple(Array(String), Array(String))")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "parenthesised case subjects" do
+  source = <<-CR
+    record Problem
+    record Metadata
+
+    class Disk
+      def observe : Metadata | Problem | Nil
+      end
+
+      def run : Nil
+        case (found = observe)
+        in Nil then nil
+        in Problem then found.size
+        in Metadata then found.size
+        end
+      end
+    end
+    CR
+
+  it "narrows the assigned variable inside each in branch" do
+    receiver_of_size(source, "in Problem then found.size").should eq("Problem")
+    receiver_of_size(source, "in Metadata then found.size").should eq("Metadata")
+  end
+end
