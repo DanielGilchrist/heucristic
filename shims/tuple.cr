@@ -38,7 +38,7 @@ struct Tuple(*T)
   def size : Int32
   end
 
-  def to_a(& : Union(*T) -> U) : Array(U)
+  def to_a(& : Union(*T) -> U) : Array(U) forall U
   end
 
   def map(& : Union(*T) -> U) : Array(U) forall U

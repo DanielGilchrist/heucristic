@@ -1,4 +1,7 @@
 class String
+  def rindex(search : Char, offset = size - 1) : Int32?
+  end
+
   def self.build(capacity = 64, & : IO::Memory ->) : self
   end
 

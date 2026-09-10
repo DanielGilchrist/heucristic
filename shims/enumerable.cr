@@ -1,5 +1,5 @@
 module Enumerable(T)
-  def chunks(&block : T -> U) : Array(Tuple(U, Array(T)))
+  def chunks(&block : T -> U) : Array(Tuple(U, Array(T))) forall U
   end
 
   def compact_map(& : T -> U?) : Array(U) forall U
@@ -23,7 +23,7 @@ module Enumerable(T)
   def flat_map(& : T -> Array(U) | Iterator(U) | U) : Array(U) forall U
   end
 
-  def group_by(& : T -> U) : Hash(U, Array(T))
+  def group_by(& : T -> U) : Hash(U, Array(T)) forall U
   end
 
   def in_groups_of(size : Int, filled_up_with : U = nil) : Array(Array(T | U))

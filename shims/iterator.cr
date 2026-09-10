@@ -20,13 +20,13 @@ module Iterator(T)
   def accumulate(initial : U) : Iterator(U)
   end
 
-  def accumulate(initial : U, &block : U, T -> U) : Iterator(U)
+  def accumulate(initial : U, &block : U, T -> U) : Iterator(U) forall U
   end
 
   def chain(other : Iterator(U)) : Iterator(T | U)
   end
 
-  def chunk(reuse = false, &block : T -> U) : Iterator(Tuple(U, Array(T)))
+  def chunk(reuse = false, &block : T -> U) : Iterator(Tuple(U, Array(T))) forall U
   end
 
   def chunk_while(reuse : Bool | Array(T) = false, &block : T, T -> B) : Iterator(Array(T))
@@ -56,19 +56,19 @@ module Iterator(T)
   def flat_map(&func : T -> Array(U) | Iterator(U) | U) : Iterator(U) forall U
   end
 
-  def map(&func : T -> U) : Iterator(U)
+  def map(&func : T -> U) : Iterator(U) forall U
   end
 
   def next : T | Iterator::Stop
   end
 
-  def reject(&func : T -> U) : Iterator(T)
+  def reject(&func : T -> U) : Iterator(T) forall U
   end
 
   def reject(pattern) : Iterator(T)
   end
 
-  def select(&func : T -> U) : Iterator(T)
+  def select(&func : T -> U) : Iterator(T) forall U
   end
 
   def select(pattern) : Iterator(T)
@@ -80,7 +80,7 @@ module Iterator(T)
   def skip(n : Int) : Iterator(T)
   end
 
-  def skip_while(&func : T -> U) : Iterator(T)
+  def skip_while(&func : T -> U) : Iterator(T) forall U
   end
 
   def slice(n : Int, reuse = false) : Iterator(Array(T))
@@ -107,7 +107,7 @@ module Iterator(T)
   def stop : Iterator::Stop
   end
 
-  def take_while(&func : T -> U) : Iterator(T)
+  def take_while(&func : T -> U) : Iterator(T) forall U
   end
 
   def tap(&block : T ->) : Iterator(T)
@@ -116,7 +116,7 @@ module Iterator(T)
   def uniq : Iterator(T)
   end
 
-  def uniq(&func : T -> U) : Iterator(T)
+  def uniq(&func : T -> U) : Iterator(T) forall U
   end
 
   def with_index(offset : Int = 0) : Iterator(Tuple(T, Int32))

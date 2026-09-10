@@ -29,7 +29,7 @@ class Array(T)
   def product(ary : Array(U)) : Array(Tuple(T, U))
   end
 
-  def to_lookup_hash(& : T -> U) : Hash(U, T)
+  def to_lookup_hash(& : T -> U) : Hash(U, T) forall U
   end
 
   def to_unsafe_slice : Slice(T)
