@@ -1249,3 +1249,41 @@ describe Heucristic::Resolve::Receiver, "default constructors" do
     receiver_of_size(source, "GitHubCLI.new.size").should eq("GitHubCLI")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "same-named locals in sibling blocks" do
+  source = <<-CR
+    module Enumerable(T)
+      def each(& : T ->) : Nil
+      end
+
+      def map(& : T -> U) : Array(U) forall U
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+
+      def compact : Array(T)
+      end
+    end
+
+    class Purger
+      def check(name : String) : String?
+      end
+
+      def run(names : Array(String)) : Nil
+        failures = names.map do |name|
+          error = check(name)
+          {name, error} if error
+        end.compact
+        failures.each do |name, error|
+          error.size
+        end
+      end
+    end
+    CR
+
+  it "does not confuse a block local with a same-named parameter of another block" do
+    receiver_of_size(source, "error.size").should eq("String")
+  end
+end

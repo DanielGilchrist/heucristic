@@ -507,7 +507,7 @@ module Heucristic
         if (local = locals.find(&.name.==(name)))
           return narrow(local.value, name, steps, context, visiting, locals)
         end
-        return Unknown.new(:cycle, name) if visiting.includes?(name)
+        return Unknown.new(:cycle, name) if visiting.includes?(variable_key(name, context))
 
         base = declared_variable(name, context, visiting, locals, steps)
         narrow(base, name, steps, context, visiting, locals)
@@ -523,15 +523,17 @@ module Heucristic
       ) : Resolution
         steps.reduce(base) do |current, step|
           case step
-          in Flow::Assigned then type_of(step.value, context, visiting + [name], locals)
+          in Flow::Assigned
+            type_of(step.value, context, visiting + [variable_key(name, context)], locals)
           in Flow::Reassigned
             within = step.within.reduce(context) { |inner, node| inner.inside(node) }
             values = Array(Resolution).new(step.values.size + 1)
             values << current
-            step.values.each { |value| values << type_of(value, within, visiting + [name], locals) }
+            key = variable_key(name, context)
+            step.values.each { |value| values << type_of(value, within, visiting + [key], locals) }
             union(values)
           in Flow::OrAssigned
-            value = type_of(step.value, context, visiting + [name], locals)
+            value = type_of(step.value, context, visiting + [variable_key(name, context)], locals)
             present = truthy(current, true)
             if present.is_a?(TypeRef) && present.name == "Nil"
               value
@@ -607,6 +609,11 @@ module Heucristic
         !chain.is_a?(Unknown) && chain.includes?(ancestor.name)
       end
 
+      private def variable_key(name : String, context : Syntax::Context) : String
+        owner = context.blocks.last? || context.def_node
+        owner ? "#{name}@#{owner.object_id}" : name
+      end
+
       private def declared_variable(
         name : String,
         context : Syntax::Context,
@@ -642,9 +649,10 @@ module Heucristic
           return declared(Syntax::TypeReader.read(declaration.declared_type), scope(context))
         end
 
-        return Unknown.new(:cycle, name) if visiting.includes?(name)
+        key = variable_key(name, context)
+        return Unknown.new(:cycle, name) if visiting.includes?(key)
 
-        if (from_block = block_parameter(name, context, locals, visiting + [name]))
+        if (from_block = block_parameter(name, context, locals, visiting + [key]))
           return from_block
         end
 
@@ -662,7 +670,8 @@ module Heucristic
         end
 
         assigned = Array(Resolution).new(assignments.size)
-        assignments.each { |value| assigned << type_of(value, context, visiting + [name], locals) }
+        key = variable_key(name, context)
+        assignments.each { |value| assigned << type_of(value, context, visiting + [key], locals) }
         union(assigned)
       end
 
