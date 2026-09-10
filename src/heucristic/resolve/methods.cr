@@ -12,7 +12,8 @@ module Heucristic
         block : Bool,
         arguments : Array(Resolution),
         named : Array(String),
-        named_arguments : Array(Binding) = Array(Binding).new do
+        named_arguments : Array(Binding) = Array(Binding).new,
+        implicit : Bool = false do
         def self.new(name : String, arity : Int32, block : Bool) : Call
           new(name, arity, block, Array(Resolution).new, Array(String).new)
         end
@@ -81,12 +82,15 @@ module Heucristic
       end
 
       def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
-        case receiver
-        in TypeRef          then instance_methods(receiver.name, call)
-        in MetaRef          then class_methods(receiver.of.name, call)
-        in UnionRef         then receiver.members.flat_map { |member| lookup(member, call) }.uniq!
-        in TypeVar, Unknown then Array(Index::Def).new
-        end
+        found = case receiver
+                in TypeRef          then instance_methods(receiver.name, call)
+                in MetaRef          then metaclass_methods(receiver.of.name, call)
+                in UnionRef         then union_methods(receiver, call)
+                in TypeVar, Unknown then Array(Index::Def).new
+                end
+        return found unless found.empty? && call.implicit
+
+        top_level(call)
       end
 
       def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
@@ -169,6 +173,22 @@ module Heucristic
         end
 
         first_level(type, call) { |entry| entry.receiver.metaclass? && call.accepts?(entry) }
+      end
+
+      private def union_methods(receiver : UnionRef, call : Call) : Array(Index::Def)
+        receiver.members.flat_map { |member| lookup(member, call) }.uniq!
+      end
+
+      private def metaclass_methods(type : String, call : Call) : Array(Index::Def)
+        found = class_methods(type, call)
+        found.empty? ? instance_methods("Class", call) : found
+      end
+
+      private def top_level(call : Call) : Array(Index::Def)
+        candidates = @workspace.named(call.name).select do |entry|
+          entry.owner.is_a?(Index::TopLevel) && call.accepts?(entry) && compatible?(entry, call)
+        end
+        most_specific(candidates, call)
       end
 
       private def default_constructor(type : String, call : Call) : Array(Index::Def)

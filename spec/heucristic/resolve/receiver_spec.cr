@@ -1333,3 +1333,42 @@ describe Heucristic::Resolve::Receiver, "multiple assignment" do
     receiver_of_size(source, "two.size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "Class methods and top-level defs" do
+  source = <<-CR
+    class Object
+      def class
+      end
+    end
+
+    class Class
+      def name : String
+      end
+    end
+
+    class Fiber
+    end
+
+    def spawn(*, name : String? = nil, same_thread = false, &block) : Fiber
+    end
+
+    class Worker
+      def self.run : Nil
+        spawn { 1 }.size
+      end
+
+      def report(error : Exception) : Nil
+        error.class.name.size
+        spawn { 1 }.size
+      end
+    end
+    CR
+
+  it "finds Class instance methods on a metaclass receiver" do
+    receiver_of_size(source, "error.class.name.size").should eq("String")
+  end
+
+  it "falls back to top-level defs for receiverless calls" do
+    receiver_of_size(source, "spawn { 1 }.size").should eq("Fiber")
+  end
+end

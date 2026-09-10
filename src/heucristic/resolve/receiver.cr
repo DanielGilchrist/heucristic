@@ -85,7 +85,7 @@ module Heucristic
           named_arguments << Binding.new(argument.name, value)
         end
         Methods::Call.new(
-          call.name, call.args.size, blocky?(call), arguments, named, named_arguments
+          call.name, call.args.size, blocky?(call), arguments, named, named_arguments, call.obj.nil?
         )
       end
 
