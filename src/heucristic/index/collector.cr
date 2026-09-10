@@ -231,10 +231,8 @@ module Heucristic
       def visit(node : Crystal::MacroIf) : Bool
         expanded = MacroText.expand(node)
         return false if expanded.is_a?(MacroText::Undecidable)
-        location = node.location
-        return false unless location
 
-        fragment = Syntax.parse_fragment(expanded, @path, location)
+        fragment = Syntax.parse_fragment(expanded.text, @path, expanded.at)
         fragment.accept(self) unless fragment.is_a?(Syntax::Broken)
         false
       end

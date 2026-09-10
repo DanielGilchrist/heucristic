@@ -4,146 +4,139 @@ require "./local_assignments"
 
 module Heucristic
   module Resolve
-    module Flow
-      extend self
-
+    class Flow
       record Truthy, positive : Bool
       record IsA, types : Array(Crystal::ASTNode), positive : Bool
-      record Assigned, value : Crystal::ASTNode
-      record OrAssigned, value : Crystal::ASTNode
+      record Assigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
+      record OrAssigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
       record Reassigned, values : Array(Crystal::ASTNode), within : Array(Crystal::ASTNode)
 
       alias Step = Truthy | IsA | Assigned | OrAssigned | Reassigned
 
-      def steps(
+      getter steps : Array(Step)
+
+      def self.steps(
         name : String,
         ancestors : Array(Crystal::ASTNode),
         exits : Terminator,
       ) : Array(Step)
-        steps = Array(Step).new
-        ancestors.each_cons_pair do |parent, child|
-          between(name, parent, child, steps, exits)
+        flow = new(name, exits)
+        (0...ancestors.size - 1).each do |index|
+          flow.between(ancestors[index], ancestors[index + 1], ancestors[0..index])
         end
-        steps
+        flow.steps
       end
 
-      private def between(
-        name : String,
+      def initialize(@name : String, @exits : Terminator) : Nil
+        @steps = Array(Step).new
+        @prefix = Array(Crystal::ASTNode).new
+      end
+
+      def between(
         parent : Crystal::ASTNode,
         child : Crystal::ASTNode,
-        steps : Array(Step),
-        exits : Terminator,
+        prefix : Array(Crystal::ASTNode),
       ) : Nil
+        @prefix = prefix
         case parent
         when Crystal::If
-          condition(name, parent.cond, true, steps) if parent.then.same?(child)
-          condition(name, parent.cond, false, steps) if parent.else.same?(child)
+          condition(parent.cond, true) if parent.then.same?(child)
+          condition(parent.cond, false) if parent.else.same?(child)
         when Crystal::Unless
-          condition(name, parent.cond, false, steps) if parent.then.same?(child)
-          condition(name, parent.cond, true, steps) if parent.else.same?(child)
+          condition(parent.cond, false) if parent.then.same?(child)
+          condition(parent.cond, true) if parent.else.same?(child)
         when Crystal::While
-          condition(name, parent.cond, true, steps) if parent.body.same?(child)
+          condition(parent.cond, true) if parent.body.same?(child)
         when Crystal::Until
-          condition(name, parent.cond, false, steps) if parent.body.same?(child)
+          condition(parent.cond, false) if parent.body.same?(child)
         when Crystal::And
-          condition(name, parent.left, true, steps) if parent.right.same?(child)
+          condition(parent.left, true) if parent.right.same?(child)
         when Crystal::Or
-          condition(name, parent.left, false, steps) if parent.right.same?(child)
+          condition(parent.left, false) if parent.right.same?(child)
         when Crystal::Case
-          case_branch(name, parent, child, steps)
+          case_branch(parent, child)
         when Crystal::When
           nil
         when Crystal::Expressions
-          sequence(name, parent.expressions, child, steps, exits)
+          sequence(parent.expressions, child)
         end
       end
 
-      private def sequence(
-        name : String,
-        statements : Array(Crystal::ASTNode),
-        child : Crystal::ASTNode,
-        steps : Array(Step),
-        exits : Terminator,
-      ) : Nil
+      def collect(cond : Crystal::ASTNode, positive : Bool, prefix : Array(Crystal::ASTNode)) : Nil
+        @prefix = prefix
+        condition(cond, positive)
+      end
+
+      private def sequence(statements : Array(Crystal::ASTNode), child : Crystal::ASTNode) : Nil
         statements.each do |statement|
           break if statement.same?(child)
 
-          guard(name, statement, steps, exits)
+          guard(statement)
         end
       end
 
-      private def guard(
-        name : String,
-        statement : Crystal::ASTNode,
-        steps : Array(Step),
-        exits : Terminator,
-      ) : Nil
+      private def guard(statement : Crystal::ASTNode) : Nil
+        within = @prefix + [statement]
         case statement
         when Crystal::Assign
           target = statement.target
-          return unless target.is_a?(Crystal::Var) && target.name == name
+          return unless target.is_a?(Crystal::Var) && target.name == @name
 
-          steps << Assigned.new(statement.value)
+          @steps << Assigned.new(statement.value, within)
         when Crystal::OpAssign
           target = statement.target
-          return unless target.is_a?(Crystal::Var) && target.name == name && statement.op == "||"
+          return unless target.is_a?(Crystal::Var) && target.name == @name && statement.op == "||"
 
-          steps << OrAssigned.new(statement.value)
+          @steps << OrAssigned.new(statement.value, within)
         when Crystal::MultiAssign
-          value = LocalAssignments.unpacked(statement, name)
-          steps << Assigned.new(value) if value
+          value = LocalAssignments.unpacked(statement, @name)
+          @steps << Assigned.new(value, within) if value
         when Crystal::If
           branch = statement.then
-          if branch.is_a?(Crystal::Assign) && assigns?(branch, name) && empty?(statement.else)
-            values = [branch.value] of Crystal::ASTNode
-            steps << Reassigned.new(values, [statement, branch] of Crystal::ASTNode)
-          elsif exits?(branch, exits) && empty?(statement.else)
-            condition(name, statement.cond, false, steps)
-          elsif exits?(statement.else, exits) && empty?(branch)
-            condition(name, statement.cond, true, steps)
+          if branch.is_a?(Crystal::Assign) && assigns?(branch) && empty?(statement.else)
+            @steps << Reassigned.new([branch.value] of Crystal::ASTNode, within + [branch])
+          elsif exits?(branch) && empty?(statement.else)
+            condition(statement.cond, false)
+          elsif exits?(statement.else) && empty?(branch)
+            condition(statement.cond, true)
           else
-            nested(name, statement, steps)
+            nested(statement)
           end
         when Crystal::Unless
-          if exits?(statement.then, exits) && empty?(statement.else)
-            condition(name, statement.cond, true, steps)
+          if exits?(statement.then) && empty?(statement.else)
+            condition(statement.cond, true)
           else
-            nested(name, statement, steps)
+            nested(statement)
           end
         when Crystal::Or
-          condition(name, statement.left, true, steps) if exits?(statement.right, exits)
+          condition(statement.left, true) if exits?(statement.right)
         when Crystal::Case
-          case_exits(name, statement, steps, exits)
+          case_exits(statement)
         else
-          nested(name, statement, steps)
+          nested(statement)
         end
       end
 
-      private def case_exits(
-        name : String,
-        statement : Crystal::Case,
-        steps : Array(Step),
-        exits : Terminator,
-      ) : Nil
+      private def case_exits(statement : Crystal::Case) : Nil
         subject = unwrapped(statement.cond)
         if subject.is_a?(Crystal::Assign) && (target = subject.target).is_a?(Crystal::Var)
-          return nested(name, statement, steps) unless target.name == name
+          return nested(statement) unless target.name == @name
 
-          steps << Assigned.new(subject.value)
-        elsif !(subject.is_a?(Crystal::Var) && subject.name == name)
-          return nested(name, statement, steps)
+          @steps << Assigned.new(subject.value, @prefix + [statement])
+        elsif !(subject.is_a?(Crystal::Var) && subject.name == @name)
+          return nested(statement)
         end
 
         excluded = Array(Crystal::ASTNode).new
         statement.whens.each do |branch|
-          next unless exits?(branch.body, exits)
+          next unless exits?(branch.body)
 
           types = type_conditions(branch.conds)
           return unless types
 
           excluded.concat(types)
         end
-        steps << IsA.new(excluded, false) unless excluded.empty?
+        @steps << IsA.new(excluded, false) unless excluded.empty?
       end
 
       private def unwrapped(node : Crystal::ASTNode?) : Crystal::ASTNode?
@@ -152,36 +145,29 @@ module Heucristic
         node
       end
 
-      private def assigns?(node : Crystal::ASTNode, name : String) : Bool
-        return false unless node.is_a?(Crystal::Assign)
-
+      private def assigns?(node : Crystal::Assign) : Bool
         target = node.target
-        target.is_a?(Crystal::Var) && target.name == name
+        target.is_a?(Crystal::Var) && target.name == @name
       end
 
-      private def nested(name : String, statement : Crystal::ASTNode, steps : Array(Step)) : Nil
-        values = LocalAssignments.find(statement, name)
-        steps << Reassigned.new(values, [statement] of Crystal::ASTNode) unless values.empty?
+      private def nested(statement : Crystal::ASTNode) : Nil
+        values = LocalAssignments.find(statement, @name)
+        @steps << Reassigned.new(values, @prefix + [statement]) unless values.empty?
       end
 
-      private def case_branch(
-        name : String,
-        parent : Crystal::Case,
-        child : Crystal::ASTNode,
-        steps : Array(Step),
-      ) : Nil
+      private def case_branch(parent : Crystal::Case, child : Crystal::ASTNode) : Nil
         subject = unwrapped(parent.cond)
         if subject.is_a?(Crystal::Assign) && (target = subject.target).is_a?(Crystal::Var)
-          return unless target.name == name
+          return unless target.name == @name
 
-          steps << Assigned.new(subject.value)
-        elsif !(subject.is_a?(Crystal::Var) && subject.name == name)
+          @steps << Assigned.new(subject.value, @prefix)
+        elsif !(subject.is_a?(Crystal::Var) && subject.name == @name)
           return
         end
 
         if (taken = parent.whens.find(&.same?(child)))
           types = type_conditions(taken.conds)
-          steps << IsA.new(types, true) if types
+          @steps << IsA.new(types, true) if types
         elsif parent.else.same?(child)
           all = Array(Crystal::ASTNode).new
           parent.whens.each do |branch|
@@ -190,7 +176,7 @@ module Heucristic
 
             all.concat(types)
           end
-          steps << IsA.new(all, false)
+          @steps << IsA.new(all, false)
         end
       end
 
@@ -206,67 +192,62 @@ module Heucristic
         types
       end
 
-      private def condition(
-        name : String,
-        cond : Crystal::ASTNode,
-        positive : Bool,
-        steps : Array(Step),
-      ) : Nil
+      private def condition(cond : Crystal::ASTNode, positive : Bool) : Nil
         case cond
         when Crystal::Var
-          steps << Truthy.new(positive) if cond.name == name
+          @steps << Truthy.new(positive) if cond.name == @name
         when Crystal::IsA
           obj = unwrapped(cond.obj)
           if obj.is_a?(Crystal::Assign) && (target = obj.target).is_a?(Crystal::Var)
-            return unless target.name == name
+            return unless target.name == @name
 
-            steps << Assigned.new(obj.value)
-            steps << IsA.new([cond.const], positive)
-          elsif obj.is_a?(Crystal::Var) && obj.name == name
-            steps << IsA.new([cond.const], positive)
+            @steps << Assigned.new(obj.value, @prefix)
+            @steps << IsA.new([cond.const], positive)
+          elsif obj.is_a?(Crystal::Var) && obj.name == @name
+            @steps << IsA.new([cond.const], positive)
           end
         when Crystal::Not
-          condition(name, cond.exp, !positive, steps)
+          condition(cond.exp, !positive)
         when Crystal::And
           return unless positive
 
-          condition(name, cond.left, true, steps)
-          condition(name, cond.right, true, steps)
+          condition(cond.left, true)
+          condition(cond.right, true)
         when Crystal::Or
-          return either_is_a(name, cond, steps) if positive
+          return either_is_a(cond) if positive
 
-          condition(name, cond.left, false, steps)
-          condition(name, cond.right, false, steps)
+          condition(cond.left, false)
+          condition(cond.right, false)
         when Crystal::Assign
           target = cond.target
-          return unless target.is_a?(Crystal::Var) && target.name == name
+          return unless target.is_a?(Crystal::Var) && target.name == @name
 
-          steps << Assigned.new(cond.value)
-          steps << Truthy.new(positive)
+          @steps << Assigned.new(cond.value, @prefix)
+          @steps << Truthy.new(positive)
         when Crystal::Expressions
-          condition(name, cond.expressions[0], positive, steps) if cond.expressions.size == 1
+          condition(cond.expressions[0], positive) if cond.expressions.size == 1
         end
       end
 
-      private def either_is_a(name : String, cond : Crystal::Or, steps : Array(Step)) : Nil
-        left = Array(Step).new
-        right = Array(Step).new
-        condition(name, cond.left, true, left)
-        condition(name, cond.right, true, right)
-        first = left[0]?
-        second = right[0]?
-        return unless left.size == 1 && right.size == 1
+      private def either_is_a(cond : Crystal::Or) : Nil
+        left = Flow.new(@name, @exits)
+        right = Flow.new(@name, @exits)
+        left.collect(cond.left, true, @prefix)
+        right.collect(cond.right, true, @prefix)
+        first = left.steps[0]?
+        second = right.steps[0]?
+        return unless left.steps.size == 1 && right.steps.size == 1
         return unless first.is_a?(IsA) && second.is_a?(IsA) && first.positive && second.positive
 
-        steps << IsA.new(first.types + second.types, true)
+        @steps << IsA.new(first.types + second.types, true)
       end
 
-      private def exits?(node : Crystal::ASTNode, exits : Terminator) : Bool
+      private def exits?(node : Crystal::ASTNode?) : Bool
         case node
         when Crystal::Return, Crystal::Break, Crystal::Next then true
-        when Crystal::Call                                  then exits.terminates?(node)
+        when Crystal::Call                                  then @exits.terminates?(node)
         when Crystal::Expressions
-          node.expressions.last?.try { |last| exits?(last, exits) } || false
+          node.expressions.last?.try { |last| exits?(last) } || false
         else false
         end
       end

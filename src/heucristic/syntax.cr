@@ -9,8 +9,9 @@ module Heucristic
       source : String,
       path : String,
       at : Crystal::Location,
+      variables : Set(String) = Set(String).new,
     ) : Crystal::ASTNode | Broken
-      parser = Crystal::Parser.new(source)
+      parser = Crystal::Parser.new(source, nil, [variables])
       parser.filename = path
       parser.wants_doc = true
       parser.line_number = at.line_number

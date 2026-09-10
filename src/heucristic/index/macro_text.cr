@@ -7,6 +7,7 @@ module Heucristic
       extend self
 
       record Undecidable, reason : String
+      record Expansion, text : String, at : Crystal::Location
 
       FLAG_NAMES = {
         "darwin", "linux", "unix", "windows", "win32", "wasm32", "x86_64", "aarch64", "bits64",
@@ -23,12 +24,18 @@ module Heucristic
         }
       {% end %}
 
-      def expand(node : Crystal::MacroIf) : String | Undecidable
+      def expand(node : Crystal::MacroIf) : Expansion | Undecidable
         taken = evaluate(node.cond)
         return taken if taken.is_a?(Undecidable)
 
         branch = taken ? node.then : node.else
-        text(branch)
+        expanded = text(branch)
+        return expanded if expanded.is_a?(Undecidable)
+
+        at = start_of(branch) || node.location
+        return Undecidable.new("a macro region without a location") unless at
+
+        Expansion.new(expanded, at)
       end
 
       def flag?(name : String) : Bool
@@ -36,11 +43,18 @@ module Heucristic
         found ? found[1] : false
       end
 
+      private def start_of(node : Crystal::ASTNode) : Crystal::Location?
+        first = node.is_a?(Crystal::Expressions) ? node.expressions.first? : node
+        first.try(&.location)
+      end
+
       private def text(node : Crystal::ASTNode) : String | Undecidable
         case node
         when Crystal::MacroLiteral then node.value
         when Crystal::Nop          then ""
-        when Crystal::MacroIf      then expand(node)
+        when Crystal::MacroIf
+          inner = expand(node)
+          inner.is_a?(Undecidable) ? inner : inner.text
         when Crystal::Expressions
           String.build do |io|
             node.expressions.each do |piece|

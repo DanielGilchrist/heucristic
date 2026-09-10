@@ -1583,3 +1583,53 @@ describe Heucristic::Resolve::Receiver, "sizeof and proc literals" do
     receiver_of_size(source, "@supply.size").should eq("Proc(String)")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "variables inside macro regions" do
+  source = <<-CR
+    class Configuration
+      def load(display : String) : Nil
+        {% if flag?(:never_set) %}
+          display.upcase
+        {% else %}
+          display.size
+        {% end %}
+      end
+    end
+    CR
+
+  it "keeps method parameters as variables when a macro region is re-parsed" do
+    receiver_of_size(source, "display.size").should eq("String")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "assignments typed at their own position" do
+  source = <<-CR
+    class Int32
+      def abs : Int32
+      end
+    end
+
+    class Reporter
+      def progress : Int32?
+      end
+
+      def mebibytes(bytes : Int32) : String
+      end
+
+      def throughput : Nil
+        sent = progress
+        return if sent.nil?
+
+        sent_bytes = sent.abs
+        sent = mebibytes(sent_bytes)
+        sent_bytes.size
+        sent.size
+      end
+    end
+    CR
+
+  it "types a value from the state at the assignment, not at the use" do
+    receiver_of_size(source, "sent_bytes.size").should eq("Int32")
+    receiver_of_size(source, "sent.size").should eq("String")
+  end
+end

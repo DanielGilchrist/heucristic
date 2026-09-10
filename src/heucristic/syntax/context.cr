@@ -30,6 +30,14 @@ module Heucristic
         enclosing.last? || Index::TopLevel.new
       end
 
+      def at(path : Array(Crystal::ASTNode)) : Context
+        Context.new(enclosing, type_vars, def_node, blocks, path, self.path)
+      end
+
+      def at(ancestors : Array(Crystal::ASTNode)) : Context
+        Context.new(enclosing, type_vars, def_node, blocks, ancestors, path)
+      end
+
       def inside(node : Crystal::ASTNode) : Context
         return self if ancestors.last?.try(&.same?(node))
 

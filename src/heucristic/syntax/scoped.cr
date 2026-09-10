@@ -1,5 +1,6 @@
 require "compiler/crystal/syntax"
 require "./target"
+require "./defined_variables"
 require "../syntax"
 require "../index/macro_text"
 
@@ -75,10 +76,10 @@ module Heucristic
       def visit(node : Crystal::MacroIf) : Bool
         expanded = Index::MacroText.expand(node)
         return false if expanded.is_a?(Index::MacroText::Undecidable)
-        location = node.location
-        return false unless location
 
-        fragment = Syntax.parse_fragment(expanded, "", location)
+        definition = @defs.last?
+        variables = definition ? DefinedVariables.of(definition) : Set(String).new
+        fragment = Syntax.parse_fragment(expanded.text, "", expanded.at, variables)
         fragment.accept(self) unless fragment.is_a?(Syntax::Broken)
         false
       end

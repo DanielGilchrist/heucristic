@@ -667,16 +667,18 @@ module Heucristic
         steps.reduce(base) do |current, step|
           case step
           in Flow::Assigned
-            type_of(step.value, context, visiting + [variable_key(name, context)], locals)
+            at = context.at(step.within)
+            type_of(step.value, at, visiting + [variable_key(name, context)], locals)
           in Flow::Reassigned
-            within = step.within.reduce(context) { |inner, node| inner.inside(node) }
+            within = context.at(step.within)
             values = Array(Resolution).new(step.values.size + 1)
             values << current
             key = variable_key(name, context)
             step.values.each { |value| values << type_of(value, within, visiting + [key], locals) }
             union(values)
           in Flow::OrAssigned
-            value = type_of(step.value, context, visiting + [variable_key(name, context)], locals)
+            at = context.at(step.within)
+            value = type_of(step.value, at, visiting + [variable_key(name, context)], locals)
             present = truthy(current, true)
             if present.is_a?(TypeRef) && present.name == "Nil"
               value
