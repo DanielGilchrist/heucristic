@@ -31,7 +31,9 @@ module Heucristic
       INDEXED = "$/heucristic/indexed"
 
       getter root : String
+
       getter workspace : Index::Workspace
+
       getter progress : Progress
 
       def initialize(@transport : Protocol::Transport) : Nil
@@ -46,6 +48,33 @@ module Heucristic
         @stopping = false
         @index_stdlib = true
         @progress = Progress.new(@transport, false)
+      end
+
+      private def initialize_session(request : Protocol::Request) : Outcome
+        params = DecodedParams.decode(request.params, LSProtocol::InitializeParams)
+        return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
+
+        if (root_uri = params.root_uri)
+          path = Uri.to_path(root_uri.to_s)
+          @root = path if path.is_a?(String)
+        elsif (root_path = params.root_path)
+          @root = root_path
+        end
+        @index_stdlib = Options.stdlib?(params.initialization_options)
+        supported = params.capabilities.window.try(&.work_done_progress) || false
+        @progress = Progress.new(@transport, supported)
+
+        reply(request.id, LSProtocol::InitializeResult.new(
+          capabilities: LSProtocol::ServerCapabilities.new(
+            text_document_sync: LSProtocol::TextDocumentSyncOptions.new(
+              open_close: true,
+              change: LSProtocol::TextDocumentSyncKind::Incremental,
+            ),
+            hover_provider: true,
+            definition_provider: true,
+          ),
+          server_info: LSProtocol::ServerInfo.new(name: "heucristic", version: VERSION),
+        ))
       end
 
       def handle(request : Protocol::Request) : Outcome
@@ -105,33 +134,6 @@ module Heucristic
             shims:      @shims.size,
             elapsed_ms: event.elapsed.total_milliseconds.round,
           },
-        ))
-      end
-
-      private def initialize_session(request : Protocol::Request) : Outcome
-        params = DecodedParams.decode(request.params, LSProtocol::InitializeParams)
-        return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
-
-        if (root_uri = params.root_uri)
-          path = Uri.to_path(root_uri.to_s)
-          @root = path if path.is_a?(String)
-        elsif (root_path = params.root_path)
-          @root = root_path
-        end
-        @index_stdlib = Options.stdlib?(params.initialization_options)
-        supported = params.capabilities.window.try(&.work_done_progress) || false
-        @progress = Progress.new(@transport, supported)
-
-        reply(request.id, LSProtocol::InitializeResult.new(
-          capabilities: LSProtocol::ServerCapabilities.new(
-            text_document_sync: LSProtocol::TextDocumentSyncOptions.new(
-              open_close: true,
-              change: LSProtocol::TextDocumentSyncKind::Incremental,
-            ),
-            hover_provider: true,
-            definition_provider: true,
-          ),
-          server_info: LSProtocol::ServerInfo.new(name: "heucristic", version: VERSION),
         ))
       end
 

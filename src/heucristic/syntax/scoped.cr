@@ -59,13 +59,6 @@ module Heucristic
         @enclosing.pop if record_name(node)
       end
 
-      private def record_name(node : Crystal::Call) : Crystal::Path?
-        return unless node.name == "record" && node.obj.nil?
-
-        name = node.args[0]?
-        name.is_a?(Crystal::Path) ? name : nil
-      end
-
       def visit(
         node : Crystal::ClassDef | Crystal::ModuleDef | Crystal::EnumDef | Crystal::LibDef,
       ) : Bool
@@ -98,6 +91,13 @@ module Heucristic
 
       protected def context : Context
         Context.new(@enclosing.dup, @type_vars.dup, @defs.last?, @blocks.dup, @nodes.dup)
+      end
+
+      private def record_name(node : Crystal::Call) : Crystal::Path?
+        return unless node.name == "record" && node.obj.nil?
+
+        name = node.args[0]?
+        name.is_a?(Crystal::Path) ? name : nil
       end
 
       private def type_vars_of(node : Crystal::ASTNode) : Array(String)

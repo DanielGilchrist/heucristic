@@ -4,9 +4,6 @@ require "./types"
 module Heucristic
   module Resolve
     class Methods
-      def initialize(@workspace : Index::Workspace, @types : Types) : Nil
-      end
-
       record Call,
         name : String,
         arity : Int32,
@@ -62,6 +59,9 @@ module Heucristic
         end
       end
 
+      def initialize(@workspace : Index::Workspace, @types : Types) : Nil
+      end
+
       def compatible?(entry : Index::Def, call : Call) : Bool
         positional = entry.parameters.select(&.kind.positional?)
         owner = entry.owner
@@ -75,6 +75,29 @@ module Heucristic
           next true if argument.is_a?(Unknown) || !restriction.is_a?(Syntax::Type)
 
           admits?(@types.resolve_lexically(restriction, scope), argument)
+        end
+      end
+
+      def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
+        case receiver
+        in TypeRef  then instance_methods(receiver.name, call)
+        in MetaRef  then class_methods(receiver.of.name, call)
+        in UnionRef then receiver.members.flat_map { |member| lookup(member, call) }.uniq!
+        in Unknown  then Array(Index::Def).new
+        end
+      end
+
+      def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
+        case receiver
+        in TypeRef
+          first_level(receiver.name, call, after: owner) do |entry|
+            entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
+          end
+        in MetaRef
+          first_level(receiver.of.name, call, after: owner) do |entry|
+            entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
+          end
+        in UnionRef then Array(Index::Def).new
         end
       end
 
@@ -111,29 +134,6 @@ module Heucristic
       private def ancestor?(type : String, candidate : String) : Bool
         chain = @types.ancestors(type)
         chain.is_a?(Unknown) || chain.includes?(candidate)
-      end
-
-      def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
-        case receiver
-        in TypeRef  then instance_methods(receiver.name, call)
-        in MetaRef  then class_methods(receiver.of.name, call)
-        in UnionRef then receiver.members.flat_map { |member| lookup(member, call) }.uniq!
-        in Unknown  then Array(Index::Def).new
-        end
-      end
-
-      def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
-        case receiver
-        in TypeRef
-          first_level(receiver.name, call, after: owner) do |entry|
-            entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
-          end
-        in MetaRef
-          first_level(receiver.of.name, call, after: owner) do |entry|
-            entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
-          end
-        in UnionRef then Array(Index::Def).new
-        end
       end
 
       private def instance_methods(type : String, call : Call) : Array(Index::Def)

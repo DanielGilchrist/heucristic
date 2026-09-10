@@ -5,13 +5,13 @@ module Heucristic
     class LocalDeclarations < Crystal::Visitor
       getter found : Crystal::TypeDeclaration?
 
-      def initialize(@name : String) : Nil
-      end
-
       def self.find(body : Crystal::ASTNode, name : String) : Crystal::TypeDeclaration?
         finder = new(name)
         body.accept(finder)
         finder.found
+      end
+
+      def initialize(@name : String) : Nil
       end
 
       def visit(node : Crystal::TypeDeclaration) : Bool

@@ -5,14 +5,14 @@ module Heucristic
     class LocalAssignments < Crystal::Visitor
       getter values : Array(Crystal::ASTNode)
 
-      def initialize(@name : String) : Nil
-        @values = Array(Crystal::ASTNode).new
-      end
-
       def self.find(body : Crystal::ASTNode, name : String) : Array(Crystal::ASTNode)
         finder = new(name)
         body.accept(finder)
         finder.values
+      end
+
+      def initialize(@name : String) : Nil
+        @values = Array(Crystal::ASTNode).new
       end
 
       def visit(node : Crystal::Assign) : Bool

@@ -19,6 +19,23 @@ module Heucristic
     class Receiver
       DEPTH_LIMIT = 48
 
+      record Site,
+        block : Crystal::Block?,
+        context : Syntax::Context,
+        locals : Array(Binding),
+        visiting : Array(String),
+        named : Array(Binding) = Array(Binding).new,
+        block_arg : Crystal::ASTNode? = nil do
+        NONE = new(
+          nil,
+          Syntax::Context.new(Array(String).new, Array(String).new, nil),
+          Array(Binding).new,
+          Array(String).new,
+        )
+      end
+
+      FALSEY = {"Nil", "Bool", "Pointer"}
+
       def initialize(
         @workspace : Index::Workspace,
         @shims : Index::Shims,
@@ -46,6 +63,151 @@ module Heucristic
         end
 
         result_of(receiver, shape, site)
+      end
+
+      def shape_of(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        locals : Array(Binding) = Array(Binding).new,
+        visiting : Array(String) = Array(String).new,
+      ) : Methods::Call
+        arguments = Array(Resolution).new(call.args.size)
+        call.args.each { |argument| arguments << type_of(argument, context, visiting, locals) }
+        named = call.named_args.try(&.map(&.name)) || Array(String).new
+        named_arguments = Array(Binding).new
+        call.named_args.try &.each do |argument|
+          value = type_of(argument.value, context, visiting, locals)
+          named_arguments << Binding.new(argument.name, value)
+        end
+        Methods::Call.new(
+          call.name, call.args.size, blocky?(call), arguments, named, named_arguments
+        )
+      end
+
+      def result_of(receiver : Resolved, call : Methods::Call) : Resolution
+        result_of(receiver, call, Site::NONE)
+      end
+
+      def result_of(receiver : Resolved, call : Methods::Call, site : Site) : Resolution
+        if receiver.is_a?(UnionRef)
+          members = receiver.members.map do |member|
+            member.is_a?(Unknown) ? member : result_of(member, call, site)
+          end
+          return union(members)
+        end
+
+        defs = @methods.lookup(receiver, call)
+        return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
+
+        results = Array(Resolution).new(defs.size)
+        defs.each { |entry| results << return_type(entry, receiver, call.arguments, site) }
+        distinct = results.uniq
+        return distinct[0] if distinct.size == 1
+
+        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
+      end
+
+      def of_call(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        locals : Array(Binding) = Array(Binding).new,
+        visiting : Array(String) = Array(String).new,
+      ) : Resolution
+        receiver = call.obj
+        return implicit_self(context) unless receiver
+
+        type_of(receiver, context, visiting, locals)
+      end
+
+      def variable(name : String, context : Syntax::Context) : Resolution
+        variable(name, context, Array(String).new, Array(Binding).new)
+      end
+
+      def instance_var(name : String, context : Syntax::Context) : Resolution
+        owner = context.owner
+        if owner.is_a?(Index::TopLevel)
+          return Unknown.new(:no_annotation, "#{name} outside any type")
+        end
+
+        levels = [owner]
+        chain = @types.ancestors(owner)
+        levels.concat(chain) unless chain.is_a?(Unknown)
+        levels.each do |level|
+          entries = @workspace.instance_vars_of(level).select(&.name.==(name))
+          next if entries.empty?
+
+          declared = entries.select(&.origin.declared?)
+          sources = declared.empty? ? entries : declared
+          scope = ivar_scope(owner, level)
+          return scope if scope.is_a?(Unknown)
+
+          return union(sources.map { |entry| declared(entry.type, scope) })
+        end
+
+        Unknown.new(
+          :no_annotation, "#{name} is never declared or assigned an evident type in #{owner}"
+        )
+      end
+
+      def return_type(
+        entry : Index::Def,
+        receiver : Resolved,
+        arguments : Array(Resolution) = Array(Resolution).new,
+        site : Site = Site::NONE,
+      ) : Resolution
+        if entry.name == "initialize" && receiver.is_a?(MetaRef)
+          return receiver.of
+        end
+        if entry.qualified == "Object#class"
+          return MetaRef.new(receiver) if receiver.is_a?(TypeRef)
+          return receiver if receiver.is_a?(MetaRef)
+        end
+        if entry.qualified == "Array#compact" && receiver.is_a?(TypeRef)
+          return compacted(receiver)
+        end
+
+        case (restriction = entry.return_type)
+        in Index::Unrestricted
+          shim = @shims.find(entry)
+          return return_type(shim.entry, receiver, arguments, site) if shim
+          if (target = entry.forwards_to)
+            return forwarded(entry, target, arguments, site)
+          end
+
+          Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
+        in Syntax::TypeReader::Unsupported
+          Unknown.new(:unsupported, restriction.source)
+        in Syntax::Type
+          scope = return_scope(entry, receiver, arguments, site)
+          return scope if scope.is_a?(Unknown)
+
+          @types.resolve(restriction, scope)
+        end
+      end
+
+      def signature(
+        entry : Index::Def,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+        site : Site,
+      ) : String
+        scope = return_scope(entry, receiver, arguments, site)
+        return entry.signature if scope.is_a?(Unknown)
+
+        parameters = entry.parameters.map do |parameter|
+          restriction = parameter.restriction
+          text = restriction.is_a?(Syntax::Type) ? Render.type(restriction, scope, @types) : nil
+          parameter.rendered(text)
+        end
+        returning = return_type(entry, receiver, arguments, site)
+        receiver_name = entry.receiver.metaclass? ? "self" : nil
+        Index::Signature.render(receiver_name, entry.name, parameters) do |io|
+          io << " : " << returning if returning.is_a?(Resolved)
+        end
+      end
+
+      def type_of(entry : Index::Constant) : Resolution
+        constant_type(entry, entry.name, Array(String).new)
       end
 
       private def case_subject(
@@ -93,107 +255,8 @@ module Heucristic
         Unknown.new(:ambiguous, "#{defs.size} overloads of `super` do not agree on a type")
       end
 
-      def shape_of(
-        call : Crystal::Call,
-        context : Syntax::Context,
-        locals : Array(Binding) = Array(Binding).new,
-        visiting : Array(String) = Array(String).new,
-      ) : Methods::Call
-        arguments = Array(Resolution).new(call.args.size)
-        call.args.each { |argument| arguments << type_of(argument, context, visiting, locals) }
-        named = call.named_args.try(&.map(&.name)) || Array(String).new
-        named_arguments = Array(Binding).new
-        call.named_args.try &.each do |argument|
-          value = type_of(argument.value, context, visiting, locals)
-          named_arguments << Binding.new(argument.name, value)
-        end
-        Methods::Call.new(
-          call.name, call.args.size, blocky?(call), arguments, named, named_arguments
-        )
-      end
-
       private def blocky?(call : Crystal::Call) : Bool
         !call.block.nil? || !call.block_arg.nil?
-      end
-
-      def result_of(receiver : Resolved, call : Methods::Call) : Resolution
-        result_of(receiver, call, Site::NONE)
-      end
-
-      def result_of(receiver : Resolved, call : Methods::Call, site : Site) : Resolution
-        if receiver.is_a?(UnionRef)
-          members = receiver.members.map do |member|
-            member.is_a?(Unknown) ? member : result_of(member, call, site)
-          end
-          return union(members)
-        end
-
-        defs = @methods.lookup(receiver, call)
-        return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
-
-        results = Array(Resolution).new(defs.size)
-        defs.each { |entry| results << return_type(entry, receiver, call.arguments, site) }
-        distinct = results.uniq
-        return distinct[0] if distinct.size == 1
-
-        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
-      end
-
-      record Site,
-        block : Crystal::Block?,
-        context : Syntax::Context,
-        locals : Array(Binding),
-        visiting : Array(String),
-        named : Array(Binding) = Array(Binding).new,
-        block_arg : Crystal::ASTNode? = nil do
-        NONE = new(
-          nil,
-          Syntax::Context.new(Array(String).new, Array(String).new, nil),
-          Array(Binding).new,
-          Array(String).new,
-        )
-      end
-
-      def of_call(
-        call : Crystal::Call,
-        context : Syntax::Context,
-        locals : Array(Binding) = Array(Binding).new,
-        visiting : Array(String) = Array(String).new,
-      ) : Resolution
-        receiver = call.obj
-        return implicit_self(context) unless receiver
-
-        type_of(receiver, context, visiting, locals)
-      end
-
-      def variable(name : String, context : Syntax::Context) : Resolution
-        variable(name, context, Array(String).new, Array(Binding).new)
-      end
-
-      def instance_var(name : String, context : Syntax::Context) : Resolution
-        owner = context.owner
-        if owner.is_a?(Index::TopLevel)
-          return Unknown.new(:no_annotation, "#{name} outside any type")
-        end
-
-        levels = [owner]
-        chain = @types.ancestors(owner)
-        levels.concat(chain) unless chain.is_a?(Unknown)
-        levels.each do |level|
-          entries = @workspace.instance_vars_of(level).select(&.name.==(name))
-          next if entries.empty?
-
-          declared = entries.select(&.origin.declared?)
-          sources = declared.empty? ? entries : declared
-          scope = ivar_scope(owner, level)
-          return scope if scope.is_a?(Unknown)
-
-          return union(sources.map { |entry| declared(entry.type, scope) })
-        end
-
-        Unknown.new(
-          :no_annotation, "#{name} is never declared or assigned an evident type in #{owner}"
-        )
       end
 
       private def ivar_scope(owner : String, level : String) : Scope | Unknown
@@ -309,8 +372,6 @@ module Heucristic
 
         kept.size == 1 ? kept[0] : UnionRef.new(kept)
       end
-
-      FALSEY = {"Nil", "Bool", "Pointer"}
 
       private def narrow_is_a(
         current : Resolution,
@@ -458,63 +519,6 @@ module Heucristic
         definition && definition.receiver ? MetaRef.new(this) : this
       end
 
-      def return_type(
-        entry : Index::Def,
-        receiver : Resolved,
-        arguments : Array(Resolution) = Array(Resolution).new,
-        site : Site = Site::NONE,
-      ) : Resolution
-        if entry.name == "initialize" && receiver.is_a?(MetaRef)
-          return receiver.of
-        end
-        if entry.qualified == "Object#class"
-          return MetaRef.new(receiver) if receiver.is_a?(TypeRef)
-          return receiver if receiver.is_a?(MetaRef)
-        end
-        if entry.qualified == "Array#compact" && receiver.is_a?(TypeRef)
-          return compacted(receiver)
-        end
-
-        case (restriction = entry.return_type)
-        in Index::Unrestricted
-          shim = @shims.find(entry)
-          return return_type(shim.entry, receiver, arguments, site) if shim
-          if (target = entry.forwards_to)
-            return forwarded(entry, target, arguments, site)
-          end
-
-          Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
-        in Syntax::TypeReader::Unsupported
-          Unknown.new(:unsupported, restriction.source)
-        in Syntax::Type
-          scope = return_scope(entry, receiver, arguments, site)
-          return scope if scope.is_a?(Unknown)
-
-          @types.resolve(restriction, scope)
-        end
-      end
-
-      def signature(
-        entry : Index::Def,
-        receiver : Resolved,
-        arguments : Array(Resolution),
-        site : Site,
-      ) : String
-        scope = return_scope(entry, receiver, arguments, site)
-        return entry.signature if scope.is_a?(Unknown)
-
-        parameters = entry.parameters.map do |parameter|
-          restriction = parameter.restriction
-          text = restriction.is_a?(Syntax::Type) ? Render.type(restriction, scope, @types) : nil
-          parameter.rendered(text)
-        end
-        returning = return_type(entry, receiver, arguments, site)
-        receiver_name = entry.receiver.metaclass? ? "self" : nil
-        Index::Signature.render(receiver_name, entry.name, parameters) do |io|
-          io << " : " << returning if returning.is_a?(Resolved)
-        end
-      end
-
       private def compacted(receiver : TypeRef) : Resolution
         element = receiver.arguments[0]?
         return receiver unless element.is_a?(UnionRef)
@@ -588,10 +592,6 @@ module Heucristic
         return Unknown.new(:cycle, located) if visiting.includes?(located)
 
         union(constants.map { |entry| constant_type(entry, located, visiting + [located]) })
-      end
-
-      def type_of(entry : Index::Constant) : Resolution
-        constant_type(entry, entry.name, Array(String).new)
       end
 
       private def constant_type(

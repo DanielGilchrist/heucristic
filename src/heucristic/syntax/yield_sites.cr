@@ -8,15 +8,6 @@ module Heucristic
 
       getter sites : Array(Site)
 
-      def initialize(
-        enclosing : Array(String),
-        type_vars : Array(String),
-        definition : Crystal::Def,
-      ) : Nil
-        super
-        @sites = Array(Site).new
-      end
-
       def self.in(
         definition : Crystal::Def,
         enclosing : Array(String),
@@ -25,6 +16,15 @@ module Heucristic
         finder = new(enclosing, type_vars, definition)
         definition.body.accept(finder)
         finder.sites
+      end
+
+      def initialize(
+        enclosing : Array(String),
+        type_vars : Array(String),
+        definition : Crystal::Def,
+      ) : Nil
+        super
+        @sites = Array(Site).new
       end
 
       def visit(node : Crystal::Yield) : Bool

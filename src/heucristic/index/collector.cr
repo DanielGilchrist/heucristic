@@ -9,6 +9,18 @@ require "../syntax/parse"
 module Heucristic
   module Index
     class Collector < Crystal::Visitor
+      ACCESSORS = {
+        "getter", "getter?", "getter!", "property", "property?", "property!", "setter",
+        "class_getter", "class_getter?", "class_getter!", "class_property", "class_property?",
+        "class_property!", "class_setter",
+      }
+
+      def self.collect(path : String, text : Document::Text, tree : Crystal::ASTNode) : File
+        collector = new(path, text)
+        tree.accept(collector)
+        collector.file
+      end
+
       def initialize(@path : String, @text : Document::Text) : Nil
         @defs = Array(Def).new
         @namespaces = Array(Namespace).new
@@ -17,12 +29,6 @@ module Heucristic
         @aliases = Array(Alias).new
         @constants = Array(Constant).new
         @owners = Array(String).new
-      end
-
-      def self.collect(path : String, text : Document::Text, tree : Crystal::ASTNode) : File
-        collector = new(path, text)
-        tree.accept(collector)
-        collector.file
       end
 
       def file : File
@@ -67,32 +73,6 @@ module Heucristic
         end
         node.members.each { |member| enum_member(name, member) }
         true
-      end
-
-      private def enum_member(owner : String, member : Crystal::ASTNode) : Nil
-        return unless member.is_a?(Crystal::Arg)
-        location = member.location
-        return unless location
-
-        start = Document::Point.from(location)
-        span = @text.span(start, start.advance(member.name.size))
-        return unless span.is_a?(Document::Span)
-
-        value = member.default_value.try(&.to_s) || Constant::ImplicitValue.new
-        type = Syntax::Named.new([owner], false)
-        @constants << Constant.new("#{owner}::#{member.name}", @path, span, value, type, nil)
-        @defs << Def.new(
-          name: "#{member.name.underscore}?",
-          owner: owner,
-          receiver: :instance,
-          path: @path,
-          name_span: span,
-          arity: Arity.new(0, 0, false),
-          parameters: Array(Parameter).new,
-          return_type: Syntax::Named.new(["Bool"], true),
-          free_vars: Array(String).new,
-          yields: false,
-        )
       end
 
       def visit(node : Crystal::LibDef) : Bool
@@ -185,12 +165,6 @@ module Heucristic
         false
       end
 
-      ACCESSORS = {
-        "getter", "getter?", "getter!", "property", "property?", "property!", "setter",
-        "class_getter", "class_getter?", "class_getter!", "class_property", "class_property?",
-        "class_property!", "class_setter",
-      }
-
       def visit(node : Crystal::Call) : Bool
         return accessors(node) if node.obj.nil? && ACCESSORS.includes?(node.name)
         return delegates(node) if node.obj.nil? && node.name == "delegate"
@@ -216,6 +190,36 @@ module Heucristic
         node.block.try(&.accept(self))
         @owners.pop
         false
+      end
+
+      def visit(node : Crystal::ASTNode) : Bool
+        true
+      end
+
+      private def enum_member(owner : String, member : Crystal::ASTNode) : Nil
+        return unless member.is_a?(Crystal::Arg)
+        location = member.location
+        return unless location
+
+        start = Document::Point.from(location)
+        span = @text.span(start, start.advance(member.name.size))
+        return unless span.is_a?(Document::Span)
+
+        value = member.default_value.try(&.to_s) || Constant::ImplicitValue.new
+        type = Syntax::Named.new([owner], false)
+        @constants << Constant.new("#{owner}::#{member.name}", @path, span, value, type, nil)
+        @defs << Def.new(
+          name: "#{member.name.underscore}?",
+          owner: owner,
+          receiver: :instance,
+          path: @path,
+          name_span: span,
+          arity: Arity.new(0, 0, false),
+          parameters: Array(Parameter).new,
+          return_type: Syntax::Named.new(["Bool"], true),
+          free_vars: Array(String).new,
+          yields: false,
+        )
       end
 
       private def record_initializer(name : Crystal::Path, fields : Array(Crystal::ASTNode)) : Nil
@@ -250,10 +254,6 @@ module Heucristic
           free_vars: Array(String).new,
           yields: false,
         )
-      end
-
-      def visit(node : Crystal::ASTNode) : Bool
-        true
       end
 
       private def constant(name : Crystal::Path, value : Crystal::ASTNode) : Bool

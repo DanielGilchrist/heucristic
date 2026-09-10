@@ -5,13 +5,13 @@ module Heucristic
     class RescueVariables < Crystal::Visitor
       getter found : Crystal::Rescue?
 
-      def initialize(@name : String) : Nil
-      end
-
       def self.find(body : Crystal::ASTNode, name : String) : Crystal::Rescue?
         finder = new(name)
         body.accept(finder)
         finder.found
+      end
+
+      def initialize(@name : String) : Nil
       end
 
       def visit(node : Crystal::Rescue) : Bool

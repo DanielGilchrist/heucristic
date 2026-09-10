@@ -10,16 +10,16 @@ module Heucristic
 
       @line_starts : Array(Int32)
 
-      def initialize(@source : String) : Nil
-        @line_starts = Text.line_starts(@source)
-      end
-
       def self.line_starts(source : String) : Array(Int32)
         starts = [0]
         source.each_byte.with_index do |byte, offset|
           starts << offset + 1 if byte === '\n'
         end
         starts
+      end
+
+      def initialize(@source : String) : Nil
+        @line_starts = Text.line_starts(@source)
       end
 
       def offset(position : LSProtocol::Position) : Int32 | OutOfRange
