@@ -1,4 +1,5 @@
 require "../../spec_helper"
+require "../../../src/heucristic/resolve/known_exits"
 
 private SOURCE = <<-CR
   class Base

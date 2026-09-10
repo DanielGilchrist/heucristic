@@ -12,6 +12,7 @@ require "./local_declarations"
 require "./local_assignments"
 require "./rescue_variables"
 require "./flow"
+require "./call_exits"
 require "../syntax/yield_sites"
 
 module Heucristic
@@ -410,7 +411,8 @@ module Heucristic
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
-        Flow.steps(name, context.ancestors).reduce(base) do |current, step|
+        exits = CallExits.new(@methods, implicit_self(context))
+        Flow.steps(name, context.ancestors, exits).reduce(base) do |current, step|
           case step
           in Flow::Assigned then type_of(step.value, context, visiting + [name], locals)
           in Flow::OrAssigned

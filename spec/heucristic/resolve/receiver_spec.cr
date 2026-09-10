@@ -937,3 +937,38 @@ describe Heucristic::Resolve::Receiver, "or-assignment and cyclic branches" do
     receiver_of_size(source, "bindings.size").should eq("Array(String)")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "exits through NoReturn methods" do
+  source = <<-CR
+    record Target
+    record Problem
+
+    class Sync
+      def parse : Target | Problem
+      end
+
+      def fail_with(message : String) : NoReturn
+      end
+
+      def take(value : Int32) : String
+      end
+
+      def run(mixed : Int32 | String) : Nil
+        target = parse
+        if target.is_a?(Problem)
+          fail_with("bad")
+        end
+        target.size
+        take(mixed).size
+      end
+    end
+    CR
+
+  it "narrows past a guard that calls a NoReturn method" do
+    receiver_of_size(source, "target.size").should eq("Target")
+  end
+
+  it "falls back to arity matches when no overload admits the argument types" do
+    receiver_of_size(source, "take(mixed).size").should eq("String")
+  end
+end

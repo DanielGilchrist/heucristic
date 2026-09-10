@@ -1,4 +1,5 @@
 require "compiler/crystal/syntax"
+require "./terminator"
 
 module Heucristic
   module Resolve
@@ -12,12 +13,14 @@ module Heucristic
 
       alias Step = Truthy | IsA | Assigned | OrAssigned
 
-      EXITS = {"raise", "exit", "abort"}
-
-      def steps(name : String, ancestors : Array(Crystal::ASTNode)) : Array(Step)
+      def steps(
+        name : String,
+        ancestors : Array(Crystal::ASTNode),
+        exits : Terminator,
+      ) : Array(Step)
         steps = Array(Step).new
         ancestors.each_cons_pair do |parent, child|
-          between(name, parent, child, steps)
+          between(name, parent, child, steps, exits)
         end
         steps
       end
@@ -27,6 +30,7 @@ module Heucristic
         parent : Crystal::ASTNode,
         child : Crystal::ASTNode,
         steps : Array(Step),
+        exits : Terminator,
       ) : Nil
         case parent
         when Crystal::If
@@ -48,7 +52,7 @@ module Heucristic
         when Crystal::When
           nil
         when Crystal::Expressions
-          sequence(name, parent.expressions, child, steps)
+          sequence(name, parent.expressions, child, steps, exits)
         end
       end
 
@@ -57,15 +61,21 @@ module Heucristic
         statements : Array(Crystal::ASTNode),
         child : Crystal::ASTNode,
         steps : Array(Step),
+        exits : Terminator,
       ) : Nil
         statements.each do |statement|
           break if statement.same?(child)
 
-          guard(name, statement, steps)
+          guard(name, statement, steps, exits)
         end
       end
 
-      private def guard(name : String, statement : Crystal::ASTNode, steps : Array(Step)) : Nil
+      private def guard(
+        name : String,
+        statement : Crystal::ASTNode,
+        steps : Array(Step),
+        exits : Terminator,
+      ) : Nil
         case statement
         when Crystal::Assign
           target = statement.target
@@ -78,17 +88,17 @@ module Heucristic
 
           steps << OrAssigned.new(statement.value)
         when Crystal::If
-          if exits?(statement.then) && empty?(statement.else)
+          if exits?(statement.then, exits) && empty?(statement.else)
             condition(name, statement.cond, false, steps)
-          elsif exits?(statement.else) && empty?(statement.then)
+          elsif exits?(statement.else, exits) && empty?(statement.then)
             condition(name, statement.cond, true, steps)
           end
         when Crystal::Unless
-          return unless exits?(statement.then) && empty?(statement.else)
+          return unless exits?(statement.then, exits) && empty?(statement.else)
 
           condition(name, statement.cond, true, steps)
         when Crystal::Or
-          condition(name, statement.left, true, steps) if exits?(statement.right)
+          condition(name, statement.left, true, steps) if exits?(statement.right, exits)
         end
       end
 
@@ -177,13 +187,12 @@ module Heucristic
         end
       end
 
-      private def exits?(node : Crystal::ASTNode) : Bool
+      private def exits?(node : Crystal::ASTNode, exits : Terminator) : Bool
         case node
         when Crystal::Return, Crystal::Break, Crystal::Next then true
-        when Crystal::Call
-          node.obj.nil? && EXITS.includes?(node.name)
+        when Crystal::Call                                  then exits.terminates?(node)
         when Crystal::Expressions
-          node.expressions.last?.try { |last| exits?(last) } || false
+          node.expressions.last?.try { |last| exits?(last, exits) } || false
         else false
         end
       end

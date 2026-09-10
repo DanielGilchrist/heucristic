@@ -138,9 +138,12 @@ module Heucristic
       end
 
       private def instance_methods(type : String, call : Call) : Array(Index::Def)
-        first_level(type, call) do |entry|
+        found = first_level(type, call) do |entry|
           entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
         end
+        return found unless found.empty?
+
+        first_level(type, call) { |entry| entry.receiver.instance? && call.accepts?(entry) }
       end
 
       private def class_methods(type : String, call : Call) : Array(Index::Def)
@@ -151,12 +154,16 @@ module Heucristic
 
         extended = extended_methods(type, call)
         return extended unless extended.empty?
-        return extended unless call.name == "new"
 
-        constructor = Call.new(
-          "initialize", call.arity, call.block, call.arguments, call.named, call.named_arguments
-        )
-        instance_methods(type, constructor)
+        if call.name == "new"
+          constructor = Call.new(
+            "initialize", call.arity, call.block, call.arguments, call.named, call.named_arguments
+          )
+          constructed = instance_methods(type, constructor)
+          return constructed unless constructed.empty?
+        end
+
+        first_level(type, call) { |entry| entry.receiver.metaclass? && call.accepts?(entry) }
       end
 
       private def extended_methods(type : String, call : Call) : Array(Index::Def)
