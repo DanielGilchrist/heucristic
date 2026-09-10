@@ -29,6 +29,12 @@ module Enumerable(T)
   def in_groups_of(size : Int, filled_up_with : U = nil) : Array(Array(T | U))
   end
 
+  def zip(*others : Indexable | Iterable | Iterator, &) : Nil
+  end
+
+  def zip?(*others : Indexable | Iterable | Iterator, &) : Nil
+  end
+
   def reduce(& : T, T -> T) : T
   end
 

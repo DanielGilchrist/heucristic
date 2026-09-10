@@ -4,4 +4,7 @@ class Deque(T)
 
   def <<(value : T) : self
   end
+
+  def shift? : T?
+  end
 end

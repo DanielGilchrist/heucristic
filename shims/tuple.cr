@@ -41,6 +41,9 @@ struct Tuple(*T)
   def to_a(& : Union(*T) -> U) : Array(U)
   end
 
+  def map(& : Union(*T) -> U) : Array(U) forall U
+  end
+
   def unsafe_fetch(index : Int) : Union(*T)
   end
 end
