@@ -208,4 +208,29 @@ describe Heucristic::Resolve::Methods do
     lookup_meta(source, "Dir", one).map(&.return_type.to_s).should eq(["Array(String)"])
     lookup_meta(source, "Dir", hidden).map(&.return_type.to_s).should eq(["Array(Int32)"])
   end
+
+  it "admits a symbol literal for an enum parameter, as the compiler autocasts it" do
+    source = <<-CR
+      enum Origin
+        Declared
+        Assigned
+      end
+
+      class Store
+        def record(name : String, origin : Origin) : Nil
+        end
+
+        def record(name : String, origin : String) : String
+        end
+      end
+      CR
+    string = Heucristic::Resolve::TypeRef.new("String", Array(Heucristic::Resolve::Resolution).new)
+    symbol = Heucristic::Resolve::TypeRef.new("Symbol", Array(Heucristic::Resolve::Resolution).new)
+    call = Heucristic::Resolve::Methods::Call.new(
+      "record", 2, false, [string, symbol] of Heucristic::Resolve::Resolution
+    )
+    lookup(source, "Store", call).map(&.signature).should eq(
+      ["def record(name : String, origin : Origin) : Nil"]
+    )
+  end
 end

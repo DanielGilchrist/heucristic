@@ -81,11 +81,19 @@ module Heucristic
         in TypeRef
           case argument
           in TypeRef
-            argument.name == restriction.name || ancestor?(argument.name, restriction.name)
+            argument.name == restriction.name ||
+              ancestor?(argument.name, restriction.name) ||
+              autocast?(argument, restriction)
           in UnionRef then false
           in MetaRef  then restriction.name == "Class"
           end
         end
+      end
+
+      private def autocast?(argument : TypeRef, restriction : TypeRef) : Bool
+        return false unless argument.name == "Symbol"
+
+        @workspace.namespaces(restriction.name).any?(Index::EnumNamespace)
       end
 
       private def ancestor?(type : String, candidate : String) : Bool
