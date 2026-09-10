@@ -168,7 +168,7 @@ module Heucristic
       end
 
       def visit(node : Crystal::Def) : Bool
-        record(node)
+        record_def(node)
         true
       end
 
@@ -490,7 +490,7 @@ module Heucristic
         )
       end
 
-      private def record(node : Crystal::Def) : Nil
+      private def record_def(node : Crystal::Def) : Nil
         record_ivar_parameters(node)
         name_location = node.name_location
         return unless name_location
