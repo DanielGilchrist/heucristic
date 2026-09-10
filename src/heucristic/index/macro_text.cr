@@ -31,9 +31,9 @@ module Heucristic
         text(branch)
       end
 
-      def flag?(name : String) : Bool | Undecidable
+      def flag?(name : String) : Bool
         found = HOST_FLAGS.find { |entry| entry[0] == name }
-        found ? found[1] : Undecidable.new("unknown flag #{name}")
+        found ? found[1] : false
       end
 
       private def text(node : Crystal::ASTNode) : String | Undecidable
