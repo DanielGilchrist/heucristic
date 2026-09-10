@@ -340,11 +340,25 @@ module Heucristic
         when Crystal::Call        then result_of(node, context, locals, visiting)
         when Crystal::Path        then constant(node, context, visiting)
         when Crystal::ImplicitObj then case_subject(context, visiting, locals)
-        when Crystal::If
+        when Crystal::If, Crystal::Unless
           branches = Array(Resolution).new(2)
-          branches << type_of(node.then, context, visiting, locals)
-          branches << type_of(node.else, context, visiting, locals)
+          branches << type_of(node.then, context.inside(node, node.then), visiting, locals)
+          branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
           union(branches)
+        when Crystal::Return, Crystal::Break then TypeRef.new("NoReturn", Array(Resolution).new)
+        when Crystal::Or
+          left = type_of(node.left, context.inside(node, node.left), visiting, locals)
+          right = type_of(node.right, context.inside(node, node.right), visiting, locals)
+          union([truthy(left, true), right] of Resolution)
+        when Crystal::And
+          left = type_of(node.left, context.inside(node, node.left), visiting, locals)
+          right = type_of(node.right, context.inside(node, node.right), visiting, locals)
+          union([truthy(left, false), right] of Resolution)
+        when Crystal::Next
+          value = node.exp
+          return TypeRef.new("Nil", Array(Resolution).new) unless value
+
+          type_of(value, context, visiting, locals)
         when Crystal::ArrayLiteral
           elements(node.elements, context, visiting, locals) do |inner|
             TypeRef.new("Array", [inner] of Resolution)
@@ -355,11 +369,10 @@ module Heucristic
           members.find(&.is_a?(Unknown)) || TypeRef.new("Tuple", members)
         when Crystal::Nop then TypeRef.new("Nil", Array(Resolution).new)
         when Crystal::Expressions
-          if node.expressions.size == 1
-            type_of(node.expressions[0], context, visiting, locals)
-          else
-            Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
-          end
+          last = node.expressions.last?
+          return TypeRef.new("Nil", Array(Resolution).new) unless last
+
+          type_of(last, context.inside(node, last), visiting, locals)
         else
           Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
         end
@@ -373,7 +386,7 @@ module Heucristic
       ) : Resolution
         return implicit_self(context) if name == "self"
         if (local = locals.find(&.name.==(name)))
-          return local.value
+          return narrow(local.value, name, context, visiting, locals)
         end
         return Unknown.new(:cycle, name) if visiting.includes?(name)
 
@@ -834,10 +847,8 @@ module Heucristic
           input = inputs[index]?
           locals << Binding.new(argument.name, input) if input
         end
-        body = last_expression(block.body)
-        return unless body
-
-        result = type_of(body, site.context, site.visiting, locals)
+        body = block.body
+        result = type_of(body, site.context.inside(block, body), site.visiting, locals)
         Unify.bind(output, result, entry.free_vars, bindings, @types, scope)
       end
 
@@ -867,14 +878,6 @@ module Heucristic
 
         shape = Methods::Call.new(pointer.name, arguments.size, false, arguments)
         result_of(receiver, shape, Site::NONE)
-      end
-
-      private def last_expression(body : Crystal::ASTNode) : Crystal::ASTNode?
-        case body
-        when Crystal::Expressions then body.expressions.last?
-        when Crystal::Nop         then nil
-        else                           body
-        end
       end
 
       private def bind_arguments(

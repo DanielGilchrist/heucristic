@@ -20,6 +20,16 @@ module Heucristic
       def owner : Index::Owner
         enclosing.last? || Index::TopLevel.new
       end
+
+      def inside(node : Crystal::ASTNode) : Context
+        return self if ancestors.last?.try(&.same?(node))
+
+        Context.new(enclosing, type_vars, def_node, blocks, ancestors + [node])
+      end
+
+      def inside(parent : Crystal::ASTNode, child : Crystal::ASTNode) : Context
+        inside(parent).inside(child)
+      end
     end
 
     record OnDef, node : Crystal::Def, context : Context

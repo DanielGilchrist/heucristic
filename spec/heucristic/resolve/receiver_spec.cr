@@ -697,3 +697,75 @@ describe Heucristic::Resolve::Receiver, "module instance variables" do
     receiver_of_size(source, "@event.id.size").should eq("Int32")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "block bodies" do
+  source = <<-CR
+    module Enumerable(T)
+      def map(& : T -> U) : Array(U) forall U
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+    end
+
+    class Result(T)
+      def unwrap_or(& : String -> U) : T | U forall U
+      end
+    end
+
+    class Worker
+      def lookup(name : String) : Int32?
+      end
+
+      def run(names : Array(String), result : Result(Int32)) : Nil
+        names.map { |name| found = lookup(name); found ? found : 0 }.size
+        result.unwrap_or { |error| return }.size
+        names.map do |name|
+          value = lookup(name)
+          next 0 unless value
+
+          value
+        end.size
+        (lookup("a") || 0).size
+        (lookup("a") && "found").size
+      end
+    end
+    CR
+
+  it "types a block body through its own assignments and guards" do
+    receiver_of_size(source, "found ? found : 0 }.size").should eq("Array(Int32)")
+  end
+
+  it "treats a block that returns as NoReturn" do
+    receiver_of_size(source, "result.unwrap_or { |error| return }.size").should eq("Int32")
+  end
+
+  it "narrows a block local after a guard that exits with next" do
+    receiver_of_size(source, "end.size").should eq("Array(Int32)")
+  end
+
+  it "types or and and expressions from their operands" do
+    receiver_of_size(source, "(lookup(\"a\") || 0).size").should eq("Int32")
+    receiver_of_size(source, "(lookup(\"a\") && \"found\").size").should eq("Nil | String")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "narrowing an inline assignment" do
+  source = <<-CR
+    class Owner
+      def owner : String | Int32
+      end
+
+      def go : Nil
+        if (name = owner).is_a?(String)
+          name.size
+        end
+      end
+    end
+    CR
+
+  it "narrows a variable assigned inside an is_a? condition" do
+    receiver_of_size(source, "name.size").should eq("String")
+  end
+end

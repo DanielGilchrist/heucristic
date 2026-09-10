@@ -139,7 +139,15 @@ module Heucristic
           steps << Truthy.new(positive) if cond.name == name
         when Crystal::IsA
           obj = cond.obj
-          steps << IsA.new([cond.const], positive) if obj.is_a?(Crystal::Var) && obj.name == name
+          obj = obj.expressions[0] if obj.is_a?(Crystal::Expressions) && obj.expressions.size == 1
+          if obj.is_a?(Crystal::Assign) && (target = obj.target).is_a?(Crystal::Var)
+            return unless target.name == name
+
+            steps << Assigned.new(obj.value)
+            steps << IsA.new([cond.const], positive)
+          elsif obj.is_a?(Crystal::Var) && obj.name == name
+            steps << IsA.new([cond.const], positive)
+          end
         when Crystal::Not
           condition(name, cond.exp, !positive, steps)
         when Crystal::And
