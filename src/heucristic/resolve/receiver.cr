@@ -46,6 +46,20 @@ module Heucristic
         result_of(receiver, shape, site)
       end
 
+      private def case_subject(
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
+        enclosing = context.ancestors.reverse_each.find { |node| node.is_a?(Crystal::Case) }
+        subject = enclosing.is_a?(Crystal::Case) ? enclosing.cond : nil
+        unless subject
+          return Unknown.new(:unsupported, "an implicit object outside a case")
+        end
+
+        type_of(subject, context, visiting, locals)
+      end
+
       private def super_result(
         call : Crystal::Call,
         receiver : Resolved,
@@ -201,6 +215,7 @@ module Heucristic
         when Crystal::InstanceVar then instance_var(node.name, context)
         when Crystal::Call        then result_of(node, context, locals, visiting)
         when Crystal::Path        then constant(node, context, visiting)
+        when Crystal::ImplicitObj then case_subject(context, visiting, locals)
         when Crystal::If
           branches = Array(Resolution).new(2)
           branches << type_of(node.then, context, visiting, locals)

@@ -340,3 +340,32 @@ describe Heucristic::Resolve::Receiver, "unpacking, yields, super, named argumen
     receiver_of_size(source, %(boxes.wrap(1, label: "a").size)).should eq("Tuple(Int32, String)")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "implicit case objects" do
+  source = <<-CR
+    enum Kind
+      Small
+      Large
+    end
+
+    class Sizer
+      def label(kind : Kind, name : String?) : Nil
+        case kind
+        when .small? then 1
+        when .large? then 2
+        end
+        case name
+        when .nil?  then 3
+        when .size then 4
+        end
+      end
+    end
+    CR
+
+  it "types the implicit object of a when branch as the case subject" do
+    receiver_of_size(source, "when .size then 4").should eq("String | Nil")
+    lines = source.lines
+    line = lines.index!(&.includes?("when .small?")) + 1
+    receiver_at(source, line, lines[line - 1].index!("small?") + 1).should eq("Kind")
+  end
+end
