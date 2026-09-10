@@ -651,12 +651,23 @@ module Heucristic
 
       private def tuple_element(input : Resolution, position : Int32, name : String) : Resolution
         return input if input.is_a?(Unknown)
-        unless input.is_a?(TypeRef) && input.name == "Tuple"
-          return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not a Tuple")
+        unless input.is_a?(TypeRef)
+          return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
+        end
+        if input.name == "Tuple"
+          element = input.arguments[position]?
+          return element || Unknown.new(:unsupported, "#{name} unpacks past the tuple's size")
         end
 
-        element = input.arguments[position]?
-        element || Unknown.new(:unsupported, "#{name} unpacks past the tuple's size")
+        chain = @types.ancestors(input.name)
+        inherits = !chain.is_a?(Unknown) && chain.includes?("Indexable")
+        indexable = input.name == "Indexable" || inherits
+        unless indexable
+          return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
+        end
+
+        element = input.arguments[0]?
+        element || Unknown.new(:unsupported, "#{name} unpacks #{input} with no element type")
       end
 
       private def block_inputs(

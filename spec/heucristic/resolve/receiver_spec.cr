@@ -599,3 +599,34 @@ describe Heucristic::Resolve::Receiver, "inherited instance variables" do
     receiver_of_size(source, "@count.size").should eq("Int32")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "unpacking indexable elements" do
+  source = <<-CR
+    module Enumerable(T)
+      def each(& : T ->) : Nil
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+    end
+
+    module Indexable(T)
+    end
+
+    class Array(T)
+      include Indexable(T)
+    end
+
+    class Entry
+    end
+
+    def go(pairs : Array(Array(Entry))) : Nil
+      pairs.each { |(first, second)| first.size }
+    end
+    CR
+
+  it "types a variable unpacked from an indexable element" do
+    receiver_of_size(source, "pairs.each { |(first, second)| first.size }").should eq("Entry")
+  end
+end
