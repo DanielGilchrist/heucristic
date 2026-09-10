@@ -1287,3 +1287,49 @@ describe Heucristic::Resolve::Receiver, "same-named locals in sibling blocks" do
     receiver_of_size(source, "error.size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "multiple assignment" do
+  source = <<-CR
+    module Enumerable(T)
+      def partition(& : T ->) : {Array(T), Array(T)}
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+
+      def [](index : Int) : T
+      end
+    end
+
+    class Splitter
+      def run(pair : Tuple(Int32, String), names : Array(String)) : Nil
+        left, right = pair
+        left.size
+        right.size
+        pair[1].size
+        ongoing, finished = names.partition { |name| name }
+        finished.size
+        first, second = names
+        second.size
+        one, two = 1, "two"
+        two.size
+      end
+    end
+    CR
+
+  it "types each target of a tuple unpacking" do
+    receiver_of_size(source, "left.size").should eq("Int32")
+    receiver_of_size(source, "right.size").should eq("String")
+    receiver_of_size(source, "pair[1].size").should eq("String")
+  end
+
+  it "types targets unpacked from a call result and from an array" do
+    receiver_of_size(source, "finished.size").should eq("Array(String)")
+    receiver_of_size(source, "second.size").should eq("String")
+  end
+
+  it "types targets of a one-to-one multiple assignment" do
+    receiver_of_size(source, "two.size").should eq("String")
+  end
+end

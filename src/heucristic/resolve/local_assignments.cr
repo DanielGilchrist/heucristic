@@ -12,6 +12,17 @@ module Heucristic
         finder.values
       end
 
+      def self.unpacked(node : Crystal::MultiAssign, name : String) : Crystal::ASTNode?
+        index = node.targets.index { |target| target.is_a?(Crystal::Var) && target.name == name }
+        return unless index
+        return node.values[index]? if node.values.size == node.targets.size
+
+        source = node.values[0]?
+        return unless source && node.values.size == 1
+
+        Crystal::Call.new(source, "[]", [Crystal::NumberLiteral.new(index)] of Crystal::ASTNode)
+      end
+
       def self.first_target(body : Crystal::ASTNode, name : String) : Crystal::Var?
         finder = new(name)
         body.accept(finder)
@@ -29,6 +40,17 @@ module Heucristic
 
         @values << node.value
         @targets << target
+        true
+      end
+
+      def visit(node : Crystal::MultiAssign) : Bool
+        value = LocalAssignments.unpacked(node, @name)
+        return true unless value
+
+        @values << value
+        node.targets.each do |target|
+          @targets << target if target.is_a?(Crystal::Var) && target.name == @name
+        end
         true
       end
 

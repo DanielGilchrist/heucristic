@@ -89,6 +89,9 @@ module Heucristic
           return unless target.is_a?(Crystal::Var) && target.name == name && statement.op == "||"
 
           steps << OrAssigned.new(statement.value)
+        when Crystal::MultiAssign
+          value = LocalAssignments.unpacked(statement, name)
+          steps << Assigned.new(value) if value
         when Crystal::If
           branch = statement.then
           if branch.is_a?(Crystal::Assign) && assigns?(branch, name) && empty?(statement.else)

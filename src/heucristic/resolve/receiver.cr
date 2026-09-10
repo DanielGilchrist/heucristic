@@ -54,6 +54,10 @@ module Heucristic
       ) : Resolution
         receiver = of_call(call, context, locals, visiting)
         return receiver if receiver.is_a?(Unknown)
+        if receiver.is_a?(TypeRef) && receiver.name == "Tuple"
+          element = tuple_element_at(receiver, call)
+          return element if element
+        end
 
         shape = shape_of(call, context, locals, visiting)
         site = Site.new(
@@ -322,6 +326,24 @@ module Heucristic
           :no_annotation,
           "#{entries[0].name} is only assigned #{assigned.join(", ")}; declare its type",
         )
+      end
+
+      private def tuple_element_at(receiver : TypeRef, call : Crystal::Call) : Resolution?
+        return unless call.name.in?("[]", "[]?") && call.args.size == 1
+
+        literal = call.args[0]
+        return unless literal.is_a?(Crystal::NumberLiteral)
+
+        index = literal.value.to_i?
+        return unless index
+
+        member = receiver.arguments[index]?
+        if call.name == "[]?"
+          nil_type = TypeRef.new("Nil", Array(Resolution).new)
+          return member ? union([member, nil_type] of Resolution) : nil_type
+        end
+
+        member || Unknown.new(:unresolved_name, "#{receiver} has no element #{index}")
       end
 
       private def tuple_special(
