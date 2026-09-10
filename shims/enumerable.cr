@@ -29,6 +29,15 @@ module Enumerable(T)
   def in_groups_of(size : Int, filled_up_with : U = nil) : Array(Array(T | U))
   end
 
+  def reduce(& : T, T -> T) : T
+  end
+
+  def reduce(memo : U, & : U, T -> U) : U forall U
+  end
+
+  def reduce?(& : T, T -> T) : T?
+  end
+
   def in_groups_of(size : Int, filled_up_with : U = nil, reuse = false, & : Array(T | U) ->) : Nil
   end
 

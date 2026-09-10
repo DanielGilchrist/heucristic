@@ -81,7 +81,10 @@ describe Heucristic::Resolve::Receiver, "with shims" do
 
     result_of(receiver, bag, "join", 1, true).should eq("String")
     result_of(receiver, bag, "first", 0, false).should eq("String")
-    result_of(receiver, bag, "compact_map", 0, true).should eq("Array(unknown (free variable: U))")
+    result_of(receiver, bag, "compact_map", 0, true).should eq(
+      "Array(unknown (free variable: " \
+      "U is not fixed by the arguments or block of Enumerable#compact_map))"
+    )
   end
 
   it "lets a shim restrict a parameter the stdlib leaves unrestricted" do

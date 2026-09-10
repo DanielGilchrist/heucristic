@@ -1,4 +1,5 @@
 require "./restriction"
+require "./evident"
 
 module Heucristic
   module Index
@@ -15,14 +16,18 @@ module Heucristic
       external_name : String,
       restriction : Restriction,
       default : String?,
-      kind : ParameterKind do
+      kind : ParameterKind,
+      default_type : Syntax::Type? = nil do
       def self.from(arg : Crystal::Arg, kind : ParameterKind) : Parameter
+        default = arg.default_value
+        evident = default ? Evident.type(default) : Evident::NotEvident.new
         new(
           name: arg.name,
           external_name: arg.external_name,
           restriction: Restrictions.of(arg.restriction),
-          default: arg.default_value.try(&.to_s),
+          default: default.try(&.to_s),
           kind: kind,
+          default_type: evident.is_a?(Syntax::Type) ? evident : nil,
         )
       end
 
@@ -38,7 +43,7 @@ module Heucristic
         return self unless restriction_text
 
         rendered = Syntax::Named.new([restriction_text], false)
-        Parameter.new(name, external_name, rendered, default, kind)
+        Parameter.new(name, external_name, rendered, default, kind, default_type)
       end
 
       def shape : String

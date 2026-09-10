@@ -20,10 +20,18 @@ module Heucristic
         in Syntax::Named
           return if restriction.names.size != 1 || restriction.global?
           name = restriction.names[0]
-          return if !free_vars.includes?(name) || bindings.any?(&.name.==(name))
-          return if argument.is_a?(Unknown)
+          return unless free_vars.includes?(name)
 
-          bindings << Binding.new(name, argument)
+          existing = bindings.index(&.name.==(name))
+          value = argument
+          if argument.is_a?(Unknown)
+            value = Unknown.new(argument.reason, "#{name} = #{argument.detail}")
+          end
+          if existing.nil?
+            bindings << Binding.new(name, value)
+          elsif bindings[existing].value.is_a?(Unknown) && value.is_a?(Resolved)
+            bindings[existing] = Binding.new(name, value)
+          end
         in Syntax::Generic
           return unless argument.is_a?(TypeRef)
           base = types.resolve_lexically(restriction.base, scope)
@@ -38,9 +46,36 @@ module Heucristic
           bind(restriction.inner, value, free_vars, bindings, types, scope)
         in Syntax::Union
           bind_union(restriction, argument, free_vars, bindings, types, scope)
-        in Syntax::Proc, Syntax::Metaclass, Syntax::Splat, Syntax::Literal,
-           Syntax::TypeOf, Syntax::SelfType, Syntax::Underscore
+        in Syntax::Proc
+          return unless argument.is_a?(TypeRef) && argument.name == "Proc"
+          return unless (result = argument.arguments.last?)
+
+          restriction.inputs.zip?(argument.arguments[0...-1]) do |inner, value|
+            bind(inner, value, free_vars, bindings, types, scope) if value
+          end
+          output = restriction.output
+          bind(output, result, free_vars, bindings, types, scope) if output
+        in Syntax::Metaclass
+          instance = instance_of(argument)
+          bind(restriction.of, instance, free_vars, bindings, types, scope) if instance
+        in Syntax::Splat, Syntax::Literal, Syntax::TypeOf, Syntax::SelfType, Syntax::Underscore
           nil
+        end
+      end
+
+      private def instance_of(argument : Resolution) : Resolution?
+        case argument
+        in MetaRef then argument.of
+        in UnionRef
+          members = Array(Resolution).new(argument.members.size)
+          argument.members.each do |member|
+            instance = instance_of(member)
+            return unless instance
+
+            members << instance
+          end
+          UnionRef.new(members)
+        in TypeRef, Unknown then nil
         end
       end
 
@@ -52,6 +87,13 @@ module Heucristic
         types : Types,
         scope : Scope,
       ) : Nil
+        bare = restriction.members.select(Syntax::Named).find do |member|
+          member.names.size == 1 && free_vars.includes?(member.names[0])
+        end
+        if argument.is_a?(Unknown)
+          bind(bare, argument, free_vars, bindings, types, scope) if bare
+          return
+        end
         return unless argument.is_a?(TypeRef)
 
         shaped = restriction.members.select(Syntax::Generic).find do |member|
@@ -60,9 +102,6 @@ module Heucristic
         end
         return bind(shaped, argument, free_vars, bindings, types, scope) if shaped
 
-        bare = restriction.members.select(Syntax::Named).find do |member|
-          member.names.size == 1 && free_vars.includes?(member.names[0])
-        end
         bind(bare, argument, free_vars, bindings, types, scope) if bare
       end
 

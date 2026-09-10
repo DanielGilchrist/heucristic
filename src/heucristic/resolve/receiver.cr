@@ -143,6 +143,9 @@ module Heucristic
         if entry.qualified == "Array#compact" && receiver.is_a?(TypeRef)
           return compacted(receiver)
         end
+        if entry.qualified == "Proc#call" && receiver.is_a?(TypeRef)
+          return receiver.arguments.last? || Unknown.new(:unsupported, "a proc without a signature")
+        end
 
         case (restriction = entry.return_type)
         in Index::Unrestricted
@@ -493,6 +496,15 @@ module Heucristic
           return TypeRef.new("Tuple", [typed] of Resolution)
         end
 
+        if (block_arg = definition.block_arg) && block_arg.name == name
+          restriction = block_arg.restriction
+          unless restriction
+            return Unknown.new(:no_annotation, "block parameter #{name} has no type restriction")
+          end
+
+          return declared(Syntax::TypeReader.read(restriction), scope(context))
+        end
+
         if (declaration = LocalDeclarations.find(definition.body, name))
           return declared(Syntax::TypeReader.read(declaration.declared_type), scope(context))
         end
@@ -605,6 +617,7 @@ module Heucristic
         owner = entry.owner
         bindings = Array(Binding).new
         type_vars = entry.free_vars.dup
+        free_vars = entry.free_vars.dup
         unless owner.is_a?(Index::TopLevel)
           instance = receiver.is_a?(MetaRef) ? receiver.of : receiver
           inherited = instance.is_a?(TypeRef) ? @types.bindings(instance, owner) : bindings
@@ -615,13 +628,28 @@ module Heucristic
           end
           bindings = inherited.dup
           bindings << Binding.new("self", instance)
-          type_vars = @types.type_vars_of(owner) + type_vars
+          owner_vars = @types.type_vars_of(owner)
+          type_vars = owner_vars + type_vars
+          if receiver.is_a?(MetaRef)
+            free_vars.concat(owner_vars.reject { |name| bindings.any?(&.name.==(name)) })
+          end
         end
 
         scope = Scope.new(owner, type_vars, bindings)
-        bind_arguments(entry, arguments, bindings, scope)
-        bind_named(entry, site.named, bindings, scope)
-        bind_block(entry, site, bindings, scope)
+        bind_arguments(entry, arguments, free_vars, bindings, scope)
+        bind_named(entry, site.named, free_vars, bindings, scope)
+        bind_block(entry, site, free_vars, bindings, scope)
+        entry.free_vars.each do |free_var|
+          next if bindings.any?(&.name.==(free_var))
+
+          bindings << Binding.new(
+            free_var,
+            Unknown.new(
+              :free_variable,
+              "#{free_var} is not fixed by the arguments or block of #{entry.qualified}",
+            ),
+          )
+        end
         scope
       end
 
@@ -637,11 +665,22 @@ module Heucristic
         constants = @workspace.constants(located)
         if constants.empty?
           resolved = @types.resolve(Syntax::Named.new(path.names, path.global?), scope)
-          return resolved.is_a?(TypeRef) ? MetaRef.new(resolved) : resolved
+          return metaclass_of(resolved)
         end
         return Unknown.new(:cycle, located) if visiting.includes?(located)
 
         union(constants.map { |entry| constant_type(entry, located, visiting + [located]) })
+      end
+
+      private def metaclass_of(resolved : Resolution) : Resolution
+        case resolved
+        in TypeRef then MetaRef.new(resolved)
+        in UnionRef
+          members = Array(Resolution).new(resolved.members.size)
+          resolved.members.each { |member| members << metaclass_of(member) }
+          UnionRef.new(members)
+        in MetaRef, Unknown then resolved
+        end
       end
 
       private def constant_type(
@@ -823,6 +862,7 @@ module Heucristic
       private def bind_block(
         entry : Index::Def,
         site : Site,
+        free_vars : Array(String),
         bindings : Array(Binding),
         scope : Scope,
       ) : Nil
@@ -833,11 +873,11 @@ module Heucristic
 
         block = site.block
         unless block
-          pointer = site.block_arg
-          return unless pointer.is_a?(Crystal::ProcPointer)
+          passed = site.block_arg
+          return unless passed
 
-          result = proc_pointer_result(pointer, site, scope, restriction)
-          Unify.bind(output, result, entry.free_vars, bindings, @types, scope)
+          result = passed_block_result(passed, site, scope, restriction)
+          Unify.bind(output, result, free_vars, bindings, @types, scope)
           return
         end
 
@@ -849,7 +889,26 @@ module Heucristic
         end
         body = block.body
         result = type_of(body, site.context.inside(block, body), site.visiting, locals)
-        Unify.bind(output, result, entry.free_vars, bindings, @types, scope)
+        Unify.bind(output, result, free_vars, bindings, @types, scope)
+      end
+
+      private def passed_block_result(
+        passed : Crystal::ASTNode,
+        site : Site,
+        scope : Scope,
+        restriction : Syntax::Proc,
+      ) : Resolution
+        if passed.is_a?(Crystal::ProcPointer)
+          return proc_pointer_result(passed, site, scope, restriction)
+        end
+
+        proc = type_of(passed, site.context, site.visiting, site.locals)
+        return proc if proc.is_a?(Unknown)
+        if proc.is_a?(TypeRef) && proc.name == "Proc" && (output = proc.arguments.last?)
+          return output
+        end
+
+        Unknown.new(:no_annotation, "the passed block is a #{proc}, not a Proc with a signature")
       end
 
       private def proc_pointer_result(
@@ -883,21 +942,31 @@ module Heucristic
       private def bind_arguments(
         entry : Index::Def,
         arguments : Array(Resolution),
+        free_vars : Array(String),
         bindings : Array(Binding),
         scope : Scope,
       ) : Nil
         positional = entry.parameters.select(&.kind.positional?)
-        positional.zip?(arguments) do |parameter, argument|
+        positional.each_with_index do |parameter, index|
           restriction = parameter.restriction
-          next unless argument && restriction.is_a?(Syntax::Type)
+          next unless restriction.is_a?(Syntax::Type)
 
-          Unify.bind(restriction, argument, entry.free_vars, bindings, @types, scope)
+          argument = arguments[index]? || defaulted(parameter, scope)
+          next unless argument
+
+          Unify.bind(restriction, argument, free_vars, bindings, @types, scope)
         end
+      end
+
+      private def defaulted(parameter : Index::Parameter, scope : Scope) : Resolution?
+        default_type = parameter.default_type
+        default_type ? @types.resolve(default_type, scope) : nil
       end
 
       private def bind_named(
         entry : Index::Def,
         named : Array(Binding),
+        free_vars : Array(String),
         bindings : Array(Binding),
         scope : Scope,
       ) : Nil
@@ -906,7 +975,7 @@ module Heucristic
           restriction = parameter.try(&.restriction)
           next unless restriction.is_a?(Syntax::Type)
 
-          Unify.bind(restriction, argument.value, entry.free_vars, bindings, @types, scope)
+          Unify.bind(restriction, argument.value, free_vars, bindings, @types, scope)
         end
       end
 

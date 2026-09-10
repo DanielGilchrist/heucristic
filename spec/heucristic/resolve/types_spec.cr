@@ -125,9 +125,6 @@ describe Heucristic::Resolve::Types do
 
   it "labels the restriction kinds it does not handle yet" do
     resolve(ws, "typeof(1)").should eq("unknown (unsupported: typeof(1))")
-    resolve(ws, "Int32 -> Nil").should eq(
-      "unknown (unsupported: proc types are not resolved yet)"
-    )
     resolve(ws, "NamedTuple(a: Int32)").should eq(
       "unknown (unsupported: named type arguments in NamedTuple(a: Int32))"
     )

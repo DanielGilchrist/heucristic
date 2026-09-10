@@ -384,7 +384,7 @@ describe Heucristic::Resolve::Receiver, "block results" do
 
   it "leaves the variable free when the block result is unknown" do
     receiver_of_size(source, "roots.flat_map { |root| unknown_call(root) }.size").should eq(
-      "Array(unknown (free variable: U))"
+      "Array(unknown (unresolved name: U = no `unknown_call` on Walker))"
     )
   end
 end
@@ -748,6 +748,101 @@ describe Heucristic::Resolve::Receiver, "block bodies" do
   it "types or and and expressions from their operands" do
     receiver_of_size(source, "(lookup(\"a\") || 0).size").should eq("Int32")
     receiver_of_size(source, "(lookup(\"a\") && \"found\").size").should eq("Nil | String")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "proc types" do
+  source = <<-CR
+    struct Proc(*T, R)
+      def call(*args : *T) : R
+      end
+    end
+
+    class Runner
+      def contain(& : -> T) : T | Exception forall T
+      end
+
+      def launch(block : Int32 ->) : Nil
+        contain { block.call(1) }.size
+      end
+
+      def fetch(key : String, & : -> T) : T forall T
+      end
+
+      def fetch(*keys : String, &block : -> T) : T forall T
+        fetch("k", &block).size
+      end
+
+      def typed(callback : String -> Int32) : Nil
+        callback.size
+        callback.call("a").size
+      end
+    end
+    CR
+
+  it "resolves a proc restriction to Proc with its output last" do
+    receiver_of_size(source, "callback.size").should eq("Proc(String, Int32)")
+    receiver_of_size(source, "callback.call(\"a\").size").should eq("Int32")
+  end
+
+  it "binds a free variable from a block that calls a proc" do
+    receiver_of_size(source, "contain { block.call(1) }.size").should eq("Nil | Exception")
+  end
+
+  it "binds a free variable from a forwarded block parameter" do
+    receiver_of_size(source, "fetch(\"k\", &block).size").should eq(
+      "unknown (free variable: T = T)"
+    )
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "free variables from defaults and metaclasses" do
+  source = <<-CR
+    module Enumerable(T)
+      def find(if_none : U = nil, & : T ->) : T | U forall U
+      end
+
+      def select(type : U.class) : Array(U) forall U
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+    end
+
+    record Circle
+    record Square
+    alias Shape = Circle | Square
+
+    module Pool(T, R)
+      def self.run(items : Array(T), & : T -> R) : Array(R)
+      end
+    end
+
+    class User
+      def go(names : Array(String), shapes : Array(Circle | Square | String)) : Nil
+        names.find { |name| name }.size
+        shapes.select(Circle).size
+        shapes.select(Shape).size
+        Pool.run(names) { |name| 1 }.size
+      end
+    end
+    CR
+
+  it "binds a free variable from the default of an omitted parameter" do
+    receiver_of_size(source, "names.find { |name| name }.size").should eq("String | Nil")
+  end
+
+  it "binds a free variable from a metaclass argument" do
+    receiver_of_size(source, "shapes.select(Circle).size").should eq("Array(Circle)")
+  end
+
+  it "binds a free variable from a union alias used as a metaclass argument" do
+    receiver_of_size(source, "shapes.select(Shape).size").should eq("Array(Circle | Square)")
+  end
+
+  it "binds the type variables of a generic module from a class method call" do
+    receiver_of_size(source, "Pool.run(names) { |name| 1 }.size").should eq("Array(Int32)")
   end
 end
 

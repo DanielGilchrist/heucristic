@@ -11,7 +11,8 @@ module Heucristic
         case syntax
         in Syntax::Named
           if syntax.names.size == 1 && !syntax.global? && (bound = scope.bound(syntax.names[0]))
-            return bound.to_s
+            return bound.to_s if bound.is_a?(Resolved)
+            return syntax.to_s
           end
           resolved = types.resolve(syntax, scope)
           resolved.is_a?(TypeRef) && resolved.arguments.empty? ? resolved.name : syntax.to_s

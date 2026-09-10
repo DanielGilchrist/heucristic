@@ -62,7 +62,7 @@ module Heucristic
         in Syntax::Nilable   then resolve_nilable(type, scope, with_ancestors)
         in Syntax::Metaclass then resolve_metaclass(type, scope, with_ancestors)
         in Syntax::SelfType  then resolve_self(scope)
-        in Syntax::Proc      then Unknown.new(:unsupported, "proc types are not resolved yet")
+        in Syntax::Proc      then resolve_proc(type, scope, with_ancestors)
         in Syntax::Splat     then resolve_splat(type, scope)
         in Syntax::TypeOf, Syntax::Underscore
           Unknown.new(:unsupported, type.to_s)
@@ -190,6 +190,22 @@ module Heucristic
         return union_of(arguments) if base.name == "Union"
 
         TypeRef.new(base.name, arguments)
+      end
+
+      private def resolve_proc(
+        type : Syntax::Proc,
+        scope : Scope,
+        with_ancestors : Bool,
+      ) : Resolution
+        arguments = Array(Resolution).new(type.inputs.size + 1)
+        type.inputs.each { |input| arguments << resolve(input, scope, with_ancestors) }
+        output = type.output
+        arguments << if output
+          resolve(output, scope, with_ancestors)
+        else
+          TypeRef.new("Nil", Array(Resolution).new)
+        end
+        TypeRef.new("Proc", arguments)
       end
 
       private def resolve_splat(type : Syntax::Splat, scope : Scope) : Resolution
