@@ -112,6 +112,12 @@ module Heucristic
         end
 
         defs = @methods.lookup(receiver, call)
+        if defs.empty? && receiver.is_a?(MetaRef) && (variable = receiver.of).is_a?(TypeVar)
+          return Unknown.new(
+            :free_variable,
+            "#{variable} is a type variable; `#{call.name}` depends on its instantiation",
+          )
+        end
         return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
 
         results = Array(Resolution).new(defs.size)
@@ -1048,10 +1054,7 @@ module Heucristic
       ) : Resolution
         scope = scope(context)
         if path.names.size == 1 && !path.global? && scope.type_vars.includes?(path.names[0])
-          return Unknown.new(
-            :free_variable,
-            "#{path.names[0]} is a type variable; its class methods depend on its instantiation",
-          )
+          return MetaRef.new(TypeVar.new(path.names[0]))
         end
         located = @types.locate_any(Syntax::Named.new(path.names, path.global?), scope)
         return located if located.is_a?(Unknown)
@@ -1068,12 +1071,12 @@ module Heucristic
 
       private def metaclass_of(resolved : Resolution) : Resolution
         case resolved
-        in TypeRef then MetaRef.new(resolved)
+        in TypeRef, TypeVar then MetaRef.new(resolved)
         in UnionRef
           members = Array(Resolution).new(resolved.members.size)
           resolved.members.each { |member| members << metaclass_of(member) }
           UnionRef.new(members)
-        in MetaRef, TypeVar, Unknown then resolved
+        in MetaRef, Unknown then resolved
         end
       end
 

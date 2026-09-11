@@ -17,15 +17,15 @@ module Heucristic
       end
     end
 
-    record MetaRef, of : TypeRef do
-      def to_s(io : IO) : Nil
-        io << of << ".class"
-      end
-    end
-
     record TypeVar, name : String do
       def to_s(io : IO) : Nil
         io << name
+      end
+    end
+
+    record MetaRef, of : TypeRef | TypeVar do
+      def to_s(io : IO) : Nil
+        io << of << ".class"
       end
     end
 

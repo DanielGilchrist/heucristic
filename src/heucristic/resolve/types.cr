@@ -341,7 +341,7 @@ module Heucristic
       ) : Resolution
         inner = resolve(type.of, scope, with_ancestors)
         return inner if inner.is_a?(Unknown)
-        return MetaRef.new(inner) if inner.is_a?(TypeRef)
+        return MetaRef.new(inner) if inner.is_a?(TypeRef) || inner.is_a?(TypeVar)
 
         Unknown.new(:unsupported, "metaclass of #{inner}")
       end

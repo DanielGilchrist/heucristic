@@ -85,7 +85,7 @@ module Heucristic
       def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
         found = case receiver
                 in TypeRef          then instance_methods(receiver.name, call)
-                in MetaRef          then metaclass_methods(receiver.of.name, call)
+                in MetaRef          then metaclass_methods(receiver.of, call)
                 in UnionRef         then union_methods(receiver, call)
                 in TypeVar, Unknown then Array(Index::Def).new
                 end
@@ -101,7 +101,10 @@ module Heucristic
             entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
           end
         in MetaRef
-          first_level(receiver.of.name, call, after: owner) do |entry|
+          of = receiver.of
+          return Array(Index::Def).new if of.is_a?(TypeVar)
+
+          first_level(of.name, call, after: owner) do |entry|
             entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
           end
         in UnionRef, TypeVar then Array(Index::Def).new
@@ -206,8 +209,10 @@ module Heucristic
         receiver.members.flat_map { |member| lookup(member, call) }.uniq!
       end
 
-      private def metaclass_methods(type : String, call : Call) : Array(Index::Def)
-        found = class_methods(type, call)
+      private def metaclass_methods(of : TypeRef | TypeVar, call : Call) : Array(Index::Def)
+        return class_methods("Object", call) if of.is_a?(TypeVar)
+
+        found = class_methods(of.name, call)
         found.empty? ? instance_methods("Class", call) : found
       end
 

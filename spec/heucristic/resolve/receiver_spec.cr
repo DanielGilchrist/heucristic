@@ -1887,3 +1887,43 @@ describe Heucristic::Resolve::Receiver, "top-level scripts" do
     receiver_of_size(source, "ex.size").should eq("Exception")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "metaclasses of type variables" do
+  source = <<-CR
+    class Object
+      def self.from_json(raw : String) : self
+      end
+    end
+
+    class Decoder
+      def decode(type : T.class, raw : String) : T forall T
+        type.size
+        type.from_json(raw).size
+        type.new.size
+      end
+    end
+
+    class Box(T)
+      def build : Nil
+        T.new.size
+        T.other.size
+      end
+    end
+    CR
+
+  it "types a type variable metaclass parameter" do
+    receiver_of_size(source, "type.size").should eq("T.class")
+  end
+
+  it "binds self to the type variable for class methods called on it" do
+    receiver_of_size(source, "type.from_json(raw).size").should eq("T")
+    receiver_of_size(source, "type.new.size").should eq("T")
+    receiver_of_size(source, "T.new.size").should eq("T")
+  end
+
+  it "explains an unknown class method on a type variable" do
+    receiver_of_size(source, "T.other.size").should eq(
+      "unknown (free variable: T is a type variable; `other` depends on its instantiation)"
+    )
+  end
+end
