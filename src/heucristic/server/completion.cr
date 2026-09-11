@@ -1,6 +1,7 @@
 require "lsprotocol"
 require "../document/text"
 require "../index/workspace"
+require "../index/collector"
 require "../resolve/receiver"
 require "../resolve/methods"
 require "../resolve/types"
@@ -35,6 +36,8 @@ module Heucristic
         tree = Syntax.parse(probe.source, request.path)
         return Array(LSProtocol::CompletionItem).new if tree.is_a?(Syntax::Broken)
 
+        @workspace.update(Index::Collector.collect(request.path, probe, tree))
+        @types.invalidate
         point = probe.point_at(start)
         return Array(LSProtocol::CompletionItem).new if point.is_a?(Document::OutOfRange)
 
@@ -46,7 +49,19 @@ module Heucristic
                   Array(LSProtocol::CompletionItem).new
                 end
         items.uniq!(&.label)
-        items.sort_by!(&.label)
+        items.reject!(&.label.starts_with?("__"))
+        ranked = Array(LSProtocol::CompletionItem).new(items.size)
+        items.each_with_index do |item, index|
+          ranked << LSProtocol::CompletionItem.new(
+            label: item.label,
+            kind: item.kind,
+            detail: item.detail,
+            insert_text: item.insert_text,
+            insert_text_format: item.insert_text_format,
+            sort_text: "#{item.label[0].alphanumeric? ? 0 : 1}#{index.to_s.rjust(5, '0')}",
+          )
+        end
+        ranked
       end
 
       private def word_start(source : String, offset : Int32) : Int32
@@ -187,9 +202,29 @@ module Heucristic
       end
 
       private def method_item(entry : Index::Def) : LSProtocol::CompletionItem
-        kind = LSProtocol::CompletionItemKind::Method
-        kind = LSProtocol::CompletionItemKind::Constructor if entry.name == "initialize"
-        LSProtocol::CompletionItem.new(label: entry.name, kind: kind, detail: entry.signature)
+        required = entry.parameters.select do |parameter|
+          parameter.kind.positional? && parameter.default.nil?
+        end
+        if required.empty?
+          return LSProtocol::CompletionItem.new(
+            label: entry.name,
+            kind: LSProtocol::CompletionItemKind::Property,
+            detail: entry.signature,
+            insert_text: entry.name,
+            insert_text_format: LSProtocol::InsertTextFormat::PlainText,
+          )
+        end
+
+        placeholders = required.map_with_index do |parameter, index|
+          "${#{index + 1}:#{parameter.external_name}}"
+        end
+        LSProtocol::CompletionItem.new(
+          label: entry.name,
+          kind: LSProtocol::CompletionItemKind::Method,
+          detail: entry.signature,
+          insert_text: "#{entry.name}(#{placeholders.join(", ")})",
+          insert_text_format: LSProtocol::InsertTextFormat::Snippet,
+        )
       end
     end
   end
