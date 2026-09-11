@@ -34,3 +34,8 @@ class Reference
   def ==(other) : Bool
   end
 end
+
+struct Nil
+  def ==(other : Nil) : Bool
+  end
+end
