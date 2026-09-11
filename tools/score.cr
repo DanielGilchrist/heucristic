@@ -5,6 +5,9 @@ require "../src/heucristic/index/workspace"
 require "../src/heucristic/index/collector"
 require "../src/heucristic/crystal_env"
 require "../src/heucristic/server/shim_roots"
+require "../src/heucristic/server/macros"
+require "../src/heucristic/index/generated"
+require "../src/heucristic/document/text"
 require "../src/heucristic/syntax/calls"
 require "../src/heucristic/resolve/types"
 require "../src/heucristic/resolve/methods"
@@ -13,7 +16,10 @@ require "../src/heucristic/resolve/receiver"
 module Score
   extend self
 
-  MACROS  = {"record", "require", "raise", "puts", "p", "pp"}
+  MACROS = {
+    "record", "require", "raise", "puts", "p", "pp", "delegate", "def_equals", "def_hash",
+    "def_equals_and_hash", "forward_missing_to", "def_clone",
+  }
   SKIPPED = Heucristic::Index::Collector::ACCESSORS + MACROS
 
   record Outcome,
@@ -47,6 +53,7 @@ module Score
     workspace.replace_all(finished.files)
     shims = Heucristic::Index::Shims.new
     shims.replace_all(finished.shims)
+    expand_macros(root, events, workspace, shims) unless args.includes?("--no-macros")
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
@@ -170,6 +177,38 @@ module Score
       end
     end
     puts "agree: #{agree}, disagree: #{disagree}, compiler saw no implementation: #{unseen}"
+  end
+
+  private def expand_macros(
+    root : String,
+    events : Channel(Heucristic::Index::Event),
+    workspace : Heucristic::Index::Workspace,
+    shims : Heucristic::Index::Shims,
+  ) : Nil
+    Heucristic::Server::Macros.new(events).start(root, nil)
+    result = loop do
+      event = events.receive
+      break event unless event.is_a?(Heucristic::Index::MacrosStarted)
+    end
+    case result
+    in Heucristic::Index::MacrosExpanded
+      tree = Heucristic::Syntax.parse(result.source, "<macros>")
+      if tree.is_a?(Heucristic::Syntax::Broken)
+        puts "macros: generated source does not parse: #{tree.message}"
+        return
+      end
+      text = Heucristic::Document::Text.new(result.source)
+      collected = Heucristic::Index::Collector.collect("<macros>", text, tree)
+      file = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims)
+      workspace.update(file)
+      elapsed = result.elapsed.total_milliseconds.round
+      puts "macros: #{file.defs.size} generated defs kept of #{collected.defs.size} in #{elapsed}ms"
+    in Heucristic::Index::MacrosFailed      then puts "macros: failed (#{result.reason})"
+    in Heucristic::Index::MacrosUnavailable then puts "macros: unavailable (#{result.reason})"
+    in Heucristic::Index::Started, Heucristic::Index::Advanced, Heucristic::Index::Finished,
+       Heucristic::Index::MacrosStarted
+      puts "macros: unexpected #{result.class.name}"
+    end
   end
 
   private def same_targets?(theirs : Array(String), ours : Array(String)) : Bool
