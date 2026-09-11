@@ -12,6 +12,12 @@ dependencies:
   lsprotocol:
     github: nobodywasishere/lsprotocol-crystal
     commit: 28986890c7657af4aefea8355ca3f3c7fc2bc9dd
+  markd:
+    github: icyleaf/markd
+  sanitize:
+    github: straight-shoota/sanitize
+  reply:
+    github: I3oris/reply
 
 development_dependencies:
   ameba:

@@ -8,3 +8,15 @@ shards:
     git: https://github.com/nobodywasishere/lsprotocol-crystal.git
     version: 0.1.0+git.commit.28986890c7657af4aefea8355ca3f3c7fc2bc9dd
 
+  markd:
+    git: https://github.com/icyleaf/markd.git
+    version: 0.6.0
+
+  reply:
+    git: https://github.com/i3oris/reply.git
+    version: 0.4.0
+
+  sanitize:
+    git: https://github.com/straight-shoota/sanitize.git
+    version: 0.1.0+git.commit.c17d933fed22c6d3d615cca91a895166414389af
+

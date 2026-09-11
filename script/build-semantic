@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+cd "$(dirname "$0")/.."
+if [ -z "$LLVM_CONFIG" ]; then
+  for candidate in /opt/homebrew/opt/llvm/bin/llvm-config /usr/local/opt/llvm/bin/llvm-config "$(command -v llvm-config || true)"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      LLVM_CONFIG="$candidate"
+      break
+    fi
+  done
+fi
+if [ -z "$LLVM_CONFIG" ]; then
+  echo "llvm-config not found; set LLVM_CONFIG to build the semantic helper" >&2
+  exit 1
+fi
+shards install
+mkdir -p bin
+LLVM_CONFIG="$LLVM_CONFIG" crystal build tools/semantic.cr --release --no-debug -o bin/heucristic-semantic
+echo "built bin/heucristic-semantic"
