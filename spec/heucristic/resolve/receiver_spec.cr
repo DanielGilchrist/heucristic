@@ -1927,3 +1927,69 @@ describe Heucristic::Resolve::Receiver, "metaclasses of type variables" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "assignments inside conditions and case exclusion" do
+  source = <<-CR
+    class Definition
+      def args : Array(String)
+      end
+    end
+
+    enum Kind
+      Success
+      Info
+
+      def success? : Bool
+      end
+    end
+
+    module Named
+      def label : String
+        name.size
+      end
+    end
+
+    struct Person
+      include Named
+
+      def name : String
+      end
+    end
+
+    struct Pet
+      include Named
+
+      def name : String?
+      end
+    end
+
+    class Walker
+      def definition : Definition?
+      end
+
+      def run(kind : Kind?) : Nil
+        current = definition
+        if current && (arguments = current.args)
+          arguments.size
+        end
+        case kind
+        in Nil then nil
+        in .success? then kind.size
+        in .info? then nil
+        end
+      end
+    end
+    CR
+
+  it "narrows the receiver of an assignment made inside an and condition" do
+    receiver_of_size(source, "arguments.size").should eq("Array(String)")
+  end
+
+  it "excludes the types of earlier case branches inside a later branch" do
+    receiver_of_size(source, "in .success? then kind.size").should eq("Kind")
+  end
+
+  it "unions module method results across includers that disagree" do
+    receiver_of_size(source, "name.size").should eq("String | Nil")
+  end
+end

@@ -188,12 +188,19 @@ module Heucristic
         if subject.is_a?(Crystal::Assign) && (target = subject.target).is_a?(Crystal::Var)
           return unless target.name == @name
 
-          @steps << Assigned.new(subject.value, @prefix)
+          @steps << Assigned.new(subject.value, @prefix.dup)
         elsif !(subject.is_a?(Crystal::Var) && subject.name == @name)
           return
         end
 
         if (taken = parent.whens.find(&.same?(child)))
+          earlier = Array(Crystal::ASTNode).new
+          parent.whens.each do |branch|
+            break if branch.same?(taken)
+
+            type_conditions(branch.conds).try { |types| earlier.concat(types) }
+          end
+          @steps << IsA.new(earlier, false) unless earlier.empty?
           types = type_conditions(taken.conds)
           @steps << IsA.new(types, true) if types
         elsif parent.else.same?(child)
@@ -229,32 +236,44 @@ module Heucristic
           if obj.is_a?(Crystal::Assign) && (target = obj.target).is_a?(Crystal::Var)
             return unless target.name == @name
 
-            @steps << Assigned.new(obj.value, @prefix)
+            @steps << Assigned.new(obj.value, @prefix + [cond])
             @steps << IsA.new([cond.const], positive)
           elsif obj.is_a?(Crystal::Var) && obj.name == @name
             @steps << IsA.new([cond.const], positive)
           end
         when Crystal::Not
-          condition(cond.exp, !positive)
+          inside(cond) { condition(cond.exp, !positive) }
         when Crystal::And
           return unless positive
 
-          condition(cond.left, true)
-          condition(cond.right, true)
+          inside(cond) do
+            condition(cond.left, true)
+            condition(cond.right, true)
+          end
         when Crystal::Or
           return either_is_a(cond) if positive
 
-          condition(cond.left, false)
-          condition(cond.right, false)
+          inside(cond) do
+            condition(cond.left, false)
+            condition(cond.right, false)
+          end
         when Crystal::Assign
           target = cond.target
           return unless target.is_a?(Crystal::Var) && target.name == @name
 
-          @steps << Assigned.new(cond.value, @prefix)
+          @steps << Assigned.new(cond.value, @prefix + [cond])
           @steps << Truthy.new(positive)
         when Crystal::Expressions
-          condition(cond.expressions[0], positive) if cond.expressions.size == 1
+          return unless cond.expressions.size == 1
+
+          inside(cond) { condition(cond.expressions[0], positive) }
         end
+      end
+
+      private def inside(node : Crystal::ASTNode, & : ->) : Nil
+        @prefix << node
+        yield
+        @prefix.pop
       end
 
       private def either_is_a(cond : Crystal::Or) : Nil

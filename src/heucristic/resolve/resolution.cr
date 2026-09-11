@@ -40,7 +40,6 @@ module Heucristic
         Unsupported
         Cycle
         InferenceNeeded
-        TopLevel
         Ambiguous
         TooDeep
       end

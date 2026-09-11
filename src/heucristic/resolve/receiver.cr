@@ -124,6 +124,7 @@ module Heucristic
         defs.each { |entry| results << return_type(entry, receiver, call.arguments, site) }
         distinct = results.uniq
         return distinct[0] if distinct.size == 1
+        return union(results) if module?(receiver)
 
         Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
       end
@@ -448,6 +449,10 @@ module Heucristic
 
         inner = call.obj
         inner.is_a?(Crystal::Call) && COMPARISONS.includes?(inner.name) && inner.args.size == 1
+      end
+
+      private def module?(receiver : Resolved) : Bool
+        receiver.is_a?(TypeRef) && @workspace.namespaces(receiver.name).any?(Index::ModuleNamespace)
       end
 
       private def owning(entry : Index::Def, receiver : Resolved) : Resolved
