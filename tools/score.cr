@@ -16,11 +16,12 @@ require "../src/heucristic/resolve/receiver"
 module Score
   extend self
 
-  MACROS = {
-    "record", "require", "raise", "puts", "p", "pp", "delegate", "def_equals", "def_hash",
-    "def_equals_and_hash", "forward_missing_to", "def_clone",
+  STATEMENTS   = {"require", "raise", "puts", "p", "pp"}
+  DECLARATIONS = {
+    "record", "delegate", "def_equals", "def_hash", "def_equals_and_hash", "forward_missing_to",
+    "def_clone",
   }
-  SKIPPED = Heucristic::Index::Collector::ACCESSORS + MACROS
+  SKIPPED = Heucristic::Index::Collector::ACCESSORS + STATEMENTS + DECLARATIONS
 
   record Outcome,
     path : String,
@@ -69,7 +70,7 @@ module Score
         Heucristic::Syntax::Calls.in(tree, path).each do |site|
           call = site.call
           next if SKIPPED.includes?(call.name) && call.obj.nil?
-          next if site.context.ancestors.any? { |node| macro_call?(node) }
+          next if inside_macro_arguments?(site.context.ancestors)
           location = call.name_location
           next unless location
 
@@ -180,8 +181,17 @@ module Score
     puts "agree: #{agree}, disagree: #{disagree}, compiler saw no implementation: #{unseen}"
   end
 
-  private def macro_call?(node : Crystal::ASTNode) : Bool
-    node.is_a?(Crystal::Call) && node.obj.nil? && SKIPPED.includes?(node.name)
+  private def inside_macro_arguments?(ancestors : Array(Crystal::ASTNode)) : Bool
+    ancestors.each_with_index.any? do |node, index|
+      next false unless node.is_a?(Crystal::Call) && node.obj.nil? && declaration?(node.name)
+
+      block = node.block
+      block.nil? || !ancestors[index + 1]?.try(&.same?(block))
+    end
+  end
+
+  private def declaration?(name : String) : Bool
+    DECLARATIONS.includes?(name) || Heucristic::Index::Collector::ACCESSORS.includes?(name)
   end
 
   private def expand_macros(

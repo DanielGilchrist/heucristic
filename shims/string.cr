@@ -11,7 +11,7 @@ class String
   def rindex(search : Char, offset = size - 1) : Int32?
   end
 
-  def self.build(capacity = 64, & : IO::Memory ->) : self
+  def self.build(capacity = 64, & : String::Builder ->) : self
   end
 
   def to_i(base : Int = 10, whitespace : Bool = true, underscore : Bool = false, prefix : Bool = false, strict : Bool = true, leading_zero_is_octal : Bool = false) : Int32
