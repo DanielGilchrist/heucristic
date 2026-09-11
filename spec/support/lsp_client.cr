@@ -95,6 +95,14 @@ class LspClient
     })
   end
 
+  def document_symbols(uri : String) : Heucristic::Protocol::Response
+    request("textDocument/documentSymbol", {"textDocument" => {"uri" => uri}})
+  end
+
+  def workspace_symbols(query : String) : Heucristic::Protocol::Response
+    request("workspace/symbol", {"query" => query})
+  end
+
   def definition(uri : String, line : Int32, character : Int32) : Heucristic::Protocol::Response
     request("textDocument/definition", position_params(uri, line, character))
   end

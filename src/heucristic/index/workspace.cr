@@ -65,6 +65,14 @@ module Heucristic
         end
       end
 
+      def file(path : String) : File?
+        @files[path]?
+      end
+
+      def each_file(& : File ->) : Nil
+        @files.each_value { |file| yield file }
+      end
+
       def sites(path : String) : Sites?
         @sites[path]?
       end

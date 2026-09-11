@@ -503,3 +503,48 @@ describe Heucristic::Server::Loop, "references" do
     client.shutdown
   end
 end
+
+describe Heucristic::Server::Loop, "symbols" do
+  it "lists document symbols nested by owner and finds workspace symbols by subsequence" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, <<-CR)
+      module Shapes
+        LIMIT = 3
+
+        struct Circle
+          @radius : Float64
+
+          def initialize(@radius : Float64) : Nil
+          end
+
+          def self.unit : Circle
+          end
+
+          def area : Float64
+          end
+        end
+      end
+
+      def helper : Nil
+      end
+      CR
+    client.await_notification("textDocument/publishDiagnostics")
+
+    symbols = client.document_symbols(URI_A).result.try(&.as_a?)
+    symbols.try(&.map(&.["name"].as_s)).should eq(["Shapes", "helper"])
+    shapes = symbols.try(&.[0]["children"].as_a)
+    shapes.try(&.map(&.["name"].as_s)).should eq(["Circle", "LIMIT"])
+    circle = shapes.try(&.[0]["children"].as_a)
+    circle.try(&.map(&.["name"].as_s)).should eq(["initialize", "self.unit", "area", "@radius"])
+    circle.try(&.map(&.["kind"].as_i)).should eq([9, 6, 6, 8])
+
+    found = client.workspace_symbols("crl").result.try(&.as_a?)
+    found.try(&.map(&.["name"].as_s)).should eq(["Shapes::Circle"])
+    area = client.workspace_symbols("area").result.try(&.as_a?)
+    area.try(&.[0]["containerName"].as_s).should eq("Shapes::Circle")
+    client.shutdown
+  end
+end
