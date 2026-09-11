@@ -53,6 +53,8 @@ module Heucristic
         locals : Array(Binding) = Array(Binding).new,
         visiting : Array(String) = Array(String).new,
       ) : Resolution
+        return TypeRef.new("Bool", Array(Resolution).new) if chained_comparison?(call)
+
         receiver = of_call(call, context, locals, visiting)
         return receiver if receiver.is_a?(Unknown)
         if receiver.is_a?(TypeRef) && receiver.name == "Tuple"
@@ -429,6 +431,15 @@ module Heucristic
         end
 
         declared(Syntax::TypeReader.read(output), scope(context))
+      end
+
+      COMPARISONS = {"<", "<=", ">", ">="}
+
+      private def chained_comparison?(call : Crystal::Call) : Bool
+        return false unless COMPARISONS.includes?(call.name)
+
+        inner = call.obj
+        inner.is_a?(Crystal::Call) && COMPARISONS.includes?(inner.name) && inner.args.size == 1
       end
 
       private def tuple_element_at(receiver : TypeRef, call : Crystal::Call) : Resolution?
