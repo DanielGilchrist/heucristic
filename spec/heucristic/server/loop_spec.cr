@@ -610,3 +610,22 @@ describe Heucristic::Server::Loop, "references from synthesized declarations" do
     client.shutdown
   end
 end
+
+describe Heucristic::Server::Loop, "workspace symbol reopenings" do
+  it "lists a type reopened in several files once, at its primary declaration" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, "module App\n  class Runner\n    def go : Nil\n    end\n  end\nend\n")
+    client.await_notification("textDocument/publishDiagnostics")
+    client.open(URI_B, "module App\n  class Helper\n  end\nend\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    found = client.workspace_symbols("App").result.try(&.as_a?)
+    apps = found.try(&.select { |symbol| symbol["name"].as_s == "App" })
+    apps.try(&.size).should eq(1)
+    apps.try(&.[0]["location"]["uri"].as_s).should eq(URI_A)
+    client.shutdown
+  end
+end

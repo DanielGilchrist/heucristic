@@ -42,21 +42,46 @@ module Heucristic
       def matching(query : String, root : String) : Array(LSProtocol::SymbolInformation)
         needle = query.downcase
         found = Array(LSProtocol::SymbolInformation).new
+        reopenings = Hash(String, Array(Index::Namespace)).new
         @workspace.each_file do |file|
           next unless project?(file.path, root)
 
-          file.namespaces.each { |entry| consider(found, entry, entry.name, needle, nil) }
+          file.namespaces.each do |entry|
+            (reopenings[entry.name] ||= Array(Index::Namespace).new) << entry
+          end
           file.defs.each do |entry|
             consider(found, entry, entry.name, needle, container(entry.owner))
           end
           file.constants.each { |entry| consider(found, entry, entry.name, needle, nil) }
           file.aliases.each { |entry| consider(found, entry, entry.name, needle, nil) }
         end
+        reopenings.each do |name, entries|
+          consider(found, primary(name, entries), name, needle, nil)
+        end
         found.sort_by! do |symbol|
           prefix = symbol.name.downcase.starts_with?(needle) ? 0 : 1
           {prefix, TYPE_KINDS.includes?(symbol.kind) ? 0 : 1, symbol.name.size}
         end
         found.first(LIMIT)
+      end
+
+      private def primary(name : String, entries : Array(Index::Namespace)) : Index::Namespace
+        return entries[0] if entries.size == 1
+
+        basename = name.rpartition("::")[2].underscore
+        named = entries.find { |entry| ::File.basename(entry.path, ".cr") == basename }
+        return named if named
+
+        entries.max_by { |entry| members_in(entry) }
+      end
+
+      private def members_in(entry : Index::Namespace) : Int32
+        file = @workspace.file(entry.path)
+        return 0 unless file
+
+        file.defs.count(&.owner.==(entry.name)) + file.namespaces.count do |nested|
+          nested.name.starts_with?("#{entry.name}::")
+        end
       end
 
       private def project?(path : String, root : String) : Bool
