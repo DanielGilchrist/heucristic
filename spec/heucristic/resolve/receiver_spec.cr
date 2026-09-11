@@ -1864,3 +1864,26 @@ describe Heucristic::Resolve::Receiver, "module methods through includers" do
     receiver_of_size(source, "body.to_json.size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "top-level scripts" do
+  source = <<-CR
+    class Exception
+    end
+
+    def helper : Int32
+    end
+
+    count = helper
+    count.size
+    begin
+      helper
+    rescue ex
+      ex.size
+    end
+    CR
+
+  it "resolves top-level defs and variables outside any type" do
+    receiver_of_size(source, "count.size").should eq("Int32")
+    receiver_of_size(source, "ex.size").should eq("Exception")
+  end
+end

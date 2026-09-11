@@ -798,9 +798,12 @@ module Heucristic
         steps : Array(Flow::Step),
       ) : Resolution
         definition = context.def_node
-        return Unknown.new(:no_annotation, "#{name} is outside any method") unless definition
+        body = definition ? definition.body : context.ancestors.first?
+        unless body
+          return Unknown.new(:no_annotation, "#{name} is outside any method or script")
+        end
 
-        if (parameter = definition.args.find(&.name.==(name)))
+        if definition && (parameter = definition.args.find(&.name.==(name)))
           restriction = parameter.restriction
           unless restriction
             return Unknown.new(:no_annotation, "parameter #{name} has no type restriction")
@@ -812,7 +815,7 @@ module Heucristic
           return TypeRef.new("Tuple", [typed] of Resolution)
         end
 
-        if (block_arg = definition.block_arg) && block_arg.name == name
+        if definition && (block_arg = definition.block_arg) && block_arg.name == name
           restriction = block_arg.restriction
           unless restriction
             return Unknown.new(:no_annotation, "block parameter #{name} has no type restriction")
@@ -821,7 +824,7 @@ module Heucristic
           return declared(Syntax::TypeReader.read(restriction), scope(context))
         end
 
-        if (declaration = LocalDeclarations.find(definition.body, name))
+        if (declaration = LocalDeclarations.find(body, name))
           return declared(Syntax::TypeReader.read(declaration.declared_type), scope(context))
         end
 
@@ -832,10 +835,10 @@ module Heucristic
           return from_block
         end
 
-        rescued = RescueVariables.find(definition.body, name)
+        rescued = RescueVariables.find(body, name)
         return rescued_type(rescued, context) if rescued
 
-        assignments = LocalAssignments.find(definition.body, name)
+        assignments = LocalAssignments.find(body, name)
         if assignments.empty?
           return Unknown.new(
             :no_annotation, "#{name} is not a parameter and is never assigned here"
@@ -955,9 +958,11 @@ module Heucristic
         members.size == 1 ? members[0] : UnionRef.new(members)
       end
 
+      PROGRAM = "Program"
+
       private def implicit_self(context : Syntax::Context) : Resolution
         owner = context.owner
-        return Unknown.new(:top_level, "no enclosing type") if owner.is_a?(Index::TopLevel)
+        return TypeRef.new(PROGRAM, Array(Resolution).new) if owner.is_a?(Index::TopLevel)
 
         this = TypeRef.new(owner, Array(Resolution).new)
         definition = context.def_node

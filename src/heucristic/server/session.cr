@@ -326,15 +326,7 @@ module Heucristic
         call = target.node
         receiver = @receiver.of_call(call, target.context)
         if receiver.is_a?(Resolve::Unknown)
-          unless receiver.reason.top_level?
-            return Answer.note("receiver of `#{call.name}`: #{receiver}")
-          end
-
-          entries = Array(Index::Entry).new
-          @workspace.named(call.name).each do |candidate|
-            entries << candidate if candidate.arity.accepts?(call.args.size)
-          end
-          return Answer.of(entries)
+          return Answer.note("receiver of `#{call.name}`: #{receiver}")
         end
 
         shape = @receiver.shape_of(call, target.context)
@@ -392,18 +384,19 @@ module Heucristic
         end
 
         definition = target.context.def_node
-        return unless definition
-        if (parameter = definition.args.find(&.name.==(name)))
+        body = definition ? definition.body : target.context.ancestors.first?
+        return unless body
+        if definition && (parameter = definition.args.find(&.name.==(name)))
           return parameter.location
         end
-        if (block_arg = definition.block_arg) && block_arg.name == name
+        if definition && (block_arg = definition.block_arg) && block_arg.name == name
           return block_arg.location
         end
-        if (declaration = Resolve::LocalDeclarations.find(definition.body, name))
+        if (declaration = Resolve::LocalDeclarations.find(body, name))
           return declaration.var.location
         end
 
-        Resolve::LocalAssignments.first_target(definition.body, name).try(&.location)
+        Resolve::LocalAssignments.first_target(body, name).try(&.location)
       end
 
       private def answer_instance_var(target : Syntax::OnInstanceVar) : Answer
