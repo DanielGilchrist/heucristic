@@ -10,12 +10,14 @@ module Heucristic
       record IsA, types : Array(Crystal::ASTNode), positive : Bool
       record Assigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
       record OrAssigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
-      record Reassigned,
-        values : Array(Reassignment),
-        within : Array(Crystal::ASTNode),
-        unless_cond : Crystal::ASTNode? = nil
+      record Reassigned, values : Array(Reassignment), within : Array(Crystal::ASTNode)
+      record Branch, positive : Bool, body : Crystal::ASTNode?
+      record Branched,
+        cond : Crystal::ASTNode,
+        branches : Array(Branch),
+        within : Array(Crystal::ASTNode)
 
-      alias Step = Truthy | IsA | Assigned | OrAssigned | Reassigned
+      alias Step = Truthy | IsA | Assigned | OrAssigned | Reassigned | Branched
 
       getter steps : Array(Step)
 
@@ -71,6 +73,22 @@ module Heucristic
         condition(cond, positive)
       end
 
+      def walk(body : Crystal::ASTNode, prefix : Array(Crystal::ASTNode)) : Nil
+        @prefix = prefix
+        statements = body.is_a?(Crystal::Expressions) ? body.expressions : [body]
+        statements.each { |statement| guard(statement) }
+      end
+
+      def exits?(node : Crystal::ASTNode?) : Bool
+        case node
+        when Crystal::Return, Crystal::Break, Crystal::Next then true
+        when Crystal::Call                                  then @exits.terminates?(node)
+        when Crystal::Expressions
+          node.expressions.last?.try { |last| exits?(last) } || false
+        else false
+        end
+      end
+
       private def sequence(statements : Array(Crystal::ASTNode), child : Crystal::ASTNode) : Nil
         statements.each do |statement|
           break if statement.same?(child)
@@ -103,26 +121,11 @@ module Heucristic
           value = LocalAssignments.unpacked(statement, @name)
           @steps << Assigned.new(value, within) if value
         when Crystal::If
-          branch = statement.then
-          if branch.is_a?(Crystal::Assign) && assigns?(branch) && empty?(statement.else)
-            values = [Reassignment.new(branch.value, Array(Crystal::ASTNode).new)]
-            @steps << Reassigned.new(values, within + [branch], statement.cond)
-          elsif ends_assigning?(branch) && empty?(statement.else)
-            values = LocalAssignments.locate(branch, @name)
-            @steps << Reassigned.new(values, within + [branch], statement.cond)
-          elsif exits?(branch) && empty?(statement.else)
-            condition(statement.cond, false)
-          elsif exits?(statement.else) && empty?(branch)
-            condition(statement.cond, true)
-          else
-            nested(statement)
-          end
+          branches = [Branch.new(true, statement.then), Branch.new(false, statement.else)]
+          @steps << Branched.new(statement.cond, branches, within)
         when Crystal::Unless
-          if exits?(statement.then) && empty?(statement.else)
-            condition(statement.cond, true)
-          else
-            nested(statement)
-          end
+          branches = [Branch.new(false, statement.then), Branch.new(true, statement.else)]
+          @steps << Branched.new(statement.cond, branches, within)
         when Crystal::Or
           condition(statement.left, true) if exits?(statement.right)
         when Crystal::Case
@@ -164,18 +167,6 @@ module Heucristic
         return node.expressions[0] if node.is_a?(Crystal::Expressions) && node.expressions.size == 1
 
         node
-      end
-
-      private def assigns?(node : Crystal::Assign) : Bool
-        target = node.target
-        target.is_a?(Crystal::Var) && target.name == @name
-      end
-
-      private def ends_assigning?(branch : Crystal::ASTNode) : Bool
-        return false unless branch.is_a?(Crystal::Expressions)
-
-        last = branch.expressions.last?
-        last.is_a?(Crystal::Assign) && assigns?(last)
       end
 
       private def nested(statement : Crystal::ASTNode) : Nil
@@ -287,16 +278,6 @@ module Heucristic
         return unless first.is_a?(IsA) && second.is_a?(IsA) && first.positive && second.positive
 
         @steps << IsA.new(first.types + second.types, true)
-      end
-
-      private def exits?(node : Crystal::ASTNode?) : Bool
-        case node
-        when Crystal::Return, Crystal::Break, Crystal::Next then true
-        when Crystal::Call                                  then @exits.terminates?(node)
-        when Crystal::Expressions
-          node.expressions.last?.try { |last| exits?(last) } || false
-        else false
-        end
       end
 
       private def empty?(node : Crystal::ASTNode?) : Bool

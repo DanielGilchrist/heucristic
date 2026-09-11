@@ -110,6 +110,11 @@ module Heucristic
             "#{receiver} is a type variable; `#{call.name}` depends on its instantiation",
           )
         end
+        return receiver if receiver.is_a?(TypeRef) && receiver.name == "NoReturn"
+        if receiver.is_a?(MetaRef) && call.name == "|"
+          other = call.arguments[0]?
+          return UnionRef.new([receiver, other] of Resolution) if other.is_a?(MetaRef)
+        end
 
         defs = @methods.lookup(receiver, call)
         if defs.empty? && receiver.is_a?(MetaRef) && (variable = receiver.of).is_a?(TypeVar)
@@ -707,9 +712,10 @@ module Heucristic
             at = context.at(step.within)
             typed = type_of(step.value, at, visiting + [key], seeded(locals, name, current))
             settled(name, current, step.value, typed)
+          in Flow::Branched then branched(current, step, name, context, visiting, locals)
           in Flow::Reassigned
             values = Array(Resolution).new(step.values.size + 1)
-            values << fallthrough(current, step, name, context, visiting, locals)
+            values << current
             seeded_locals = seeded(locals, name, current)
             step.values.each do |item|
               at = context.at(step.within + item.path)
@@ -744,6 +750,7 @@ module Heucristic
         end
         return current if kept.empty?
 
+        kept.uniq!
         kept.size == 1 ? kept[0] : UnionRef.new(kept)
       end
 
@@ -786,6 +793,7 @@ module Heucristic
         end
         return current if kept.empty?
 
+        kept.uniq!
         kept.size == 1 ? kept[0] : UnionRef.new(kept)
       end
 
@@ -883,20 +891,33 @@ module Heucristic
         union(assigned)
       end
 
-      private def fallthrough(
+      private def branched(
         current : Resolution,
-        step : Flow::Reassigned,
+        step : Flow::Branched,
         name : String,
         context : Syntax::Context,
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
-        cond = step.unless_cond
-        return current unless cond
+        exits = CallExits.new(@methods, implicit_self(context))
+        results = Array(Resolution).new(step.branches.size)
+        step.branches.each do |branch|
+          body = branch.body
+          entry = Flow.new(name, exits)
+          next if body && entry.exits?(body)
 
-        flow = Flow.new(name, CallExits.new(@methods, implicit_self(context)))
-        flow.collect(cond, false, step.within)
-        narrow(current, name, flow.steps, context, visiting, locals)
+          entry.collect(step.cond, branch.positive, step.within)
+          start = narrow(current, name, entry.steps, context, visiting, locals)
+          if body && !body.is_a?(Crystal::Nop)
+            inner = Flow.new(name, exits)
+            inner.walk(body, step.within + [body])
+            start = narrow(start, name, inner.steps, context, visiting, locals)
+          end
+          results << start
+        end
+        return TypeRef.new("NoReturn", Array(Resolution).new) if results.empty?
+
+        union(results)
       end
 
       private def settled(
@@ -966,7 +987,21 @@ module Heucristic
         end
         return TypeRef.new("NoReturn", Array(Resolution).new) if members.empty?
 
+        members = absorb(members)
         members.size == 1 ? members[0] : UnionRef.new(members)
+      end
+
+      private def absorb(members : Array(Resolution)) : Array(Resolution)
+        return members if members.size < 2
+
+        members.reject do |member|
+          next false unless member.is_a?(TypeRef)
+
+          members.any? do |other|
+            other.is_a?(TypeRef) && other.name != member.name &&
+              other.arguments.empty? && covers?(other, member)
+          end
+        end
       end
 
       PROGRAM = "Program"
@@ -977,7 +1012,9 @@ module Heucristic
 
         this = TypeRef.new(owner, Array(Resolution).new)
         definition = context.def_node
-        definition && definition.receiver ? MetaRef.new(this) : this
+        return (context.instance ? this : MetaRef.new(this)) unless definition
+
+        definition.receiver ? MetaRef.new(this) : this
       end
 
       private def compacted(receiver : TypeRef) : Resolution
@@ -996,7 +1033,7 @@ module Heucristic
       ) : Resolution
         owner = entry.owner
         enclosing = owner.is_a?(String) ? [owner] : Array(String).new
-        context = Syntax::Context.new(enclosing, Array(String).new, nil)
+        context = Syntax::Context.new(enclosing, Array(String).new, nil, entry.path, true)
         return Unknown.new(:cycle, entry.qualified) if site.visiting.includes?(entry.qualified)
 
         visiting = site.visiting + [entry.qualified]

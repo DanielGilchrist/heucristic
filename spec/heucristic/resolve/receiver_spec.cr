@@ -467,7 +467,7 @@ describe Heucristic::Resolve::Receiver, "constants" do
 
   it "reports a constant whose value it cannot type" do
     receiver_of_size(source, "Fibers::LIMIT.size").should eq(
-      "unknown (unresolved name: no `compute` on Fibers)"
+      "unknown (unresolved name: no `compute` on Fibers.class)"
     )
   end
 
@@ -1052,7 +1052,7 @@ describe Heucristic::Resolve::Receiver, "extend self and widened reassignment" d
   end
 
   it "types a conditional assignment as the value or nil" do
-    receiver_of_size(source, "base_directory.size").should eq("Nil | Directory")
+    receiver_of_size(source, "base_directory.size").should eq("Directory | Nil")
   end
 
   it "types a range literal from its bounds" do
@@ -1824,7 +1824,7 @@ describe Heucristic::Resolve::Receiver, "loops and nested reassignment positions
   end
 
   it "types a nested reassignment at its own position" do
-    receiver_of_size(source, "bindings.size").should eq("Array(Int32) | Array(String)")
+    receiver_of_size(source, "bindings.size").should eq("Array(String) | Array(Int32)")
   end
 end
 
@@ -1991,5 +1991,50 @@ describe Heucristic::Resolve::Receiver, "assignments inside conditions and case 
 
   it "unions module method results across includers that disagree" do
     receiver_of_size(source, "name.size").should eq("String | Nil")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "branch joins" do
+  source = <<-CR
+    record Organisation
+
+    struct Site
+      NONE = new
+
+      def initialize : Nil
+      end
+    end
+
+    class Login
+      def prompt : Organisation?
+      end
+
+      def run(organisations : Array(Organisation), organisation : Organisation?) : Nil
+        unless organisation
+          while organisation.nil?
+            organisation = prompt
+          end
+        end
+        organisation.size
+        Site::NONE.size
+        (Organisation | Login).size
+        maybe = prompt
+        maybe.try(&.size)
+      end
+    end
+    CR
+
+  it "joins the branches of an unless statement, including a loop inside it" do
+    receiver_of_size(source, "organisation.size").should eq("Organisation")
+  end
+
+  it "resolves new in a type body as a class method" do
+    receiver_of_size(source, "Site::NONE.size").should eq("Site")
+  end
+
+  it "types a union of metaclasses" do
+    receiver_of_size(source, "(Organisation | Login).size").should eq(
+      "Organisation.class | Login.class"
+    )
   end
 end

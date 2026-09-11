@@ -9,12 +9,14 @@ module Heucristic
       def_node : Crystal::Def?,
       blocks : Array(Crystal::Call),
       ancestors : Array(Crystal::ASTNode),
-      path : String? = nil do
+      path : String? = nil,
+      instance : Bool = false do
       def self.new(
         enclosing : Array(String),
         type_vars : Array(String),
         def_node : Crystal::Def?,
         path : String? = nil,
+        instance : Bool = false,
       ) : Context
         new(
           enclosing,
@@ -23,6 +25,7 @@ module Heucristic
           Array(Crystal::Call).new,
           Array(Crystal::ASTNode).new,
           path,
+          instance,
         )
       end
 
@@ -36,13 +39,13 @@ module Heucristic
 
       def at(ancestors : Array(Crystal::ASTNode)) : Context
         entered = ancestors.select(Crystal::Call).select { |call| !call.block.nil? }
-        Context.new(enclosing, type_vars, def_node, entered, ancestors, path)
+        Context.new(enclosing, type_vars, def_node, entered, ancestors, path, instance)
       end
 
       def inside(node : Crystal::ASTNode) : Context
         return self if ancestors.last?.try(&.same?(node))
 
-        Context.new(enclosing, type_vars, def_node, blocks, ancestors + [node], path)
+        Context.new(enclosing, type_vars, def_node, blocks, ancestors + [node], path, instance)
       end
 
       def inside(parent : Crystal::ASTNode, child : Crystal::ASTNode) : Context
