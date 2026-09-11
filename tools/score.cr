@@ -173,11 +173,16 @@ module Score
   end
 
   private def same_targets?(theirs : Array(String), ours : Array(String)) : Bool
-    theirs.sort == ours.sort
+    theirs.uniq.sort! == ours.uniq.sort!
   end
 
   private def same_files?(theirs : Array(String), ours : Array(String)) : Bool
-    theirs.map(&.rpartition(':')[0]).sort! == ours.map(&.rpartition(':')[0]).sort!
+    their_files = theirs.map(&.rpartition(':')[0]).uniq!.sort!
+    our_files = ours.map(&.rpartition(':')[0]).uniq!.sort!
+    shimmed = our_files.all?(&.includes?("/shims/"))
+    return true if shimmed && their_files.all?(&.ends_with?("/primitives.cr"))
+
+    their_files == our_files
   end
 
   private def percent(part : Int32, whole : Int32) : String
