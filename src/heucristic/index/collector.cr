@@ -137,7 +137,7 @@ module Heucristic
           name_span: span,
           arity: Arity.new(node.args.size, 0, node.varargs?),
           parameters: parameters,
-          return_type: Restrictions.of(node.return_type),
+          return_type: fun_return_type(node),
           free_vars: Array(String).new,
           yields: false,
         )
@@ -504,6 +504,9 @@ module Heucristic
           evident = Evident.type(arg.value)
           type = evident.is_a?(Syntax::Type) ? evident : Unrestricted.new
           accessor_defs(target, target.name, type, base, receiver)
+          return unless receiver.instance? && evident.is_a?(Syntax::Type)
+
+          instance_var("@#{target.name}", evident, span_of(target, target.name.size), :assigned)
         when Crystal::Var
           accessor_defs(arg, arg.name, Unrestricted.new, base, receiver)
         when Crystal::Call
@@ -603,6 +606,11 @@ module Heucristic
           free_vars: Array(String).new,
           yields: false,
         )
+      end
+
+      private def fun_return_type(node : Crystal::FunDef) : Restriction
+        returning = node.return_type
+        returning ? Restrictions.of(returning) : Syntax::Named.new(["Nil"], true)
       end
 
       private def c_field(field : Crystal::ASTNode) : Nil

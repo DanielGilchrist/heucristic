@@ -1698,3 +1698,30 @@ describe Heucristic::Resolve::Receiver, "cyclic widening" do
     )
   end
 end
+describe Heucristic::Resolve::Receiver, "accessor defaults and void funs" do
+  source = <<-CR
+    class Progress
+    end
+
+    lib LibWatch
+      fun stop = watch_stop(handle : Void*)
+    end
+
+    class Endpoint
+      getter sent = Progress.new
+
+      def run : Nil
+        @sent.size
+        LibWatch.stop(nil).size
+      end
+    end
+    CR
+
+  it "declares the ivar behind an accessor with a default value" do
+    receiver_of_size(source, "@sent.size").should eq("Progress")
+  end
+
+  it "types a fun without a return type as Nil" do
+    receiver_of_size(source, "LibWatch.stop(nil).size").should eq("Nil")
+  end
+end
