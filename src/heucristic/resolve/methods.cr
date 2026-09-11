@@ -94,6 +94,15 @@ module Heucristic
         top_level(call)
       end
 
+      def candidates(receiver : Resolved) : Array(Index::Def)
+        case receiver
+        in TypeRef  then instance_candidates(receiver.name)
+        in MetaRef  then metaclass_candidates(receiver.of)
+        in UnionRef then union_candidates(receiver)
+        in TypeVar  then instance_candidates("Object")
+        end
+      end
+
       def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
         case receiver
         in TypeRef
@@ -207,6 +216,38 @@ module Heucristic
 
       private def union_methods(receiver : UnionRef, call : Call) : Array(Index::Def)
         receiver.members.flat_map { |member| lookup(member, call) }.uniq!
+      end
+
+      private def union_candidates(receiver : UnionRef) : Array(Index::Def)
+        receiver.members.flat_map do |member|
+          member.is_a?(Resolved) ? candidates(member) : Array(Index::Def).new
+        end
+      end
+
+      private def instance_candidates(type : String) : Array(Index::Def)
+        found = Array(Index::Def).new
+        levels(type).each do |level|
+          @workspace.defs_of(level).each { |entry| found << entry if entry.receiver.instance? }
+        end
+        found.concat(includers_candidates(type)) if found.empty?
+        found
+      end
+
+      private def includers_candidates(type : String) : Array(Index::Def)
+        return Array(Index::Def).new unless @workspace.namespaces(type).any?(Index::ModuleNamespace)
+
+        includers_of(type).flat_map { |includer| instance_candidates(includer) }
+      end
+
+      private def metaclass_candidates(of : TypeRef | TypeVar) : Array(Index::Def)
+        return instance_candidates("Class") if of.is_a?(TypeVar)
+
+        found = Array(Index::Def).new
+        levels(of.name).each do |level|
+          @workspace.defs_of(level).each { |entry| found << entry if entry.receiver.metaclass? }
+        end
+        found.concat(instance_candidates("Class"))
+        found
       end
 
       private def metaclass_methods(of : TypeRef | TypeVar, call : Call) : Array(Index::Def)

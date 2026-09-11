@@ -3,6 +3,10 @@ require "../../spec_helper"
 private URI_A = "file:///tmp/heucristic-spec/a.cr"
 private URI_B = "file:///tmp/heucristic-spec/b.cr"
 
+private def completion_labels(response : Heucristic::Protocol::Response) : Array(String)?
+  response.result.try(&.["items"].as_a.map(&.["label"].as_s))
+end
+
 private def hover_text(response : Heucristic::Protocol::Response) : String?
   response.result.try(&.["contents"]?).try(&.["value"]?).try(&.as_s?)
 end
@@ -626,6 +630,38 @@ describe Heucristic::Server::Loop, "workspace symbol reopenings" do
     apps = found.try(&.select { |symbol| symbol["name"].as_s == "App" })
     apps.try(&.size).should eq(1)
     apps.try(&.[0]["location"]["uri"].as_s).should eq(URI_A)
+    client.shutdown
+  end
+end
+
+describe Heucristic::Server::Loop, "completion" do
+  it "completes methods after a dot, locals and methods without a receiver, and constants" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, <<-CR)
+      module Shapes
+        class Circle
+          def area : Float64
+          end
+
+          def grow(amount : Float64) : Nil
+            grown = amount
+            self.ar
+            gr
+            Sha
+          end
+        end
+      end
+      CR
+    client.await_notification("textDocument/publishDiagnostics")
+
+    completion_labels(client.completion(URI_A, 7, 14)).should eq(["area"])
+    completion_labels(client.completion(URI_A, 8, 8)).should eq(["grow", "grown"])
+    completion_labels(client.completion(URI_A, 9, 9)).should eq(["Shapes"])
+    detail = client.completion(URI_A, 7, 14).result.try(&.["items"][0]["detail"].as_s)
+    detail.should eq("def area : Float64")
     client.shutdown
   end
 end

@@ -49,6 +49,14 @@ module Heucristic
         Point.new(line + 1, column + 1)
       end
 
+      def point_at(offset : Int32) : Point | OutOfRange
+        return OutOfRange.new(0_u32) if offset < 0 || offset > @source.bytesize
+
+        line = @line_starts.rindex { |start| start <= offset } || 0
+        column = line_slice(@line_starts[line], offset).size
+        Point.new(line + 1, column + 1)
+      end
+
       def position(point : Point) : LSProtocol::Position | OutOfRange
         line = point.line - 1
         return OutOfRange.new(line.to_u32) if line < 0 || line >= @line_starts.size

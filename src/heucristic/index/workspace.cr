@@ -9,6 +9,7 @@ module Heucristic
       def initialize : Nil
         @files = Hash(String, File).new
         @defs = Hash(String, Array(Def)).new
+        @defs_by_owner = Hash(String, Array(Def)).new
         @namespaces = Hash(String, Array(Namespace)).new
         @mixins = Hash(String, Array(Mixin)).new
         @instance_vars = Hash(String, Array(InstanceVar)).new
@@ -26,7 +27,10 @@ module Heucristic
       def update(file : File) : Nil
         remove(file.path)
         @files[file.path] = file
-        file.defs.each { |entry| add(@defs, entry.name, entry) }
+        file.defs.each do |entry|
+          add(@defs, entry.name, entry)
+          add(@defs_by_owner, owner_key(entry.owner), entry)
+        end
         file.namespaces.each { |entry| add(@namespaces, entry.name, entry) }
         file.mixins.each { |entry| add(@mixins, entry.owner, entry) }
         file.instance_vars.each { |entry| add(@instance_vars, entry.owner, entry) }
@@ -93,7 +97,10 @@ module Heucristic
         previous = @files.delete(path)
         return unless previous
 
-        previous.defs.each { |entry| drop(@defs, entry.name, path) }
+        previous.defs.each do |entry|
+          drop(@defs, entry.name, path)
+          drop(@defs_by_owner, owner_key(entry.owner), path)
+        end
         previous.namespaces.each { |entry| drop(@namespaces, entry.name, path) }
         previous.mixins.each { |entry| drop(@mixins, entry.owner, path) }
         previous.instance_vars.each { |entry| drop(@instance_vars, entry.owner, path) }
@@ -103,6 +110,10 @@ module Heucristic
 
       def named(name : String) : Array(Def)
         @defs[name]? || Array(Def).new
+      end
+
+      def defs_of(owner : Owner) : Array(Def)
+        @defs_by_owner[owner_key(owner)]? || Array(Def).new
       end
 
       def namespaces(name : String) : Array(Namespace)
@@ -127,6 +138,10 @@ module Heucristic
 
       def instance_vars_of(owner : String) : Array(InstanceVar)
         @instance_vars[owner]? || Array(InstanceVar).new
+      end
+
+      private def owner_key(owner : Owner) : String
+        owner.is_a?(String) ? owner : ""
       end
 
       private def add(table : Hash(String, Array(T)), key : String, entry : T) : Nil forall T

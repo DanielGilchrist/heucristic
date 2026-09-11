@@ -95,6 +95,13 @@ class LspClient
     })
   end
 
+  def completion(uri : String, line : Int32, character : Int32) : Heucristic::Protocol::Response
+    request("textDocument/completion", {
+      "textDocument" => {"uri" => uri},
+      "position"     => {"line" => line, "character" => character},
+    })
+  end
+
   def document_symbols(uri : String) : Heucristic::Protocol::Response
     request("textDocument/documentSymbol", {"textDocument" => {"uri" => uri}})
   end

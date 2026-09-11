@@ -25,6 +25,7 @@ require "./options"
 require "./macros"
 require "./references"
 require "./symbols"
+require "./completion"
 require "../index/sites"
 require "./macro_status"
 require "../index/collector"
@@ -62,6 +63,7 @@ module Heucristic
         @receiver = Resolve::Receiver.new(@workspace, @shims, @types, @methods)
         @references = References.new(@workspace, @types, @methods, @receiver)
         @symbols = Symbols.new(@workspace)
+        @completion = Completion.new(@workspace, @types, @methods, @receiver)
         @stopping = false
         @index_stdlib = true
         @progress = Progress.new(@transport, false)
@@ -93,6 +95,7 @@ module Heucristic
             definition_provider: true,
             references_provider: true,
             document_symbol_provider: true,
+            completion_provider: LSProtocol::CompletionOptions.new(trigger_characters: [".", ":"]),
             workspace_symbol_provider: true,
           ),
           server_info: LSProtocol::ServerInfo.new(name: "heucristic", version: VERSION),
@@ -107,6 +110,7 @@ module Heucristic
         when LSProtocol::TEXT_DOCUMENT_DEFINITION      then definition(request)
         when LSProtocol::TEXT_DOCUMENT_REFERENCES      then references(request)
         when LSProtocol::TEXT_DOCUMENT_DOCUMENT_SYMBOL then document_symbols(request)
+        when LSProtocol::TEXT_DOCUMENT_COMPLETION      then completion(request)
         when LSProtocol::WORKSPACE_SYMBOL              then workspace_symbols(request)
         else
           error(
@@ -264,6 +268,23 @@ module Heucristic
         @workspace.update(Index::Collector.collect(path, document.text, tree))
         @workspace.update_sites(Index::Sites.of(path, document.text, tree))
         @types.invalidate
+      end
+
+      private def completion(request : Protocol::Request) : Outcome
+        params = DecodedParams.decode(request.params, LSProtocol::CompletionParams)
+        return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
+
+        uri = params.text_document.uri.to_s
+        document = @documents[uri]
+        return reply(request.id, nil) if document.is_a?(Document::Store::Missing)
+
+        offset = document.text.offset(params.position)
+        return reply(request.id, nil) if offset.is_a?(Document::OutOfRange)
+
+        path = Uri.to_path(document.uri)
+        path = document.uri if path.is_a?(Uri::NotAFile)
+        items = @completion.complete(Completion::Request.new(document.text, offset, path))
+        reply(request.id, LSProtocol::CompletionList.new(is_incomplete: false, items: items))
       end
 
       private def document_symbols(request : Protocol::Request) : Outcome
