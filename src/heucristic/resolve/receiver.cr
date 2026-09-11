@@ -10,6 +10,7 @@ require "./unify"
 require "./render"
 require "./local_declarations"
 require "./local_assignments"
+require "./variable_references"
 require "./rescue_variables"
 require "./flow"
 require "./call_exits"
@@ -664,21 +665,27 @@ module Heucristic
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
+        key = variable_key(name, context)
         steps.reduce(base) do |current, step|
           case step
           in Flow::Assigned
             at = context.at(step.within)
-            type_of(step.value, at, visiting + [variable_key(name, context)], locals)
+            typed = type_of(step.value, at, visiting + [key], seeded(locals, name, current))
+            settled(name, current, step.value, typed)
           in Flow::Reassigned
             within = context.at(step.within)
             values = Array(Resolution).new(step.values.size + 1)
             values << current
-            key = variable_key(name, context)
-            step.values.each { |value| values << type_of(value, within, visiting + [key], locals) }
+            seeded_locals = seeded(locals, name, current)
+            step.values.each do |value|
+              typed = type_of(value, within, visiting + [key], seeded_locals)
+              values << settled(name, current, value, typed)
+            end
             union(values)
           in Flow::OrAssigned
             at = context.at(step.within)
-            value = type_of(step.value, at, visiting + [variable_key(name, context)], locals)
+            typed = type_of(step.value, at, visiting + [key], seeded(locals, name, current))
+            value = settled(name, current, step.value, typed)
             present = truthy(current, true)
             if present.is_a?(TypeRef) && present.name == "Nil"
               value
@@ -815,9 +822,55 @@ module Heucristic
         end
 
         assigned = Array(Resolution).new(assignments.size)
+        deferred = Array(Crystal::ASTNode).new
         key = variable_key(name, context)
-        assignments.each { |value| assigned << type_of(value, context, visiting + [key], locals) }
+        assignments.each do |value|
+          typed = type_of(value, context, visiting + [key], locals)
+          if typed.is_a?(Unknown) && typed.reason.cycle?
+            deferred << value
+          else
+            assigned << typed
+          end
+        end
+        return union(assigned) if deferred.empty?
+
+        seed = union(assigned)
+        return Unknown.new(:cycle, name) if seed.is_a?(Unknown)
+
+        seeded_locals = seeded(locals, name, seed)
+        deferred.each do |value|
+          typed = type_of(value, context, visiting + [key], seeded_locals)
+          assigned << settled(name, seed, value, typed)
+        end
         union(assigned)
+      end
+
+      private def settled(
+        name : String,
+        seed : Resolution,
+        value : Crystal::ASTNode,
+        typed : Resolution,
+      ) : Resolution
+        return typed if typed.is_a?(Unknown) || seed.is_a?(Unknown)
+        return typed unless VariableReferences.include?(value, name)
+
+        grown = members_of(typed).reject { |member| members_of(seed).includes?(member) }
+        return typed if grown.empty?
+
+        Unknown.new(
+          :cycle,
+          "#{name} widens on every pass (#{seed} then #{typed}); declare its type",
+        )
+      end
+
+      private def members_of(resolution : Resolved) : Array(Resolution)
+        resolution.is_a?(UnionRef) ? resolution.members : [resolution] of Resolution
+      end
+
+      private def seeded(locals : Array(Binding), name : String, seed : Resolution) : Array(Binding)
+        return locals if seed.is_a?(Unknown)
+
+        locals.reject(&.name.==(name)) << Binding.new(name, seed)
       end
 
       private def elements(
@@ -848,10 +901,6 @@ module Heucristic
 
       private def union(resolutions : Array(Resolution)) : Resolution
         members = Array(Resolution).new
-        cyclic = resolutions.select(Unknown).select(&.reason.cycle?)
-        unless cyclic.size == resolutions.size
-          resolutions = resolutions.reject { |resolution| cyclic.includes?(resolution) }
-        end
         resolutions.each do |resolution|
           return resolution if resolution.is_a?(Unknown)
           next if resolution.is_a?(TypeRef) && resolution.name == "NoReturn"

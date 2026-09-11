@@ -935,8 +935,8 @@ describe Heucristic::Resolve::Receiver, "or-assignment and cyclic branches" do
     receiver_of_size(source, "shifts.size").should eq("Array(String)")
   end
 
-  it "ignores a cyclic branch when the other branches resolve" do
-    receiver_of_size(source, "bindings.size").should eq("Array(String)")
+  it "feeds a cyclic branch the type gathered so far" do
+    receiver_of_size(source, "bindings.size").should eq("Array(String) | Array(Int32)")
   end
 end
 
@@ -1631,5 +1631,70 @@ describe Heucristic::Resolve::Receiver, "assignments typed at their own position
   it "types a value from the state at the assignment, not at the use" do
     receiver_of_size(source, "sent_bytes.size").should eq("Int32")
     receiver_of_size(source, "sent.size").should eq("String")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "self-referential assignments" do
+  source = <<-CR
+    class Array(T)
+      def +(other : Array(U)) : Array(T | U) forall U
+      end
+
+      def each(& : T ->) : Nil
+      end
+    end
+
+    class Int32
+      def >>(count : Int32) : Int32
+      end
+    end
+
+    record Change
+
+    class Session
+      def entries : Array(Array(Change))
+      end
+
+      def merge : Nil
+        changes = Array(Change).new
+        entries.each do |entry|
+          changes = changes + entry
+        end
+        changes.size
+        a = 1
+        while a > 0
+          a = a >> 8
+        end
+        a.size
+      end
+    end
+    CR
+
+  it "types a variable rebuilt from itself inside a block" do
+    receiver_of_size(source, "changes.size").should eq("Array(Change)")
+  end
+
+  it "types a variable shifted from itself inside a loop" do
+    receiver_of_size(source, "a.size").should eq("Int32")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "cyclic widening" do
+  source = <<-CR
+    class Nester
+      def run : Nil
+        nested = 1
+        while true
+          nested = [nested]
+        end
+        nested.size
+      end
+    end
+    CR
+
+  it "stops and explains when a variable widens on every pass" do
+    receiver_of_size(source, "nested.size").should eq(
+      "unknown (cycle: nested widens on every pass (Int32 then Array(Int32)); declare its type)"
+    )
   end
 end

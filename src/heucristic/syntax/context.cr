@@ -35,7 +35,8 @@ module Heucristic
       end
 
       def at(ancestors : Array(Crystal::ASTNode)) : Context
-        Context.new(enclosing, type_vars, def_node, blocks, ancestors, path)
+        entered = ancestors.select(Crystal::Call).select { |call| !call.block.nil? }
+        Context.new(enclosing, type_vars, def_node, entered, ancestors, path)
       end
 
       def inside(node : Crystal::ASTNode) : Context
