@@ -804,6 +804,14 @@ module Heucristic
         !chain.is_a?(Unknown) && chain.includes?(ancestor.name)
       end
 
+      private def assigning?(step : Flow::Step) : Bool
+        case step
+        in Flow::Assigned, Flow::Reassigned, Flow::OrAssigned then true
+        in Flow::Branched                                     then step.assigns
+        in Flow::Truthy, Flow::IsA                            then false
+        end
+      end
+
       private def variable_key(name : String, context : Syntax::Context) : String
         owner = context.blocks.last? || context.def_node
         owner ? "#{name}@#{owner.object_id}" : name
@@ -863,7 +871,7 @@ module Heucristic
             :no_annotation, "#{name} is not a parameter and is never assigned here"
           )
         end
-        if steps.any?(Flow::Assigned | Flow::Reassigned | Flow::OrAssigned)
+        if steps.any? { |step| assigning?(step) }
           return TypeRef.new("Nil", Array(Resolution).new)
         end
 

@@ -8,6 +8,8 @@ module Heucristic
     module Generated
       extend self
 
+      CONSTRUCTORS = {"new", "allocate"}
+
       SYNTHESIZED = {
         "getter", "getter?", "getter!", "property", "property?", "property!", "setter",
         "class_getter", "class_getter?", "class_getter!", "class_property", "class_property?",
@@ -18,7 +20,8 @@ module Heucristic
         macros = Hash(Int32, String).new
         sites.each { |site| macros[site.line] = site.macro_name }
         kept = file.defs.reject do |entry|
-          known?(entry, workspace, shims) || synthesized?(entry, macros, workspace)
+          CONSTRUCTORS.includes?(entry.name) || known?(entry, workspace, shims) ||
+            synthesized?(entry, macros, workspace)
         end
         File.new(
           file.path,

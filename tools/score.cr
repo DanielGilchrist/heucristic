@@ -69,6 +69,7 @@ module Score
         Heucristic::Syntax::Calls.in(tree, path).each do |site|
           call = site.call
           next if SKIPPED.includes?(call.name) && call.obj.nil?
+          next if site.context.ancestors.any? { |node| macro_call?(node) }
           location = call.name_location
           next unless location
 
@@ -179,6 +180,10 @@ module Score
     puts "agree: #{agree}, disagree: #{disagree}, compiler saw no implementation: #{unseen}"
   end
 
+  private def macro_call?(node : Crystal::ASTNode) : Bool
+    node.is_a?(Crystal::Call) && node.obj.nil? && SKIPPED.includes?(node.name)
+  end
+
   private def expand_macros(
     root : String,
     events : Channel(Heucristic::Index::Event),
@@ -212,7 +217,9 @@ module Score
   end
 
   private def same_targets?(theirs : Array(String), ours : Array(String)) : Bool
-    theirs.uniq.sort! == ours.uniq.sort!
+    return false if ours.empty?
+
+    ours.all? { |target| theirs.includes?(target) }
   end
 
   private def same_files?(theirs : Array(String), ours : Array(String)) : Bool

@@ -15,7 +15,8 @@ module Heucristic
       record Branched,
         cond : Crystal::ASTNode,
         branches : Array(Branch),
-        within : Array(Crystal::ASTNode)
+        within : Array(Crystal::ASTNode),
+        assigns : Bool
 
       alias Step = Truthy | IsA | Assigned | OrAssigned | Reassigned | Branched
 
@@ -122,10 +123,10 @@ module Heucristic
           @steps << Assigned.new(value, within) if value
         when Crystal::If
           branches = [Branch.new(true, statement.then), Branch.new(false, statement.else)]
-          @steps << Branched.new(statement.cond, branches, within)
+          @steps << Branched.new(statement.cond, branches, within, assigns?(statement))
         when Crystal::Unless
           branches = [Branch.new(false, statement.then), Branch.new(true, statement.else)]
-          @steps << Branched.new(statement.cond, branches, within)
+          @steps << Branched.new(statement.cond, branches, within, assigns?(statement))
         when Crystal::Or
           condition(statement.left, true) if exits?(statement.right)
         when Crystal::Case
@@ -167,6 +168,10 @@ module Heucristic
         return node.expressions[0] if node.is_a?(Crystal::Expressions) && node.expressions.size == 1
 
         node
+      end
+
+      private def assigns?(statement : Crystal::ASTNode) : Bool
+        !LocalAssignments.find(statement, @name).empty?
       end
 
       private def nested(statement : Crystal::ASTNode) : Nil
