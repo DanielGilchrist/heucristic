@@ -507,7 +507,7 @@ end
 describe Heucristic::Server::Loop, "symbols" do
   it "lists document symbols nested by owner and finds workspace symbols by subsequence" do
     client = LspClient.in_process
-    client.initialize!("/tmp/heucristic-spec-empty")
+    client.initialize!("/tmp/heucristic-spec")
     client.await_notification("$/heucristic/indexed")
 
     client.open(URI_A, <<-CR)

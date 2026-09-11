@@ -279,7 +279,7 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::WorkspaceSymbolParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        reply(request.id, @symbols.matching(params.query))
+        reply(request.id, @symbols.matching(params.query, @root))
       end
 
       private def references(request : Protocol::Request) : Outcome

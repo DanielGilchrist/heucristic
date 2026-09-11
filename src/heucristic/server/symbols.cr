@@ -6,7 +6,13 @@ require "./uri"
 module Heucristic
   module Server
     class Symbols
-      LIMIT = 200
+      LIMIT      = 200
+      TYPE_KINDS = {
+        LSProtocol::SymbolKind::Class,
+        LSProtocol::SymbolKind::Struct,
+        LSProtocol::SymbolKind::Module,
+        LSProtocol::SymbolKind::Enum,
+      }
 
       def initialize(@workspace : Index::Workspace) : Nil
       end
@@ -33,10 +39,12 @@ module Heucristic
         roots
       end
 
-      def matching(query : String) : Array(LSProtocol::SymbolInformation)
+      def matching(query : String, root : String) : Array(LSProtocol::SymbolInformation)
         needle = query.downcase
         found = Array(LSProtocol::SymbolInformation).new
         @workspace.each_file do |file|
+          next unless project?(file.path, root)
+
           file.namespaces.each { |entry| consider(found, entry, entry.name, needle, nil) }
           file.defs.each do |entry|
             consider(found, entry, entry.name, needle, container(entry.owner))
@@ -45,9 +53,16 @@ module Heucristic
           file.aliases.each { |entry| consider(found, entry, entry.name, needle, nil) }
         end
         found.sort_by! do |symbol|
-          {symbol.name.downcase.starts_with?(needle) ? 0 : 1, symbol.name.size}
+          prefix = symbol.name.downcase.starts_with?(needle) ? 0 : 1
+          {prefix, TYPE_KINDS.includes?(symbol.kind) ? 0 : 1, symbol.name.size}
         end
         found.first(LIMIT)
+      end
+
+      private def project?(path : String, root : String) : Bool
+        return false unless path.starts_with?(root)
+
+        {"lib", ".shards"}.none? { |vendored| path.starts_with?(::File.join(root, vendored)) }
       end
 
       private def consider(
