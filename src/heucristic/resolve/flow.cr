@@ -9,7 +9,10 @@ module Heucristic
       record IsA, types : Array(Crystal::ASTNode), positive : Bool
       record Assigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
       record OrAssigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
-      record Reassigned, values : Array(Crystal::ASTNode), within : Array(Crystal::ASTNode)
+      record Reassigned,
+        values : Array(Crystal::ASTNode),
+        within : Array(Crystal::ASTNode),
+        unless_cond : Crystal::ASTNode? = nil
 
       alias Step = Truthy | IsA | Assigned | OrAssigned | Reassigned
 
@@ -77,6 +80,13 @@ module Heucristic
 
       private def guard(statement : Crystal::ASTNode) : Nil
         within = @prefix + [statement]
+        outer = @prefix
+        @prefix = within
+        guarded(statement, within)
+        @prefix = outer
+      end
+
+      private def guarded(statement : Crystal::ASTNode, within : Array(Crystal::ASTNode)) : Nil
         case statement
         when Crystal::Assign
           target = statement.target
@@ -94,7 +104,11 @@ module Heucristic
         when Crystal::If
           branch = statement.then
           if branch.is_a?(Crystal::Assign) && assigns?(branch) && empty?(statement.else)
-            @steps << Reassigned.new([branch.value] of Crystal::ASTNode, within + [branch])
+            values = [branch.value] of Crystal::ASTNode
+            @steps << Reassigned.new(values, within + [branch], statement.cond)
+          elsif ends_assigning?(branch) && empty?(statement.else)
+            values = LocalAssignments.find(branch, @name)
+            @steps << Reassigned.new(values, within + [branch], statement.cond)
           elsif exits?(branch) && empty?(statement.else)
             condition(statement.cond, false)
           elsif exits?(statement.else) && empty?(branch)
@@ -148,6 +162,13 @@ module Heucristic
       private def assigns?(node : Crystal::Assign) : Bool
         target = node.target
         target.is_a?(Crystal::Var) && target.name == @name
+      end
+
+      private def ends_assigning?(branch : Crystal::ASTNode) : Bool
+        return false unless branch.is_a?(Crystal::Expressions)
+
+        last = branch.expressions.last?
+        last.is_a?(Crystal::Assign) && assigns?(last)
       end
 
       private def nested(statement : Crystal::ASTNode) : Nil

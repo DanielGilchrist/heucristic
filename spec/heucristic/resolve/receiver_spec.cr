@@ -1698,6 +1698,63 @@ describe Heucristic::Resolve::Receiver, "cyclic widening" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "guards inside conditions and branch fallthrough" do
+  source = <<-CR
+    record EndOfStream
+
+    class String
+      def lchop?(prefix : String) : String?
+      end
+
+      def <=(other : String) : Bool
+      end
+    end
+
+    class Int32
+      def <=(other : Int32) : Bool
+      end
+    end
+
+    class Framing
+      def read_line : String | EndOfStream
+      end
+
+      def lookup : Array(String) | EndOfStream
+      end
+
+      def read : Nil
+        loop do
+          line = read_line
+          return line unless line.is_a?(String)
+
+          next unless (value = line.lchop?("Content-Length:"))
+          value.size
+        end
+        found = lookup
+        if found.is_a?(EndOfStream)
+          return unless read_line
+          found = Array(String).new
+        end
+        found.size
+        (1 <= 2 <= 3).size
+      end
+    end
+    CR
+
+  it "narrows a variable used inside a guard's own condition" do
+    receiver_of_size(source, "value.size").should eq("String")
+  end
+
+  it "narrows away the branch condition when a branch ends by reassigning" do
+    receiver_of_size(source, "found.size").should eq("Array(String)")
+  end
+
+  it "types a chained comparison as Bool" do
+    receiver_of_size(source, "(1 <= 2 <= 3).size").should eq("Bool")
+  end
+end
+
 describe Heucristic::Resolve::Receiver, "accessor defaults and void funs" do
   source = <<-CR
     class Progress

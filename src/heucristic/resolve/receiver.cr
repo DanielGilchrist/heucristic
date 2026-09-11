@@ -686,7 +686,7 @@ module Heucristic
           in Flow::Reassigned
             within = context.at(step.within)
             values = Array(Resolution).new(step.values.size + 1)
-            values << current
+            values << fallthrough(current, step, name, context, visiting, locals)
             seeded_locals = seeded(locals, name, current)
             step.values.each do |value|
               typed = type_of(value, within, visiting + [key], seeded_locals)
@@ -854,6 +854,22 @@ module Heucristic
           assigned << settled(name, seed, value, typed)
         end
         union(assigned)
+      end
+
+      private def fallthrough(
+        current : Resolution,
+        step : Flow::Reassigned,
+        name : String,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
+        cond = step.unless_cond
+        return current unless cond
+
+        flow = Flow.new(name, CallExits.new(@methods, implicit_self(context)))
+        flow.collect(cond, false, step.within)
+        narrow(current, name, flow.steps, context, visiting, locals)
       end
 
       private def settled(
