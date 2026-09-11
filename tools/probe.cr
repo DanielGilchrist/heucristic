@@ -28,6 +28,10 @@ module Probe
     if action.in?("definition", "both")
       puts "definition: #{client.definition(uri, line, character).result.to_pretty_json}"
     end
+    if action == "references"
+      found = client.references(uri, line, character, true).result
+      puts "references: #{found.to_pretty_json}"
+    end
 
     client.shutdown
     process.wait.exit_code
@@ -73,7 +77,7 @@ module Probe
   end
 
   private def usage : Int32
-    STDERR.puts "usage: probe <file.cr> <line>:<column> [hover|definition|both]"
+    STDERR.puts "usage: probe <file.cr> <line>:<column> [hover|definition|both|references]"
     STDERR.puts "positions are 1-based; HEUCRISTIC_BIN overrides the server binary"
     1
   end
