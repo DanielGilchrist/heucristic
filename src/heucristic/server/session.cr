@@ -26,6 +26,7 @@ require "./macros"
 require "./macro_status"
 require "../index/collector"
 require "../index/macro_site"
+require "../index/generated"
 require "../crystal_env"
 require "../resolve/local_declarations"
 
@@ -164,7 +165,9 @@ module Heucristic
           reason = "generated source does not parse: #{tree.message}"
           @macro_status = MacrosStale.new(reason, generated_defs)
         else
-          file = Index::Collector.collect(GENERATED_PATH, Document::Text.new(event.source), tree)
+          text = Document::Text.new(event.source)
+          collected = Index::Collector.collect(GENERATED_PATH, text, tree)
+          file = Index::Generated.merge(collected, event.sites, @workspace, @shims)
           @generated = file
           @workspace.update(file)
           @types.invalidate
