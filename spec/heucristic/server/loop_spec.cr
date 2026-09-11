@@ -576,3 +576,37 @@ describe Heucristic::Server::Loop, "accessor references" do
     client.shutdown
   end
 end
+
+describe Heucristic::Server::Loop, "references from synthesized declarations" do
+  it "finds uses from a record field and from a delegate name" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, <<-CR)
+      record Point, x : Int32, y : Int32
+
+      class Holder
+        delegate :x, to: point
+
+        def initialize(@point : Point) : Nil
+        end
+
+        def point : Point
+          @point
+        end
+
+        def run : Int32
+          point.x + x
+        end
+      end
+      CR
+    client.await_notification("textDocument/publishDiagnostics")
+
+    field = client.references(URI_A, 0, 14).result.try(&.as_a?)
+    field.try(&.map(&.["range"]["start"]["character"].as_i)).should eq([10])
+    delegated = client.references(URI_A, 3, 12).result.try(&.as_a?)
+    delegated.try(&.map(&.["range"]["start"]["character"].as_i)).should eq([14])
+    client.shutdown
+  end
+end

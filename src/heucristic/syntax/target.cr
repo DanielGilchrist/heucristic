@@ -6,10 +6,10 @@ module Heucristic
     record OnDef, node : Crystal::Def, context : Context
     record OnCall, node : Crystal::Call, context : Context
     record OnPath, node : Crystal::Path, context : Context, segment : Int32
-    record OnVar, name : String, context : Context
+    record OnVar, name : String, location : Crystal::Location?, context : Context
     record OnInstanceVar, name : String, context : Context
-    record OnAccessor, name : String, location : Crystal::Location, context : Context
+    record OnName, name : String, location : Crystal::Location, context : Context
 
-    alias Target = OnDef | OnCall | OnPath | OnVar | OnInstanceVar | OnAccessor
+    alias Target = OnDef | OnCall | OnPath | OnVar | OnInstanceVar | OnName
   end
 end

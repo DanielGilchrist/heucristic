@@ -20,6 +20,14 @@ module Heucristic
       ) : Nil
       end
 
+      def of_entries(entries : Array(Index::Entry)) : Array(LSProtocol::Location)
+        found = of_defs(entries.select(Index::Def))
+        found.concat(of_names(entries))
+        variables = entries.select(Index::InstanceVar).map { |entry| {entry.name, entry.owner} }
+        variables.uniq!.each { |name, owner| found.concat(of_instance_var(name, owner)) }
+        found
+      end
+
       def of_defs(entries : Array(Index::Def)) : Array(LSProtocol::Location)
         found = Array(LSProtocol::Location).new
         entries.map(&.name).uniq!.each do |name|

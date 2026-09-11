@@ -315,11 +315,13 @@ module Heucristic
         text : Document::Text,
       ) : Array(LSProtocol::Location)
         case target
-        in Syntax::OnDef, Syntax::OnCall, Syntax::OnAccessor
-          @references.of_defs(answer.entries.select(Index::Def))
-        in Syntax::OnPath
-          @references.of_names(answer.entries)
+        in Syntax::OnDef, Syntax::OnCall, Syntax::OnPath, Syntax::OnName
+          @references.of_entries(answer.entries)
         in Syntax::OnVar
+          unless answer.entries.empty?
+            return @references.of_entries(answer.entries)
+          end
+
           @references.of_variable(target.name, target.context, tree, uri, text)
         in Syntax::OnInstanceVar
           owner = target.context.owner
@@ -376,27 +378,42 @@ module Heucristic
         case (target = Syntax::Cursor.find(tree, point, path))
         in Nil
           Answer.note("no def, call, constant, variable or instance variable under the cursor")
-        in Syntax::OnDef         then answer_def(target)
-        in Syntax::OnCall        then answer_call(target)
-        in Syntax::OnPath        then answer_path(target)
-        in Syntax::OnVar         then answer_var(target, document.text)
+        in Syntax::OnDef  then answer_def(target)
+        in Syntax::OnCall then answer_call(target)
+        in Syntax::OnPath then answer_path(target)
+        in Syntax::OnVar
+          anchored = anchored_at(path, target.location)
+          anchored.empty? ? answer_var(target, document.text) : Answer.of(anchored)
         in Syntax::OnInstanceVar then answer_instance_var(target)
-        in Syntax::OnAccessor    then answer_accessor(target, path)
+        in Syntax::OnName
+          anchored = anchored_at(path, target.location)
+          return Answer.of(anchored) unless anchored.empty?
+
+          Answer.note("nothing is declared by `#{target.name}` here")
         end
       end
 
-      private def answer_accessor(target : Syntax::OnAccessor, path : String) : Answer
-        start = Document::Point.from(target.location)
+      private def anchored_at(path : String, location : Crystal::Location?) : Array(Index::Entry)
         entries = Array(Index::Entry).new
-        @workspace.file(path).try &.defs.each do |entry|
+        file = @workspace.file(path)
+        return entries unless file && location
+
+        start = Document::Point.from(location)
+        each_entry(file) do |entry|
           span = entry.name_span
-          next unless span.start_line == start.line - 1 && span.start_character == start.column - 1
-
-          entries << entry
+          if span.start_line == start.line - 1 && span.start_character == start.column - 1
+            entries << entry
+          end
         end
-        return Answer.note("this accessor is not indexed yet") if entries.empty?
+        entries
+      end
 
-        Answer.of(entries)
+      private def each_entry(file : Index::File, & : Index::Entry ->) : Nil
+        file.defs.each { |entry| yield entry }
+        file.namespaces.each { |entry| yield entry }
+        file.constants.each { |entry| yield entry }
+        file.aliases.each { |entry| yield entry }
+        file.instance_vars.each { |entry| yield entry }
       end
 
       private def answer_def(target : Syntax::OnDef) : Answer

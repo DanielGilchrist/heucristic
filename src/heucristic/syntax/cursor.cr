@@ -1,7 +1,6 @@
 require "compiler/crystal/syntax"
 require "../document/point"
 require "./scoped"
-require "../index/collector"
 
 module Heucristic
   module Syntax
@@ -26,7 +25,7 @@ module Heucristic
 
       def visit(node : Crystal::Call) : Bool
         @target = OnCall.new(node, context) if over?(node.name_location, node.name.size)
-        accessor(node) if @target.nil? && accessor_macro?(node)
+        literal_name(node) if @target.nil?
         super
         @target.nil?
       end
@@ -39,12 +38,16 @@ module Heucristic
       end
 
       def visit(node : Crystal::Var) : Bool
-        @target = OnVar.new(node.name, context) if over?(node.location, node.name.size)
+        if over?(node.location, node.name.size)
+          @target = OnVar.new(node.name, node.location, context)
+        end
         @target.nil?
       end
 
       def visit(node : Crystal::Arg) : Bool
-        @target = OnVar.new(node.name, context) if over?(node.location, node.name.size + 1)
+        if over?(node.location, node.name.size + 1)
+          @target = OnVar.new(node.name, node.location, context)
+        end
         @target.nil?
       end
 
@@ -79,28 +82,16 @@ module Heucristic
         node.names.size - 1
       end
 
-      private def accessor(node : Crystal::Call) : Nil
+      private def literal_name(node : Crystal::Call) : Nil
         node.args.each do |argument|
-          named = case argument
-                  when Crystal::TypeDeclaration then argument.var
-                  when Crystal::Assign          then argument.target
-                  else                               argument
-                  end
-          name = case named
-                 when Crystal::Var, Crystal::Call                    then named.name
-                 when Crystal::SymbolLiteral, Crystal::StringLiteral then named.value
-                 else                                                     next
-                 end
-          location = named.location
-          next unless location && over?(location, name.size)
+          next unless argument.is_a?(Crystal::SymbolLiteral)
 
-          @target = OnAccessor.new(name, location, context)
+          location = argument.location
+          next unless location && over?(location, argument.value.size + 1)
+
+          @target = OnName.new(argument.value, location, context)
           return
         end
-      end
-
-      private def accessor_macro?(node : Crystal::Call) : Bool
-        node.obj.nil? && Index::Collector::ACCESSORS.includes?(node.name)
       end
 
       private def over?(location : Crystal::Location?, size : Int32) : Bool
