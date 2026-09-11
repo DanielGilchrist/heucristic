@@ -32,6 +32,13 @@ module Probe
       found = client.references(uri, line, character, true).result
       puts "references: #{found.to_pretty_json}"
     end
+    if action == "symbols"
+      puts "symbols: #{client.document_symbols(uri).result.to_pretty_json}"
+    end
+    if action.starts_with?("workspace:")
+      query = action.lchop("workspace:")
+      puts "workspace symbols: #{client.workspace_symbols(query).result.to_pretty_json}"
+    end
 
     client.shutdown
     process.wait.exit_code
@@ -77,7 +84,8 @@ module Probe
   end
 
   private def usage : Int32
-    STDERR.puts "usage: probe <file.cr> <line>:<column> [hover|definition|both|references]"
+    STDERR.puts "usage: probe <file.cr> <line>:<column> " \
+                "[hover|definition|both|references|symbols|workspace:<query>]"
     STDERR.puts "positions are 1-based; HEUCRISTIC_BIN overrides the server binary"
     1
   end
