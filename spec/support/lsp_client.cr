@@ -82,6 +82,19 @@ class LspClient
     request("textDocument/hover", position_params(uri, line, character))
   end
 
+  def references(
+    uri : String,
+    line : Int32,
+    character : Int32,
+    include_declaration : Bool = false,
+  ) : Heucristic::Protocol::Response
+    request("textDocument/references", {
+      "textDocument" => {"uri" => uri},
+      "position"     => {"line" => line, "character" => character},
+      "context"      => {"includeDeclaration" => include_declaration},
+    })
+  end
+
   def definition(uri : String, line : Int32, character : Int32) : Heucristic::Protocol::Response
     request("textDocument/definition", position_params(uri, line, character))
   end

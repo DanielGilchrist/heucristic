@@ -79,7 +79,8 @@ module Heucristic
         when Crystal::Or
           both(evaluate(cond.left), evaluate(cond.right)) { |left, right| left || right }
         when Crystal::Call then call(cond)
-        else                    Undecidable.new(cond.to_s)
+        else
+          Undecidable.new(cond.to_s)
         end
       end
 

@@ -1,6 +1,7 @@
 require "../../spec_helper"
 
 private URI_A = "file:///tmp/heucristic-spec/a.cr"
+private URI_B = "file:///tmp/heucristic-spec/b.cr"
 
 private def hover_text(response : Heucristic::Protocol::Response) : String?
   response.result.try(&.["contents"]?).try(&.["value"]?).try(&.as_s?)
@@ -425,6 +426,80 @@ describe Heucristic::Server::Loop, "macro expansion" do
     hover_text(client.hover(URI_A, 0, 9)).to_s.should contain(
       "no `parse` indexed on Command.class; macros could not be expanded (undefined constant"
     )
+    client.shutdown
+  end
+end
+
+describe Heucristic::Server::Loop, "references" do
+  it "lists every call that resolves to the def under the cursor across open documents" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, <<-CR)
+      class Greeter
+        def greet(name : String) : String
+          name
+        end
+
+        def twice(name : String) : String
+          greet(name) + greet(name)
+        end
+      end
+
+      class Other
+        def greet(name : String) : String
+          name
+        end
+      end
+      CR
+    client.await_notification("textDocument/publishDiagnostics")
+    client.open(URI_B, "Greeter.new.greet(\"x\")\nOther.new.greet(\"y\")\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    from_def = client.references(URI_A, 1, 6).result.try(&.as_a?)
+    places = from_def.try do |found|
+      found.map { |place| {place["uri"].as_s, place["range"]["start"]["line"].as_i} }
+    end
+    places.try(&.sort!).should eq([{URI_A, 6}, {URI_A, 6}, {URI_B, 0}])
+
+    from_call = client.references(URI_B, 0, 13, include_declaration: true).result.try(&.as_a?)
+    from_call.try(&.size).should eq(4)
+    client.shutdown
+  end
+
+  it "lists uses of a local variable, an instance variable and a type" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, <<-CR)
+      class Counter
+        @total : Int32
+
+        def initialize : Nil
+          @total = 0
+        end
+
+        def bump(step : Int32) : Nil
+          amount = step
+          @total = @total + amount
+          amount
+        end
+      end
+
+      Counter.new
+      CR
+    client.await_notification("textDocument/publishDiagnostics")
+
+    variable = client.references(URI_A, 8, 5).result.try(&.as_a?)
+    variable.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([8, 9, 10])
+
+    ivar = client.references(URI_A, 9, 5).result.try(&.as_a?)
+    ivar.try(&.map(&.["range"]["start"]["line"].as_i).sort!).should eq([4, 9, 9])
+
+    type = client.references(URI_A, 14, 1, include_declaration: true).result.try(&.as_a?)
+    type.try(&.map(&.["range"]["start"]["line"].as_i).sort!).should eq([0, 14])
     client.shutdown
   end
 end

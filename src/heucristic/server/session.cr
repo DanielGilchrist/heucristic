@@ -23,6 +23,7 @@ require "./answer"
 require "./progress"
 require "./options"
 require "./macros"
+require "./references"
 require "../index/sites"
 require "./macro_status"
 require "../index/collector"
@@ -58,6 +59,7 @@ module Heucristic
         @types = Resolve::Types.new(@workspace)
         @methods = Resolve::Methods.new(@workspace, @types)
         @receiver = Resolve::Receiver.new(@workspace, @shims, @types, @methods)
+        @references = References.new(@workspace, @types, @methods, @receiver)
         @stopping = false
         @index_stdlib = true
         @progress = Progress.new(@transport, false)
@@ -87,6 +89,7 @@ module Heucristic
             ),
             hover_provider: true,
             definition_provider: true,
+            references_provider: true,
           ),
           server_info: LSProtocol::ServerInfo.new(name: "heucristic", version: VERSION),
         ))
@@ -98,6 +101,7 @@ module Heucristic
         when LSProtocol::SHUTDOWN                 then reply(request.id, nil)
         when LSProtocol::TEXT_DOCUMENT_HOVER      then hover(request)
         when LSProtocol::TEXT_DOCUMENT_DEFINITION then definition(request)
+        when LSProtocol::TEXT_DOCUMENT_REFERENCES then references(request)
         else
           error(
             request.id, Protocol::Encoder::METHOD_NOT_FOUND, "unsupported method #{request.method}"
@@ -256,6 +260,53 @@ module Heucristic
         @types.invalidate
       end
 
+      private def references(request : Protocol::Request) : Outcome
+        params = DecodedParams.decode(request.params, LSProtocol::ReferenceParams)
+        return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
+
+        uri = params.text_document.uri.to_s
+        document = @documents[uri]
+        tree = @trees[uri]?
+        return reply(request.id, nil) if document.is_a?(Document::Store::Missing) || tree.nil?
+
+        point = document.text.point(params.position)
+        return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
+
+        path = Uri.to_path(document.uri)
+        path = document.uri if path.is_a?(Uri::NotAFile)
+        target = Syntax::Cursor.find(tree, point, path)
+        return reply(request.id, nil) unless target
+
+        answer = answer_at(uri, params.position)
+        locations = uses_of(target, answer, tree, uri, document.text)
+        if params.context.include_declaration
+          answer.entries.each { |entry| locate(entry).try { |location| locations << location } }
+        end
+        reply(request.id, locations.empty? ? nil : locations.uniq)
+      end
+
+      private def uses_of(
+        target : Syntax::Target,
+        answer : Answer,
+        tree : Crystal::ASTNode,
+        uri : String,
+        text : Document::Text,
+      ) : Array(LSProtocol::Location)
+        case target
+        in Syntax::OnDef, Syntax::OnCall
+          @references.of_defs(answer.entries.select(Index::Def))
+        in Syntax::OnPath
+          @references.of_names(answer.entries)
+        in Syntax::OnVar
+          @references.of_variable(target.name, target.context, tree, uri, text)
+        in Syntax::OnInstanceVar
+          owner = target.context.owner
+          return Array(LSProtocol::Location).new unless owner.is_a?(String)
+
+          @references.of_instance_var(target.name, owner)
+        end
+      end
+
       private def hover(request : Protocol::Request) : Outcome
         params = DecodedParams.decode(request.params, LSProtocol::HoverParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
@@ -313,15 +364,27 @@ module Heucristic
 
       private def answer_def(target : Syntax::OnDef) : Answer
         signature = Index::Signature.of(target.node)
+        owner = target.context.owner
         entries = Array(Index::Entry).new
         @workspace.named(target.node.name).each do |candidate|
-          entries << candidate if candidate.signature == signature
+          next unless candidate.signature == signature
+          next unless candidate.owner == owner || candidate.owner == def_owner(target)
+
+          entries << candidate
         end
         if entries.empty?
           return Answer.note("this def is not indexed yet, the file may have a syntax error")
         end
 
         Answer.of(entries)
+      end
+
+      private def def_owner(target : Syntax::OnDef) : Index::Owner
+        receiver = target.node.receiver
+        owner = target.context.owner
+        return owner unless receiver.is_a?(Crystal::Path) && owner.is_a?(String)
+
+        "#{owner}::#{receiver}"
       end
 
       private def answer_call(target : Syntax::OnCall) : Answer
