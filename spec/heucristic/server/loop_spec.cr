@@ -71,7 +71,7 @@ describe Heucristic::Server::Loop do
   it "rejects an unknown method with method not found" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")
-    response = client.request("textDocument/rename", {"x" => 1})
+    response = client.request("textDocument/unknownThing", {"x" => 1})
     response.error.try(&.["code"]?).try(&.as_i?).should eq(-32601)
     client.shutdown
   end
@@ -662,6 +662,83 @@ describe Heucristic::Server::Loop, "completion" do
     completion_labels(client.completion(URI_A, 9, 9)).should eq(["Shapes"])
     detail = client.completion(URI_A, 7, 14).result.try(&.["items"][0]["detail"].as_s)
     detail.should eq("def area : Float64")
+    client.shutdown
+  end
+end
+
+describe Heucristic::Server::Loop, "rename" do
+  it "renames a def, an instance variable and a type across documents" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, <<-CR)
+      module Shapes
+        class Circle
+          @radius : Int32
+
+          def initialize(@radius : Int32) : Nil
+          end
+
+          def area : Int32
+            @radius
+          end
+        end
+      end
+      CR
+    client.await_notification("textDocument/publishDiagnostics")
+    client.open(URI_B, "Shapes::Circle.new(1).area\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    edit = client.rename(URI_A, 7, 9, "surface").result
+    changes = edit.try(&.["changes"])
+    changes.try(&.[URI_A].as_a.size).should eq(1)
+    changes.try(&.[URI_B].as_a.map(&.["newText"].as_s)).should eq(["surface"])
+    changes.try(&.[URI_B].as_a.map(&.["range"]["start"]["character"].as_i)).should eq([22])
+
+    ivar = client.rename(URI_A, 8, 7, "size").result
+    ivar.try(&.["changes"][URI_A].as_a.map(&.["newText"].as_s).uniq!).should eq(["@size"])
+    ivar.try(&.["changes"][URI_A].as_a.size).should eq(3)
+
+    type = client.rename(URI_B, 0, 10, "Disc").result
+    renamed = type.try(&.["changes"][URI_B].as_a)
+    renamed.try(&.map(&.["range"]["start"]["character"].as_i)).should eq([8])
+    renamed.try(&.map(&.["newText"].as_s)).should eq(["Disc"])
+    type.try(&.["changes"][URI_A].as_a.map(&.["range"]["start"]["line"].as_i)).should eq([1])
+
+    rejected = client.rename(URI_A, 7, 9, "not valid").error
+    rejected.try(&.["message"].as_s).to_s.should contain("not a valid name")
+    client.shutdown
+  end
+end
+
+describe Heucristic::Server::Loop, "completion insert text" do
+  it "inserts a bare name for methods without required arguments and a snippet otherwise" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, <<-CR)
+      class Clock
+        def time : Int32
+        end
+
+        def shift(hours : Int32, minutes : Int32 = 0) : Int32
+        end
+
+        def run : Nil
+          self.
+        end
+      end
+      CR
+    client.await_notification("textDocument/publishDiagnostics")
+
+    items = client.completion(URI_A, 8, 9).result.try(&.["items"].as_a)
+    by_label = items.try(&.to_h { |item| {item["label"].as_s, item} })
+    by_label.try(&.["time"]["insertText"].as_s).should eq("time")
+    by_label.try(&.["time"]["kind"].as_i).should eq(10)
+    by_label.try(&.["shift"]["insertText"].as_s).should eq("shift(${1:hours})")
+    by_label.try(&.["shift"]["insertTextFormat"].as_i).should eq(2)
     client.shutdown
   end
 end

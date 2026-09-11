@@ -102,6 +102,19 @@ class LspClient
     })
   end
 
+  def rename(
+    uri : String,
+    line : Int32,
+    character : Int32,
+    new_name : String,
+  ) : Heucristic::Protocol::Response
+    request("textDocument/rename", {
+      "textDocument" => {"uri" => uri},
+      "position"     => {"line" => line, "character" => character},
+      "newName"      => new_name,
+    })
+  end
+
   def document_symbols(uri : String) : Heucristic::Protocol::Response
     request("textDocument/documentSymbol", {"textDocument" => {"uri" => uri}})
   end

@@ -26,6 +26,7 @@ require "./macros"
 require "./references"
 require "./symbols"
 require "./completion"
+require "./rename"
 require "../index/sites"
 require "./macro_status"
 require "../index/collector"
@@ -64,6 +65,7 @@ module Heucristic
         @references = References.new(@workspace, @types, @methods, @receiver)
         @symbols = Symbols.new(@workspace)
         @completion = Completion.new(@workspace, @types, @methods, @receiver)
+        @rename = Rename.new
         @stopping = false
         @index_stdlib = true
         @progress = Progress.new(@transport, false)
@@ -96,6 +98,7 @@ module Heucristic
             references_provider: true,
             document_symbol_provider: true,
             completion_provider: LSProtocol::CompletionOptions.new(trigger_characters: [".", ":"]),
+            rename_provider: true,
             workspace_symbol_provider: true,
           ),
           server_info: LSProtocol::ServerInfo.new(name: "heucristic", version: VERSION),
@@ -111,6 +114,7 @@ module Heucristic
         when LSProtocol::TEXT_DOCUMENT_REFERENCES      then references(request)
         when LSProtocol::TEXT_DOCUMENT_DOCUMENT_SYMBOL then document_symbols(request)
         when LSProtocol::TEXT_DOCUMENT_COMPLETION      then completion(request)
+        when LSProtocol::TEXT_DOCUMENT_RENAME          then rename(request)
         when LSProtocol::WORKSPACE_SYMBOL              then workspace_symbols(request)
         else
           error(
@@ -268,6 +272,53 @@ module Heucristic
         @workspace.update(Index::Collector.collect(path, document.text, tree))
         @workspace.update_sites(Index::Sites.of(path, document.text, tree))
         @types.invalidate
+      end
+
+      private def rename(request : Protocol::Request) : Outcome
+        params = DecodedParams.decode(request.params, LSProtocol::RenameParams)
+        return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
+
+        uri = params.text_document.uri.to_s
+        document = @documents[uri]
+        tree = @trees[uri]?
+        return reply(request.id, nil) if document.is_a?(Document::Store::Missing) || tree.nil?
+
+        point = document.text.point(params.position)
+        return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
+
+        path = Uri.to_path(document.uri)
+        path = document.uri if path.is_a?(Uri::NotAFile)
+        target = Syntax::Cursor.find(tree, point, path)
+        return reply(request.id, nil) unless target
+
+        answer = answer_at(uri, params.position)
+        if answer.entries.any? { |entry| entry.path == GENERATED_PATH }
+          reason = "a macro-generated def cannot be renamed"
+          return error(request.id, Protocol::Encoder::INVALID_REQUEST, reason)
+        end
+
+        locations = uses_of(target, answer, tree, uri, document.text)
+        answer.entries.each { |entry| locate(entry).try { |location| locations << location } }
+        return reply(request.id, nil) if locations.empty?
+
+        edit = @rename.edits(
+          locations.uniq,
+          params.new_name,
+          target.is_a?(Syntax::OnInstanceVar),
+          answer.entries.any?(Index::Namespace) || target.is_a?(Syntax::OnPath),
+        ) { |file| text_for(file) }
+        if edit.is_a?(Rename::Invalid)
+          return error(request.id, Protocol::Encoder::INVALID_REQUEST, edit.reason)
+        end
+
+        reply(request.id, edit)
+      end
+
+      private def text_for(path : String) : Document::Text?
+        open = @documents[Uri.from_path(path)]
+        return open.text unless open.is_a?(Document::Store::Missing)
+
+        @workspace.sites(path).try(&.text)
       end
 
       private def completion(request : Protocol::Request) : Outcome

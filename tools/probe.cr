@@ -35,6 +35,10 @@ module Probe
     if action == "complete"
       puts "completion: #{client.completion(uri, line, character).result.to_pretty_json}"
     end
+    if action.starts_with?("rename:")
+      edit = client.rename(uri, line, character, action.lchop("rename:"))
+      puts "rename: #{(edit.result || edit.error).to_pretty_json}"
+    end
     if action == "symbols"
       puts "symbols: #{client.document_symbols(uri).result.to_pretty_json}"
     end
@@ -87,8 +91,8 @@ module Probe
   end
 
   private def usage : Int32
-    STDERR.puts "usage: probe <file.cr> <line>:<column> " \
-                "[hover|definition|both|references|complete|symbols|workspace:<query>]"
+    STDERR.puts "usage: probe <file.cr> <line>:<column> [hover|definition|both|references|" \
+                "complete|rename:<name>|symbols|workspace:<query>]"
     STDERR.puts "positions are 1-based; HEUCRISTIC_BIN overrides the server binary"
     1
   end
