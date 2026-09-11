@@ -548,3 +548,31 @@ describe Heucristic::Server::Loop, "symbols" do
     client.shutdown
   end
 end
+
+describe Heucristic::Server::Loop, "accessor references" do
+  it "finds the uses of a getter from the getter declaration" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, <<-CR)
+      module Options
+        getter date : String?
+      end
+
+      struct Command
+        include Options
+
+        def run : Nil
+          date || "today"
+        end
+      end
+      CR
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 1, 10)).to_s.should contain("def date : String?")
+    found = client.references(URI_A, 1, 10).result.try(&.as_a?)
+    found.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([8])
+    client.shutdown
+  end
+end

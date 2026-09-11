@@ -1,6 +1,7 @@
 require "compiler/crystal/syntax"
 require "../document/point"
 require "./scoped"
+require "../index/collector"
 
 module Heucristic
   module Syntax
@@ -25,6 +26,7 @@ module Heucristic
 
       def visit(node : Crystal::Call) : Bool
         @target = OnCall.new(node, context) if over?(node.name_location, node.name.size)
+        accessor(node) if @target.nil? && accessor_macro?(node)
         super
         @target.nil?
       end
@@ -75,6 +77,30 @@ module Heucristic
           offset -= name.size + 2
         end
         node.names.size - 1
+      end
+
+      private def accessor(node : Crystal::Call) : Nil
+        node.args.each do |argument|
+          named = case argument
+                  when Crystal::TypeDeclaration then argument.var
+                  when Crystal::Assign          then argument.target
+                  else                               argument
+                  end
+          name = case named
+                 when Crystal::Var, Crystal::Call                    then named.name
+                 when Crystal::SymbolLiteral, Crystal::StringLiteral then named.value
+                 else                                                     next
+                 end
+          location = named.location
+          next unless location && over?(location, name.size)
+
+          @target = OnAccessor.new(name, location, context)
+          return
+        end
+      end
+
+      private def accessor_macro?(node : Crystal::Call) : Bool
+        node.obj.nil? && Index::Collector::ACCESSORS.includes?(node.name)
       end
 
       private def over?(location : Crystal::Location?, size : Int32) : Bool

@@ -315,7 +315,7 @@ module Heucristic
         text : Document::Text,
       ) : Array(LSProtocol::Location)
         case target
-        in Syntax::OnDef, Syntax::OnCall
+        in Syntax::OnDef, Syntax::OnCall, Syntax::OnAccessor
           @references.of_defs(answer.entries.select(Index::Def))
         in Syntax::OnPath
           @references.of_names(answer.entries)
@@ -381,7 +381,22 @@ module Heucristic
         in Syntax::OnPath        then answer_path(target)
         in Syntax::OnVar         then answer_var(target, document.text)
         in Syntax::OnInstanceVar then answer_instance_var(target)
+        in Syntax::OnAccessor    then answer_accessor(target, path)
         end
+      end
+
+      private def answer_accessor(target : Syntax::OnAccessor, path : String) : Answer
+        start = Document::Point.from(target.location)
+        entries = Array(Index::Entry).new
+        @workspace.file(path).try &.defs.each do |entry|
+          span = entry.name_span
+          next unless span.start_line == start.line - 1 && span.start_character == start.column - 1
+
+          entries << entry
+        end
+        return Answer.note("this accessor is not indexed yet") if entries.empty?
+
+        Answer.of(entries)
       end
 
       private def answer_def(target : Syntax::OnDef) : Answer

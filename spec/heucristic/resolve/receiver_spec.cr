@@ -52,7 +52,7 @@ private def receiver_of(marker : String) : String
   in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s
   in Heucristic::Syntax::OnVar         then receiver.variable(target.name, target.context).to_s
   in Heucristic::Syntax::OnInstanceVar then receiver.instance_var(target.name, target.context).to_s
-  in Heucristic::Syntax::OnDef, Heucristic::Syntax::OnPath, Nil
+  in Heucristic::Syntax::OnDef, Heucristic::Syntax::OnPath, Heucristic::Syntax::OnAccessor, Nil
     raise "cursor did not land on a call or variable at #{marker.inspect}"
   end
 end
