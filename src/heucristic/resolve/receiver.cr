@@ -684,13 +684,13 @@ module Heucristic
             typed = type_of(step.value, at, visiting + [key], seeded(locals, name, current))
             settled(name, current, step.value, typed)
           in Flow::Reassigned
-            within = context.at(step.within)
             values = Array(Resolution).new(step.values.size + 1)
             values << fallthrough(current, step, name, context, visiting, locals)
             seeded_locals = seeded(locals, name, current)
-            step.values.each do |value|
-              typed = type_of(value, within, visiting + [key], seeded_locals)
-              values << settled(name, current, value, typed)
+            step.values.each do |item|
+              at = context.at(step.within + item.path)
+              typed = type_of(item.value, at, visiting + [key], seeded_locals)
+              values << settled(name, current, item.value, typed)
             end
             union(values)
           in Flow::OrAssigned

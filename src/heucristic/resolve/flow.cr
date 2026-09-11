@@ -1,6 +1,7 @@
 require "compiler/crystal/syntax"
 require "./terminator"
 require "./local_assignments"
+require "./reassignment"
 
 module Heucristic
   module Resolve
@@ -10,7 +11,7 @@ module Heucristic
       record Assigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
       record OrAssigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
       record Reassigned,
-        values : Array(Crystal::ASTNode),
+        values : Array(Reassignment),
         within : Array(Crystal::ASTNode),
         unless_cond : Crystal::ASTNode? = nil
 
@@ -104,10 +105,10 @@ module Heucristic
         when Crystal::If
           branch = statement.then
           if branch.is_a?(Crystal::Assign) && assigns?(branch) && empty?(statement.else)
-            values = [branch.value] of Crystal::ASTNode
+            values = [Reassignment.new(branch.value, Array(Crystal::ASTNode).new)]
             @steps << Reassigned.new(values, within + [branch], statement.cond)
           elsif ends_assigning?(branch) && empty?(statement.else)
-            values = LocalAssignments.find(branch, @name)
+            values = LocalAssignments.locate(branch, @name)
             @steps << Reassigned.new(values, within + [branch], statement.cond)
           elsif exits?(branch) && empty?(statement.else)
             condition(statement.cond, false)
@@ -126,6 +127,12 @@ module Heucristic
           condition(statement.left, true) if exits?(statement.right)
         when Crystal::Case
           case_exits(statement)
+        when Crystal::While
+          nested(statement)
+          condition(statement.cond, false)
+        when Crystal::Until
+          nested(statement)
+          condition(statement.cond, true)
         else
           nested(statement)
         end
@@ -172,7 +179,7 @@ module Heucristic
       end
 
       private def nested(statement : Crystal::ASTNode) : Nil
-        values = LocalAssignments.find(statement, @name)
+        values = LocalAssignments.locate(statement, @name)
         @steps << Reassigned.new(values, @prefix + [statement]) unless values.empty?
       end
 

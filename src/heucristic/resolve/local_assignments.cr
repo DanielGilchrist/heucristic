@@ -1,15 +1,23 @@
 require "compiler/crystal/syntax"
+require "./reassignment"
 
 module Heucristic
   module Resolve
     class LocalAssignments < Crystal::Visitor
       getter values : Array(Crystal::ASTNode)
       getter targets : Array(Crystal::Var)
+      getter located : Array(Reassignment)
 
       def self.find(body : Crystal::ASTNode, name : String) : Array(Crystal::ASTNode)
         finder = new(name)
         body.accept(finder)
         finder.values
+      end
+
+      def self.locate(body : Crystal::ASTNode, name : String) : Array(Reassignment)
+        finder = new(name)
+        body.accept(finder)
+        finder.located
       end
 
       def self.unpacked(node : Crystal::MultiAssign, name : String) : Crystal::ASTNode?
@@ -32,13 +40,24 @@ module Heucristic
       def initialize(@name : String) : Nil
         @values = Array(Crystal::ASTNode).new
         @targets = Array(Crystal::Var).new
+        @located = Array(Reassignment).new
+        @path = Array(Crystal::ASTNode).new
+      end
+
+      def visit_any(node : Crystal::ASTNode) : Bool
+        @path << node
+        true
+      end
+
+      def end_visit_any(node : Crystal::ASTNode) : Nil
+        @path.pop
       end
 
       def visit(node : Crystal::Assign | Crystal::OpAssign) : Bool
         target = node.target
         return true unless target.is_a?(Crystal::Var) && target.name == @name
 
-        @values << node.value
+        remember(node.value)
         @targets << target
         true
       end
@@ -47,7 +66,7 @@ module Heucristic
         value = LocalAssignments.unpacked(node, @name)
         return true unless value
 
-        @values << value
+        remember(value)
         node.targets.each do |target|
           @targets << target if target.is_a?(Crystal::Var) && target.name == @name
         end
@@ -60,6 +79,11 @@ module Heucristic
 
       def visit(node : Crystal::ASTNode) : Bool
         true
+      end
+
+      private def remember(value : Crystal::ASTNode) : Nil
+        @values << value
+        @located << Reassignment.new(value, @path[1..])
       end
     end
   end

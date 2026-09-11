@@ -1782,3 +1782,48 @@ describe Heucristic::Resolve::Receiver, "accessor defaults and void funs" do
     receiver_of_size(source, "LibWatch.stop(nil).size").should eq("Nil")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "loops and nested reassignment positions" do
+  source = <<-CR
+    record Organisation
+    record Failure
+
+    class Array(T)
+      def dup : self
+      end
+    end
+
+    class Login
+      def prompt : Organisation?
+      end
+
+      def bindings_of : Array(String) | Failure
+      end
+
+      def run(organisation : Organisation?, metaclass : Bool) : Nil
+        while organisation.nil?
+          organisation = prompt
+        end
+        organisation.size
+        bindings = Array(Int32).new
+        unless metaclass
+          inherited = bindings_of
+          if inherited.is_a?(Failure)
+            return unless metaclass
+            inherited = Array(String).new
+          end
+          bindings = inherited.dup
+        end
+        bindings.size
+      end
+    end
+    CR
+
+  it "narrows past a while loop by its exit condition" do
+    receiver_of_size(source, "organisation.size").should eq("Organisation")
+  end
+
+  it "types a nested reassignment at its own position" do
+    receiver_of_size(source, "bindings.size").should eq("Array(Int32) | Array(String)")
+  end
+end
