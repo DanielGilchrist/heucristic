@@ -23,6 +23,7 @@ require "./answer"
 require "./progress"
 require "./options"
 require "./macros"
+require "../index/sites"
 require "./macro_status"
 require "../index/collector"
 require "../index/macro_site"
@@ -140,6 +141,7 @@ module Heucristic
       def indexed(event : Index::Finished) : Nil
         @shims.replace_all(event.shims)
         @workspace.replace_all(event.files)
+        @workspace.replace_sites(event.sites)
         @generated.try { |file| @workspace.update(file) }
         @types.invalidate
         @documents.each { |document| index_document(document) }
@@ -238,8 +240,7 @@ module Heucristic
           publish(document.uri, document.version, Diagnostics.for(tree, document.text))
         in Crystal::ASTNode
           @trees[document.uri] = tree
-          @workspace.update(Index::Collector.collect(path, document.text, tree))
-          @types.invalidate
+          index_document(document)
           publish(document.uri, document.version, Diagnostics.none)
         end
       end
@@ -251,6 +252,7 @@ module Heucristic
         path = Uri.to_path(document.uri)
         path = document.uri if path.is_a?(Uri::NotAFile)
         @workspace.update(Index::Collector.collect(path, document.text, tree))
+        @workspace.update_sites(Index::Sites.of(path, document.text, tree))
         @types.invalidate
       end
 

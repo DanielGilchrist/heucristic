@@ -3,6 +3,8 @@ require "../disk"
 require "../log"
 require "../syntax"
 require "./collector"
+require "./indexed"
+require "./sites"
 require "./event"
 
 module Heucristic
@@ -19,22 +21,28 @@ module Heucristic
         paths = glob(roots).reject { |path| shim_paths.includes?(path) } + shim_paths + generated
         events.send(Started.new(paths.size))
 
-        results = Channel(File?).new(paths.size + 1)
+        results = Channel(Indexed?).new(paths.size + 1)
         workers = Math.min(Fibers::WORKER_THREADS, Math.max(paths.size, 1))
+        project = roots.first?
         Fibers.detach(:indexer) do
           Fibers.parallel(:indexer, workers) do |worker|
-            index_slice(paths, worker, workers, results)
+            index_slice(paths, worker, workers, results, project)
           end
         end
 
         files = Array(File).new(paths.size)
         shims = Array(File).new(shim_paths.size)
+        sites = Array(Sites).new
         paths.size.times do |done|
-          file = results.receive
-          (shim_paths.includes?(file.path) ? shims : files) << file if file
+          indexed = results.receive
+          if indexed
+            file = indexed.file
+            (shim_paths.includes?(file.path) ? shims : files) << file
+            indexed.sites.try { |found| sites << found }
+          end
           events.send(Advanced.new(done + 1, paths.size)) if (done + 1) % REPORT_EVERY == 0
         end
-        events.send(Finished.new(files, shims, Time.instant - started))
+        events.send(Finished.new(files, shims, sites, Time.instant - started))
       end
 
       def glob(roots : Array(String)) : Array(String)
@@ -45,32 +53,36 @@ module Heucristic
         path.includes?("/generated/")
       end
 
-      def index_path(path : String) : File?
+      def index_path(path : String, project : String?) : Indexed?
         source = Disk.read(path)
         if source.is_a?(Disk::Unreadable)
           Log.info("skipping #{path}: #{source.reason}")
           return
         end
 
-        index_source(path, source)
+        index_source(path, source, project)
       end
 
-      def index_source(path : String, source : String) : File?
+      def index_source(path : String, source : String, project : String? = nil) : Indexed?
         tree = Syntax.parse(source, path)
         return if tree.is_a?(Syntax::Broken)
 
-        Collector.collect(path, Document::Text.new(source), tree)
+        text = Document::Text.new(source)
+        file = Collector.collect(path, text, tree)
+        sites = project && path.starts_with?(project) ? Sites.of(path, text, tree) : nil
+        Indexed.new(file, sites)
       end
 
       private def index_slice(
         paths : Array(String),
         worker : Int32,
         workers : Int32,
-        results : Channel(File?),
+        results : Channel(Indexed?),
+        project : String?,
       ) : Nil
         index = worker
         while index < paths.size
-          results.send(index_path(paths[index]))
+          results.send(index_path(paths[index], project))
           index += workers
         end
       end

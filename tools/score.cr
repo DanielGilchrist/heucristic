@@ -8,7 +8,7 @@ require "../src/heucristic/server/shim_roots"
 require "../src/heucristic/server/macros"
 require "../src/heucristic/index/generated"
 require "../src/heucristic/document/text"
-require "../src/heucristic/syntax/calls"
+require "../src/heucristic/syntax/uses"
 require "../src/heucristic/resolve/types"
 require "../src/heucristic/resolve/methods"
 require "../src/heucristic/resolve/receiver"
@@ -67,7 +67,7 @@ module Score
         tree = Heucristic::Syntax.parse(source, path)
         next unless tree.is_a?(Crystal::ASTNode)
 
-        Heucristic::Syntax::Calls.in(tree, path).each do |site|
+        Heucristic::Syntax::Uses.in(tree, path).calls.each do |site|
           call = site.call
           next if SKIPPED.includes?(call.name) && call.obj.nil?
           next if inside_macro_arguments?(site.context.ancestors)
