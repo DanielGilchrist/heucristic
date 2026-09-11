@@ -9,6 +9,16 @@ class Crystal::ASTNode
   end
 end
 
+class Crystal::NilableCast
+  def to : Crystal::ASTNode
+  end
+end
+
+class Crystal::Parser
+  def parse : Crystal::ASTNode
+  end
+end
+
 class Crystal::Location
   def line_number : Int32
   end

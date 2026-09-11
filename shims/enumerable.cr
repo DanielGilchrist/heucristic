@@ -38,6 +38,9 @@ module Enumerable(T)
   def reject(& : T ->) : Array(T)
   end
 
+  def reject(type : U.class) : Array(T) forall U
+  end
+
   def to_h(& : T -> Tuple(K, V)) : Hash(K, V) forall K, V
   end
 
