@@ -48,12 +48,16 @@ class LspClient
     root : String,
     stdlib : Bool = false,
     progress : Bool = false,
+    semantic : String? = nil,
   ) : Heucristic::Protocol::Response
+    options = Hash(String, Bool | String).new
+    options["stdlib"] = stdlib
+    options["semantic"] = semantic if semantic
     response = request("initialize", {
       "processId"             => nil,
       "rootUri"               => "file://#{root}",
       "capabilities"          => {"window" => {"workDoneProgress" => progress}},
-      "initializationOptions" => {"stdlib" => stdlib},
+      "initializationOptions" => options,
     })
     notify("initialized", Hash(String, String).new)
     response

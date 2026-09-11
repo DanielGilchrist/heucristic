@@ -1,0 +1,2 @@
+#!/bin/sh
+echo '{"error":"undefined constant Parseable at src/sample.cr:2:11"}'

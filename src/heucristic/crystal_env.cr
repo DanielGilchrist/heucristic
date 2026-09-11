@@ -11,7 +11,7 @@ module Heucristic
       raw.split(':').reject(&.empty?).map { |entry| File.expand_path(entry, root) }
     end
 
-    private def crystal_path : String | Unavailable
+    def crystal_path : String | Unavailable
       output = IO::Memory.new
       status = Process.run(
         "crystal", {"env", "CRYSTAL_PATH"}, output: output, error: Process::Redirect::Close

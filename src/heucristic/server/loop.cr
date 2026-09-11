@@ -21,7 +21,7 @@ module Heucristic
         @events = Channel(Index::Event).new(64)
         @next_request_id = 0_i64
         @transport = Protocol::Transport.new(@output)
-        @session = Session.new(@transport)
+        @session = Session.new(@transport, @events)
       end
 
       def run : Nil
@@ -91,6 +91,21 @@ module Heucristic
         in Index::Finished
           @session.progress.finish(event)
           @session.indexed(event)
+        in Index::MacrosStarted
+          @next_request_id += 1
+          @session.progress.begin_macros(@next_request_id)
+          @session.macros_started
+        in Index::MacrosExpanded
+          @session.progress.finish_macros(
+            "#{event.sites.size} generated defs in #{event.elapsed.total_milliseconds.round}ms"
+          )
+          @session.macros_expanded(event)
+        in Index::MacrosFailed
+          @session.progress.finish_macros("failed: #{event.reason}")
+          @session.macros_failed(event)
+        in Index::MacrosUnavailable
+          @session.progress.finish_macros("unavailable: #{event.reason}")
+          @session.macros_unavailable(event)
         end
       end
     end

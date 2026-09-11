@@ -9,6 +9,7 @@ module Heucristic
     enum Name
       Reader
       Indexer
+      Macros
     end
 
     @@parallel_contexts = Hash(Name, Fiber::ExecutionContext::Parallel).new

@@ -15,6 +15,8 @@ module Probe
     client.initialize!(root, stdlib: true, progress: true)
     indexed = await_indexed(client)
     STDERR.puts "indexed: #{indexed.params}"
+    macros = await_macros(client)
+    STDERR.puts "macros: #{macros.try(&.params)}"
 
     client.open(uri, File.read(file))
     diagnostics = client.await_notification("textDocument/publishDiagnostics")
@@ -29,6 +31,13 @@ module Probe
 
     client.shutdown
     process.wait.exit_code
+  end
+
+  private def await_macros(client : LspClient) : Heucristic::Protocol::Notification?
+    loop do
+      notification = client.await_notification("$/heucristic/macros", 60.seconds) rescue return
+      return notification unless notification.params.try(&.["status"]?) == "pending"
+    end
   end
 
   private def await_indexed(client : LspClient) : Heucristic::Protocol::Notification

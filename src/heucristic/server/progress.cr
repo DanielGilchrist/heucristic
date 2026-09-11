@@ -6,8 +6,10 @@ require "../index/event"
 module Heucristic
   module Server
     class Progress
-      TOKEN = "heucristic/indexing"
-      TITLE = "Indexing"
+      TOKEN        = "heucristic/indexing"
+      MACROS_TOKEN = "heucristic/macros"
+      TITLE        = "Indexing"
+      MACROS_TITLE = "Expanding macros"
 
       alias Value = LSProtocol::WorkDoneProgressBegin |
                     LSProtocol::WorkDoneProgressReport |
@@ -55,8 +57,27 @@ module Heucristic
         ))
       end
 
-      private def send(value : Value) : Nil
-        params = {token: TOKEN, value: value}
+      def begin_macros(request_id : Protocol::Id) : Nil
+        return unless @supported
+
+        params = LSProtocol::WorkDoneProgressCreateParams.new(token: MACROS_TOKEN)
+        @transport.send(
+          Protocol::Encoder.request(
+            request_id, LSProtocol::WINDOW_WORK_DONE_PROGRESS_CREATE, params
+          )
+        )
+        value = LSProtocol::WorkDoneProgressBegin.new(kind: "begin", title: MACROS_TITLE)
+        send(value, MACROS_TOKEN)
+      end
+
+      def finish_macros(message : String) : Nil
+        return unless @supported
+
+        send(LSProtocol::WorkDoneProgressEnd.new(kind: "end", message: message), MACROS_TOKEN)
+      end
+
+      private def send(value : Value, token : String = TOKEN) : Nil
+        params = {token: token, value: value}
         @transport.send(Protocol::Encoder.notification(LSProtocol::PROGRESS, params))
       end
     end

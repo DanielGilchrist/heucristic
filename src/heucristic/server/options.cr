@@ -5,6 +5,10 @@ module Heucristic
     module Options
       extend self
 
+      def semantic(raw : JSON::Any?) : String?
+        raw.try(&.["semantic"]?).try(&.as_s?)
+      end
+
       def stdlib?(raw : JSON::Any?) : Bool
         return true unless raw
 

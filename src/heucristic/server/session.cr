@@ -22,13 +22,19 @@ require "./outcome"
 require "./answer"
 require "./progress"
 require "./options"
+require "./macros"
+require "./macro_status"
+require "../index/collector"
+require "../index/macro_site"
 require "../crystal_env"
 require "../resolve/local_declarations"
 
 module Heucristic
   module Server
     class Session
-      INDEXED = "$/heucristic/indexed"
+      INDEXED        = "$/heucristic/indexed"
+      MACROS         = "$/heucristic/macros"
+      GENERATED_PATH = "<macros>"
 
       getter root : String
 
@@ -36,8 +42,13 @@ module Heucristic
 
       getter progress : Progress
 
-      def initialize(@transport : Protocol::Transport) : Nil
+      def initialize(@transport : Protocol::Transport, events : Channel(Index::Event)) : Nil
         @root = Dir.current
+        @macros = Macros.new(events)
+        @macro_status = MacrosPending.new.as(MacroStatus)
+        @macro_sites = Hash(Int32, Index::MacroSite).new
+        @generated = nil.as(Index::File?)
+        @semantic = nil.as(String?)
         @documents = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
         @workspace = Index::Workspace.new
@@ -61,6 +72,7 @@ module Heucristic
           @root = root_path
         end
         @index_stdlib = Options.stdlib?(params.initialization_options)
+        @semantic = Options.semantic(params.initialization_options)
         supported = params.capabilities.window.try(&.work_done_progress) || false
         @progress = Progress.new(@transport, supported)
 
@@ -69,6 +81,7 @@ module Heucristic
             text_document_sync: LSProtocol::TextDocumentSyncOptions.new(
               open_close: true,
               change: LSProtocol::TextDocumentSyncKind::Incremental,
+              save: true,
             ),
             hover_provider: true,
             definition_provider: true,
@@ -96,6 +109,7 @@ module Heucristic
         when LSProtocol::TEXT_DOCUMENT_DID_OPEN   then did_open(notification)
         when LSProtocol::TEXT_DOCUMENT_DID_CHANGE then did_change(notification)
         when LSProtocol::TEXT_DOCUMENT_DID_CLOSE  then did_close(notification)
+        when LSProtocol::TEXT_DOCUMENT_DID_SAVE   then did_save
         else
           Silence.new
         end
@@ -125,6 +139,7 @@ module Heucristic
       def indexed(event : Index::Finished) : Nil
         @shims.replace_all(event.shims)
         @workspace.replace_all(event.files)
+        @generated.try { |file| @workspace.update(file) }
         @types.invalidate
         @documents.each { |document| index_document(document) }
         @transport.send(Protocol::Encoder.notification(
@@ -135,6 +150,42 @@ module Heucristic
             elapsed_ms: event.elapsed.total_milliseconds.round,
           },
         ))
+        @macros.start(@root, @semantic)
+      end
+
+      def macros_started : Nil
+        @macro_status = MacrosPending.new
+        notify_macros
+      end
+
+      def macros_expanded(event : Index::MacrosExpanded) : Nil
+        tree = Syntax.parse(event.source, GENERATED_PATH)
+        if tree.is_a?(Syntax::Broken)
+          reason = "generated source does not parse: #{tree.message}"
+          @macro_status = MacrosStale.new(reason, generated_defs)
+        else
+          file = Index::Collector.collect(GENERATED_PATH, Document::Text.new(event.source), tree)
+          @generated = file
+          @workspace.update(file)
+          @types.invalidate
+          @macro_sites.clear
+          event.sites.each { |site| @macro_sites[site.line] = site }
+          @macro_status = MacrosDone.new(file.defs.size, event.elapsed.total_milliseconds.round)
+        end
+        notify_macros
+        @macros.finished(@root, @semantic)
+      end
+
+      def macros_failed(event : Index::MacrosFailed) : Nil
+        @macro_status = MacrosStale.new(event.reason, generated_defs)
+        notify_macros
+        @macros.finished(@root, @semantic)
+      end
+
+      def macros_unavailable(event : Index::MacrosUnavailable) : Nil
+        @macro_status = MacrosOff.new(event.reason)
+        notify_macros
+        @macros.finished(@root, @semantic)
       end
 
       private def did_open(notification : Protocol::Notification) : Outcome
@@ -222,10 +273,10 @@ module Heucristic
 
         uri = params.text_document.uri.to_s
         answer = answer_at(uri, params.position)
-        locations = answer.entries.map do |entry|
-          LSProtocol::Location.new(
-            range: entry.name_span.to_range, uri: URI.parse(Uri.from_path(entry.path))
-          )
+        locations = Array(LSProtocol::Location).new(answer.entries.size)
+        answer.entries.each do |entry|
+          location = locate(entry)
+          locations << location if location
         end
         answer.spans.each do |span|
           locations << LSProtocol::Location.new(range: span.to_range, uri: URI.parse(uri))
@@ -285,7 +336,9 @@ module Heucristic
 
         shape = @receiver.shape_of(call, target.context)
         found = @methods.lookup(receiver, shape)
-        return Answer.note("no `#{call.name}` indexed on #{receiver}") if found.empty?
+        if found.empty?
+          return Answer.note("no `#{call.name}` indexed on #{receiver}#{macro_hint}")
+        end
 
         site = Resolve::Receiver::Site.new(
           call.block, target.context, Array(Resolve::Binding).new, Array(String).new
@@ -368,6 +421,70 @@ module Heucristic
         end
       end
 
+      private def did_save : Outcome
+        @macros.start(@root, @semantic)
+        Silence.new
+      end
+
+      private def notify_macros : Nil
+        payload = case (status = @macro_status)
+                  in MacrosPending
+                    {status: "pending", defs: 0, elapsed_ms: 0.0, reason: nil}
+                  in MacrosDone
+                    {status: "done", defs: status.defs, elapsed_ms: status.elapsed_ms, reason: nil}
+                  in MacrosStale
+                    {status: "stale", defs: status.defs, elapsed_ms: 0.0, reason: status.reason}
+                  in MacrosOff
+                    {status: "unavailable", defs: 0, elapsed_ms: 0.0, reason: status.reason}
+                  end
+        @transport.send(Protocol::Encoder.notification(MACROS, payload))
+      end
+
+      private def generated_defs : Int32
+        @generated.try(&.defs.size) || 0
+      end
+
+      private def macro_hint : String
+        case (status = @macro_status)
+        in MacrosPending         then "; macros are still expanding"
+        in MacrosStale           then "; macros could not be expanded (#{status.reason})"
+        in MacrosDone, MacrosOff then ""
+        end
+      end
+
+      private def site_of(entry : Index::Entry) : Index::MacroSite?
+        return unless entry.path == GENERATED_PATH
+
+        @macro_sites[entry.name_span.start_line.to_i + 1]?
+      end
+
+      private def provenance(entry : Index::Entry) : String?
+        site_of(entry).try { |site| "# #{site.provenance(@root)}" }
+      end
+
+      private def locate(entry : Index::Entry) : LSProtocol::Location?
+        site = site_of(entry)
+        unless site
+          return if entry.path == GENERATED_PATH
+
+          return LSProtocol::Location.new(
+            range: entry.name_span.to_range, uri: URI.parse(Uri.from_path(entry.path))
+          )
+        end
+
+        path = site.expanded_path
+        line = site.expanded_line
+        column = site.expanded_column
+        return unless path && line && column
+
+        start = LSProtocol::Position.new(line: (line - 1).to_u32, character: (column - 1).to_u32)
+        finish = LSProtocol::Position.new(
+          line: (line - 1).to_u32, character: (column - 1 + site.name.size).to_u32
+        )
+        range = LSProtocol::Range.new(start: start, end: finish)
+        LSProtocol::Location.new(range: range, uri: URI.parse(Uri.from_path(path)))
+      end
+
       private def fence(*lines : String) : String
         fence(lines.to_a)
       end
@@ -406,16 +523,21 @@ module Heucristic
         site : Resolve::Receiver::Site,
       ) : String
         signature = @receiver.signature(entry, receiver, arguments, site)
-        case (returning = @receiver.return_type(entry, receiver, arguments, site))
-        in Resolve::Resolved then fence("# #{entry.qualified}", signature)
-        in Resolve::Unknown  then fence("# #{entry.qualified}", signature, "# returns #{returning}")
-        end
+        lines = ["# #{entry.qualified}"]
+        provenance(entry).try { |line| lines << line }
+        lines << signature
+        returning = @receiver.return_type(entry, receiver, arguments, site)
+        lines << "# returns #{returning}" if returning.is_a?(Resolve::Unknown)
+        fence(lines)
       end
 
       private def describe(entry : Index::Entry) : String
         case entry
         in Index::Def
-          fence("# #{entry.qualified}", entry.signature)
+          lines = ["# #{entry.qualified}"]
+          provenance(entry).try { |line| lines << line }
+          lines << entry.signature
+          fence(lines)
         in Index::Namespace
           fence(namespace_header(entry))
         in Index::Alias
