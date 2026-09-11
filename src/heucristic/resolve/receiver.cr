@@ -148,6 +148,7 @@ module Heucristic
         arguments : Array(Resolution) = Array(Resolution).new,
         site : Site = Site::NONE,
       ) : Resolution
+        receiver = owning(entry, receiver)
         if entry.name == "initialize" && receiver.is_a?(MetaRef)
           return receiver.of
         end
@@ -200,6 +201,7 @@ module Heucristic
         arguments : Array(Resolution),
         site : Site,
       ) : String
+        receiver = owning(entry, receiver)
         scope = return_scope(entry, receiver, arguments, site)
         return entry.signature if scope.is_a?(Unknown)
 
@@ -440,6 +442,17 @@ module Heucristic
 
         inner = call.obj
         inner.is_a?(Crystal::Call) && COMPARISONS.includes?(inner.name) && inner.args.size == 1
+      end
+
+      private def owning(entry : Index::Def, receiver : Resolved) : Resolved
+        owner = entry.owner
+        return receiver unless owner.is_a?(String) && receiver.is_a?(TypeRef)
+        return receiver if receiver.name == owner
+
+        chain = @types.ancestors(receiver.name)
+        return receiver if chain.is_a?(Array(String)) && chain.includes?(owner)
+
+        TypeRef.new(owner, Array(Resolution).new)
       end
 
       private def tuple_element_at(receiver : TypeRef, call : Crystal::Call) : Resolution?

@@ -1827,3 +1827,40 @@ describe Heucristic::Resolve::Receiver, "loops and nested reassignment positions
     receiver_of_size(source, "bindings.size").should eq("Array(Int32) | Array(String)")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "module methods through includers" do
+  source = <<-CR
+    module Serializable
+    end
+
+    module ClockIn
+      def clock_in_time : Nil
+        at.size
+      end
+    end
+
+    struct Command
+      include ClockIn
+      include Serializable
+
+      getter at : String?
+
+      def to_json : String
+      end
+    end
+
+    class Request
+      def put(body : Serializable) : Nil
+        body.to_json.size
+      end
+    end
+    CR
+
+  it "resolves a receiverless call inside a module through the types that include it" do
+    receiver_of_size(source, "at.size").should eq("String | Nil")
+  end
+
+  it "resolves a call on a module-typed receiver through its includers" do
+    receiver_of_size(source, "body.to_json.size").should eq("String")
+  end
+end

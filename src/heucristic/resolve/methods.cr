@@ -63,6 +63,7 @@ module Heucristic
       end
 
       def initialize(@workspace : Index::Workspace, @types : Types) : Nil
+        @including = Array(String).new
       end
 
       def compatible?(entry : Index::Def, call : Call) : Bool
@@ -149,7 +150,33 @@ module Heucristic
         end
         return found unless found.empty?
 
-        first_level(type, call) { |entry| entry.receiver.instance? && call.accepts?(entry) }
+        found = first_level(type, call) { |entry| entry.receiver.instance? && call.accepts?(entry) }
+        found.empty? ? includer_methods(type, call) : found
+      end
+
+      private def includer_methods(type : String, call : Call) : Array(Index::Def)
+        return Array(Index::Def).new if @including.includes?(type)
+        return Array(Index::Def).new unless @workspace.namespaces(type).any?(Index::ModuleNamespace)
+
+        @including << type
+        found = Array(Index::Def).new
+        includers_of(type).each { |includer| found.concat(instance_methods(includer, call)) }
+        @including.pop
+        found.uniq!
+      end
+
+      private def includers_of(type : String) : Array(String)
+        names = Array(String).new
+        @workspace.each_mixin do |mixin|
+          next unless mixin.kind.include?
+          target = mixin.target
+          next unless target.is_a?(Syntax::Type)
+
+          scope = Scope.new(mixin.owner, @types.type_vars_of(mixin.owner))
+          resolved = @types.resolve_lexically(target, scope)
+          names << mixin.owner if resolved.is_a?(TypeRef) && resolved.name == type
+        end
+        names.uniq!
       end
 
       private def class_methods(type : String, call : Call) : Array(Index::Def)
