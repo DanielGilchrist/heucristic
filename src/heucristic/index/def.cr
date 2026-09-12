@@ -19,7 +19,9 @@ module Heucristic
       free_vars : Array(String),
       yields : Bool,
       forwards_to : Crystal::ASTNode? = nil,
-      node : Crystal::Def? = nil do
+      node : Crystal::Def? = nil,
+      with_yield : Bool = false,
+      macro_body : Bool = false do
       def qualified : String
         case (namespace = owner)
         in TopLevel then name

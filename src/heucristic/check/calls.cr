@@ -7,8 +7,8 @@ require "../resolve/types"
 require "../resolve/scope"
 require "../resolve/receiver"
 require "./finding"
+require "./outcome"
 require "./settled"
-require "./with_yield"
 require "./macro_uses"
 require "../syntax/well_known"
 require "../index/synthesized"
@@ -16,7 +16,7 @@ require "../index/macro_hook"
 
 module Heucristic
   module Check
-    struct Calls
+    class Calls
       def initialize(
         @workspace : Index::Workspace,
         @types : Resolve::Types,
@@ -24,41 +24,45 @@ module Heucristic
         @receiver : Resolve::Receiver,
         @settled : Settled,
       ) : Nil
+        @dsl_blocks = Hash(UInt64, Bool).new
+        @mixed_in = Hash(String, Array(Index::Def)).new
       end
 
-      def run(sites : Index::Sites) : Array(Finding)
+      def run(sites : Index::Sites) : Outcome
         findings = Array(Finding).new
-        sites.calls.each { |site| check(site, sites.text, findings) }
-        findings
+        checked = 0
+        sites.calls.each { |site| checked += 1 if check(site, sites.text, findings) }
+        Outcome.new(findings, checked)
       end
 
       private def check(
         site : Syntax::Uses::CallSite,
         text : Document::Text,
         findings : Array(Finding),
-      ) : Nil
+      ) : Bool
         call = site.call
-        return if Syntax::WellKnown.from_name(call.name).try(&.unchecked?)
-        return unless @workspace.macros(call.name).empty?
+        return false if Syntax::WellKnown.from_name(call.name).try(&.unchecked?)
+        return false unless @workspace.macros(call.name).empty?
         location = call.name_location
-        return unless location
-        return if within_macro_arguments?(site.context.ancestors)
-        return if select_condition?(call, site.context.ancestors)
+        return false unless location
+        return false if within_macro_arguments?(site.context.ancestors)
+        return false if select_condition?(call, site.context.ancestors)
 
         receiver = @receiver.of_call(call, site.context)
         defs = definitions(receiver, call, site.context)
-        return unless defs
+        return false unless defs
 
         start = Document::Point.from(location)
         span = text.span(start, start.advance(call.name_size))
-        return unless span.is_a?(Document::Span)
+        return false unless span.is_a?(Document::Span)
 
         if defs.empty?
           findings << Finding.new(:undefined_method, undefined(call, receiver), span)
-          return
+          return true
         end
 
         shape(defs, call, receiver, span, findings)
+        true
       end
 
       private def definitions(
@@ -93,6 +97,12 @@ module Heucristic
       end
 
       private def top_level_mixed_in(name : String, found : Array(Index::Def)) : Array(Index::Def)
+        cached = @mixed_in[name]?
+        found.concat(cached || (@mixed_in[name] = mixed_in(name)))
+      end
+
+      private def mixed_in(name : String) : Array(Index::Def)
+        found = Array(Index::Def).new
         @workspace.mixins_of(Index::TopLevel.new).each do |mixin|
           next unless mixin.kind.include?
           target = mixin.target
@@ -148,12 +158,16 @@ module Heucristic
 
       private def dsl_block?(context : Syntax::Context) : Bool
         context.blocks.any? do |block_call|
-          target = @receiver.of_call(block_call, context)
-          next true if target.is_a?(Resolve::Unknown)
-
-          defs = @methods.lookup(target, @receiver.shape_of(block_call, context))
-          defs.empty? || defs.any? { |entry| WithYield.in?(entry) }
+          @dsl_blocks[block_call.object_id] ||= yields_with_scope?(block_call, context)
         end
+      end
+
+      private def yields_with_scope?(block_call : Crystal::Call, context : Syntax::Context) : Bool
+        target = @receiver.of_call(block_call, context)
+        return true if target.is_a?(Resolve::Unknown)
+
+        defs = @methods.lookup(target, @receiver.shape_of(block_call, context))
+        defs.empty? || defs.any?(&.with_yield)
       end
 
       private def within_macro_arguments?(ancestors : Array(Crystal::ASTNode)) : Bool
@@ -209,7 +223,7 @@ module Heucristic
           return
         end
 
-        return if fitting.any? { |entry| WithYield.macro_body?(entry) }
+        return if fitting.any?(&.macro_body)
         given = !call.block.nil?
         return unless fitting.all? { |entry| entry.yields != given }
 

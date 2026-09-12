@@ -20,21 +20,12 @@ module Heucristic
         @shim_roots : Array(String),
       ) : Nil
         @unsettled_files = Hash(String, Bool).new
+        @settled_types = Hash(String, Bool).new
         @extended = nil.as(Set(String)?)
       end
 
       def type?(name : String) : Bool
-        return false unless ready?
-
-        entries = @workspace.namespaces(name)
-        return false if entries.empty?
-        return false unless entries.all? { |entry| declared_in_project?(entry) }
-
-        chain = @types.ancestors(name)
-        return false if chain.is_a?(Resolve::Unknown)
-
-        levels = [name] + chain
-        levels.all? { |level| settled_level?(level) } && !missing_handler?(levels)
+        @settled_types[name] ||= settled_type?(name)
       end
 
       def program? : Bool
@@ -47,6 +38,21 @@ module Heucristic
         (@extended ||= compute_extended).includes?(name)
       end
 
+      private def settled_type?(name : String) : Bool
+        return false unless ready?
+
+        entries = @workspace.namespaces(name)
+        return false if entries.empty?
+        return false unless entries.all? { |entry| declared_in_project?(entry) }
+        return false unless entries.any? { |entry| compiled?(entry.path) }
+
+        chain = @types.ancestors(name)
+        return false if chain.is_a?(Resolve::Unknown)
+
+        levels = [name] + chain
+        levels.all? { |level| settled_level?(level) } && !missing_handler?(levels)
+      end
+
       private def ready? : Bool
         @complete && !@workspace.namespaces(CoreType::Object.type_name).empty?
       end
@@ -55,9 +61,7 @@ module Heucristic
         entries = @workspace.namespaces(level)
         return false if entries.empty?
 
-        entries.none? do |entry|
-          entry.is_a?(Index::LibNamespace) || unsettled_file?(entry.path) || uncompiled?(entry.path)
-        end
+        entries.none? { |entry| entry.is_a?(Index::LibNamespace) || unsettled_file?(entry.path) }
       end
 
       private def missing_handler?(levels : Array(String)) : Bool
@@ -65,8 +69,8 @@ module Heucristic
           @workspace.macros("method_missing").any? { |entry| levels.includes?(entry.owner) }
       end
 
-      private def uncompiled?(path : String) : Bool
-        path != GENERATED && !@compiled.includes?(path)
+      private def compiled?(path : String) : Bool
+        path == GENERATED || @compiled.includes?(path)
       end
 
       private def declared_in_project?(entry : Index::Namespace) : Bool

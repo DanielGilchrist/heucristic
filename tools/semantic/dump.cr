@@ -27,7 +27,7 @@ module Semantic
         elapsed_ms: elapsed.total_milliseconds.round,
         source:     @source.to_s,
         sites:      @sites,
-        files:      program.requires.to_a,
+        files:      files(program),
       }.to_json(io)
     rescue error : Crystal::CodeError
       {
@@ -49,6 +49,27 @@ module Semantic
 
         reopen(type, generated, parents)
       end
+    end
+
+    private def files(program : Crystal::Program) : Array(String)
+      found = Set(String).new
+      ([program] of Crystal::Type).concat(all_types(program)).each do |type|
+        type.locations.try &.each { |location| record_file(location, found) }
+        next unless type.is_a?(Crystal::ModuleType)
+
+        type.defs.try &.each_value do |overloads|
+          overloads.each { |entry| record_file(entry.def.location, found) }
+        end
+        type.metaclass.as?(Crystal::ModuleType).try &.defs.try &.each_value do |overloads|
+          overloads.each { |entry| record_file(entry.def.location, found) }
+        end
+      end
+      found.to_a.sort!
+    end
+
+    private def record_file(location : Crystal::Location?, found : Set(String)) : Nil
+      path = location.try(&.original_filename)
+      found << path if path
     end
 
     private def all_types(program : Crystal::Program) : Array(Crystal::Type)

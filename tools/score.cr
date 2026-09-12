@@ -122,18 +122,24 @@ module Score
     )
     checks = Heucristic::Check::Calls.new(workspace, types, methods, receiver, settled)
     total = 0
+    checked = 0
+    calls = 0
     elapsed = Time.measure do
       all.sort_by(&.path).each do |sites|
         next if sites.path.starts_with?(File.join(root, "lib") + "/")
 
-        checks.run(sites).each do |finding|
+        calls += sites.calls.size
+        outcome = checks.run(sites)
+        checked += outcome.checked
+        outcome.findings.each do |finding|
           total += 1
           where = "#{sites.path.sub(root + "/", "")}:#{finding.span.start_line + 1}"
           puts "#{where}: #{finding.rule.code}: #{finding.message}"
         end
       end
     end
-    puts "#{total} findings in #{all.size} files checked in #{elapsed.total_milliseconds.round}ms"
+    puts "#{total} findings; #{checked} of #{calls} calls in #{all.size} files were checkable " \
+         "(#{elapsed.total_milliseconds.round}ms)"
     total.zero? ? 0 : 2
   end
 

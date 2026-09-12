@@ -345,7 +345,7 @@ module Heucristic
           @workspace, @types, @macro_status.is_a?(MacrosDone), @dirty, @compiled, @root, shim_roots
         )
         checks = Check::Calls.new(@workspace, @types, @methods, @receiver, settled)
-        checks.run(sites).map { |finding| Diagnostics.warning(finding) }
+        checks.run(sites).findings.map { |finding| Diagnostics.warning(finding) }
       end
 
       private def sweep : Nil

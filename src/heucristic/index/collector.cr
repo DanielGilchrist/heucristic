@@ -4,6 +4,7 @@ require "./file"
 require "./accessor"
 require "./synthesized"
 require "./macro_hook"
+require "./body_traits"
 require "./signature"
 require "./evident"
 require "./macro_text"
@@ -679,6 +680,7 @@ module Heucristic
         span = @text.span(start, start.advance(node.name.size))
         return unless span.is_a?(Document::Span)
 
+        traits = BodyTraits.of(node)
         @defs << Def.new(
           name: node.name,
           owner: def_owner(node),
@@ -691,6 +693,8 @@ module Heucristic
           free_vars: node.free_vars || Array(String).new,
           yields: !node.block_arity.nil? || !node.block_arg.nil?,
           node: yielding_without_restriction?(node) ? node : nil,
+          with_yield: traits.with_yield,
+          macro_body: traits.macro_body,
         )
       end
     end
