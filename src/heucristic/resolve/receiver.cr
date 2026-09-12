@@ -380,29 +380,44 @@ module Heucristic
         visiting : Array(String),
       ) : Resolution
         declared = entries.select(&.origin.declared?)
-        evident = entries.select { |entry| entry.type.is_a?(Syntax::Type) }
-        sources = declared.empty? ? evident : declared
-        unless sources.empty?
-          typed = Array(Resolution).new(sources.size)
-          sources.each { |entry| typed << declared(entry.type, scope) }
+        unless declared.empty?
+          typed = Array(Resolution).new(declared.size)
+          declared.each { |entry| typed << declared(entry.type, scope) }
           return union(typed)
         end
 
-        guessed = Array(Resolution).new(entries.size)
+        typed = Array(Resolution).new(entries.size)
         entries.each do |entry|
-          expression = entry.expression
-          next unless expression.is_a?(Crystal::Call) && expression.obj.is_a?(Crystal::Path)
+          type = entry.type
+          if type.is_a?(Syntax::Type)
+            typed << declared(type, scope)
+            next
+          end
 
-          context = Syntax::Context.new([level], @types.type_vars_of(level), nil, entry.path)
-          guessed << type_of(expression, context, visiting, Array(Binding).new)
+          expression = entry.expression
+          next unless expression && guessable?(expression)
+
+          context = Syntax::Context.new(
+            [level], @types.type_vars_of(level), entry.definition, entry.path
+          )
+          guessed = type_of(expression, context, visiting, Array(Binding).new)
+          typed << guessed unless guessed.is_a?(Unknown)
         end
-        return union(guessed) unless guessed.empty?
+        return union(typed) unless typed.empty?
 
         assigned = entries.map(&.type).select(Syntax::TypeReader::Unsupported).map(&.source)
         Unknown.new(
           :no_annotation,
           "#{entries[0].name} is only assigned #{assigned.join(", ")}; declare its type",
         )
+      end
+
+      private def guessable?(expression : Crystal::ASTNode) : Bool
+        case expression
+        in Crystal::Var     then true
+        in Crystal::Call    then expression.obj.is_a?(Crystal::Path)
+        in Crystal::ASTNode then false
+        end
       end
 
       private def case_value(
@@ -717,8 +732,9 @@ module Heucristic
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
           union([truthy(left, false), right] of Resolution)
         in Crystal::ArrayLiteral
+          collection = literal_collection(node, context)
           elements(node.elements, context, visiting, locals) do |inner|
-            TypeRef.of(:array, [inner] of Resolution)
+            TypeRef.new(collection, [inner] of Resolution)
           end
         in Crystal::HashLiteral then hash_literal(node, context, visiting, locals)
         in Crystal::TupleLiteral
@@ -1386,7 +1402,7 @@ module Heucristic
         parameters : Int32,
       ) : Resolution
         restriction = block_restriction(entry)
-        return yielded(entry, index) unless restriction
+        return yielded(entry, index, receiver, arguments) unless restriction
 
         scope = return_scope(entry, receiver, arguments, Site::NONE)
         return scope if scope.is_a?(Unknown)
@@ -1404,7 +1420,12 @@ module Heucristic
         @types.resolve(input, scope)
       end
 
-      private def yielded(entry : Index::Def, index : Int32) : Resolution
+      private def yielded(
+        entry : Index::Def,
+        index : Int32,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+      ) : Resolution
         definition = entry.node
         unless definition
           return Unknown.new(:no_annotation, "#{entry.qualified} does not state what it yields")
@@ -1425,7 +1446,32 @@ module Heucristic
           end
           values << type_of(expression, site.context, [entry.qualified], Array(Binding).new)
         end
-        union(values)
+        scope = return_scope(entry, receiver, arguments, Site::NONE)
+        scope.is_a?(Unknown) ? union(values) : rebind(union(values), scope)
+      end
+
+      private def literal_collection(
+        node : Crystal::ArrayLiteral,
+        context : Syntax::Context,
+      ) : String
+        name = node.name
+        return CoreType::Array.type_name unless name
+
+        resolved = declared(Syntax::TypeReader.read(name), scope(context))
+        resolved.is_a?(TypeRef) ? resolved.name : CoreType::Array.type_name
+      end
+
+      private def rebind(resolution : Resolution, scope : Scope) : Resolution
+        case resolution
+        in TypeVar then scope.bound(resolution.name) || resolution
+        in TypeRef
+          TypeRef.new(resolution.name, resolution.arguments.map { |arg| rebind(arg, scope) })
+        in UnionRef then union(resolution.members.map { |member| rebind(member, scope) })
+        in MetaRef
+          inner = rebind(resolution.of, scope)
+          inner.is_a?(TypeRef) || inner.is_a?(TypeVar) ? MetaRef.new(inner) : resolution
+        in Unknown then resolution
+        end
       end
 
       private def block_restriction(entry : Index::Def) : Syntax::Proc?

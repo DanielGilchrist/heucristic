@@ -30,6 +30,7 @@ module Heucristic
         @constants = Array(Constant).new
         @macros = Array(MacroDef).new
         @def_depth = 0
+        @definitions = Array(Crystal::Def).new
         @visibilities = Array(Visibility).new
         @owners = Array(String).new
       end
@@ -234,11 +235,13 @@ module Heucristic
       def visit(node : Crystal::Def) : Bool
         record_def(node)
         @def_depth += 1
+        @definitions << node
         true
       end
 
       def end_visit(node : Crystal::Def) : Nil
         @def_depth -= 1
+        @definitions.pop
       end
 
       def visit(node : Crystal::Macro) : Bool
@@ -413,7 +416,8 @@ module Heucristic
         in_def = @def_depth > 0
         initialized ||= origin.assigned? && !in_def
         @instance_vars << InstanceVar.new(
-          name, namespace, type, @path, span, origin, expression, initialized, in_def
+          name, namespace, type, @path, span, origin, expression, initialized, in_def,
+          @definitions.last?,
         )
       end
 

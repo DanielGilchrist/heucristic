@@ -401,11 +401,13 @@ module Heucristic
         return if fitting.empty?
 
         shape = @receiver.shape_of(call, context)
+        fit = Fit.new(@methods)
         rejections = Array(Resolve::Methods::Rejected).new(fitting.size)
         fitting.each do |entry|
-          rejected = @methods.rejected_argument(entry, shape)
+          rejected = @methods.rejected_argument(entry, shape, any_member: true)
           return unless rejected
-          return unless evident_argument?(call.args[rejected.index]?, rejected, context)
+          argument = call.args[rejected.index]?
+          return if argument.is_a?(Crystal::NumberLiteral) && fit.numeric?(rejected.expected)
 
           rejections << rejected
         end
@@ -425,27 +427,6 @@ module Heucristic
           end
         end
         findings << Finding.new(:type_mismatch, message, span)
-      end
-
-      private def evident_argument?(
-        node : Crystal::ASTNode?,
-        rejected : Resolve::Methods::Rejected,
-        context : Syntax::Context,
-      ) : Bool
-        case node
-        in Nil                    then false
-        in Crystal::NumberLiteral then !Fit.new(@methods).numeric?(rejected.expected)
-        in Crystal::Var
-          rejected.actual.is_a?(Resolve::TypeRef) && declared_parameter?(node.name, context)
-        in Crystal::ASTNode then Index::Evident.type(node).is_a?(Syntax::Type)
-        end
-      end
-
-      private def declared_parameter?(name : String, context : Syntax::Context) : Bool
-        definition = context.def_node
-        return false unless definition
-
-        definition.args.any? { |arg| arg.name == name && !arg.restriction.nil? }
       end
 
       private def splat?(node : Crystal::ASTNode) : Bool

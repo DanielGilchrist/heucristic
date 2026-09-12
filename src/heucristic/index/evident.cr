@@ -24,7 +24,7 @@ module Heucristic
         in Crystal::Call                   then constructed(node)
         in Crystal::Cast                   then read(node.to)
         in Crystal::NilableCast            then nilable(node.to)
-        in Crystal::ArrayLiteral           then collection(:array, node.of)
+        in Crystal::ArrayLiteral           then array_literal(node)
         in Crystal::HashLiteral            then hash(node)
         in Crystal::ProcLiteral            then proc_literal(node.def)
         in Crystal::Expressions
@@ -57,14 +57,19 @@ module Heucristic
         Syntax::Nilable.new(inner)
       end
 
-      private def collection(base : CoreType, of : Crystal::ASTNode?) : Syntax::Type | NotEvident
+      private def array_literal(node : Crystal::ArrayLiteral) : Syntax::Type | NotEvident
+        of = node.of
         return NotEvident.new unless of
 
         element = read(of)
         return element if element.is_a?(NotEvident)
 
+        name = node.name
+        base = name ? Syntax::TypeReader.read(name) : builtin(:array)
+        return NotEvident.new unless base.is_a?(Syntax::Named)
+
         arguments = [element] of Syntax::Type
-        Syntax::Generic.new(builtin(base), arguments, Array(Syntax::Generic::NamedArgument).new)
+        Syntax::Generic.new(base, arguments, Array(Syntax::Generic::NamedArgument).new)
       end
 
       private def hash(node : Crystal::HashLiteral) : Syntax::Type | NotEvident

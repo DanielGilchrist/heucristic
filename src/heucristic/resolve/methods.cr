@@ -105,12 +105,12 @@ module Heucristic
         rejected_argument(entry, call).nil?
       end
 
-      def rejected_argument(entry : Index::Def, call : Call) : Rejected?
+      def rejected_argument(entry : Index::Def, call : Call, any_member : Bool = false) : Rejected?
         positional = entry.parameters.select(&.kind.positional?)
         owner = entry.owner
         owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
         type_vars = entry.free_vars + owner_vars
-        scope = Scope.new(owner, type_vars)
+        scope = Scope.new(owner, type_vars, Array(Binding).new, entry.path)
         splat = entry.parameters.find(&.kind.splat?)
         call.arguments.each_with_index do |argument, index|
           parameter = positional[index]? || splat
@@ -119,6 +119,7 @@ module Heucristic
 
           expected = @types.resolve_lexically(restriction, scope)
           next if admits?(expected, argument)
+          next if any_member && argument.is_a?(UnionRef) && admits_any?(expected, argument)
 
           return Rejected.new(index, expected, argument)
         end
@@ -203,6 +204,12 @@ module Heucristic
             entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
           end
         in UnionRef, TypeVar then Array(Index::Def).new
+        end
+      end
+
+      private def admits_any?(expected : Resolution, argument : UnionRef) : Bool
+        argument.members.any? do |member|
+          member.is_a?(Unknown) || admits?(expected, member)
         end
       end
 
