@@ -11,6 +11,17 @@ private def hover_text(response : Heucristic::Protocol::Response) : String?
   response.result.try(&.["contents"]?).try(&.["value"]?).try(&.as_s?)
 end
 
+private def await_compiler(
+  client : LspClient,
+  status : String,
+  timeout : Time::Span = LspClient::DEFAULT_TIMEOUT,
+) : Heucristic::Protocol::Notification
+  loop do
+    notification = client.await_notification("$/heucristic/compiler", timeout)
+    return notification if notification.params.try(&.["status"].as_s) == status
+  end
+end
+
 describe Heucristic::Server::Loop do
   it "initializes and reports hover and definition capabilities" do
     client = LspClient.in_process
@@ -758,6 +769,71 @@ describe Heucristic::Server::Loop, "type declarations under the cursor" do
     edit = client.rename(URI_A, 1, 10, "Session").result
     lines = edit.try(&.["changes"][URI_A].as_a.map(&.["range"]["start"]["line"].as_i))
     lines.try(&.sort!).should eq([1, 5])
+    client.shutdown
+  end
+end
+
+describe Heucristic::Server::Loop, "compiler diagnostics" do
+  root = File.expand_path("../../fixtures/compiler", __DIR__)
+  fake = File.expand_path("../../support/fake_compiler", __DIR__)
+  broken_uri = "file://#{root}/src/broken.cr"
+
+  it "publishes the innermost project frame of a compiler error as an error from crystal" do
+    client = LspClient.in_process
+    client.initialize!(root, compiler: fake)
+    client.await_notification("$/heucristic/indexed")
+    await_compiler(client, "done")
+
+    client.open(broken_uri, File.read(File.join(root, "src", "broken.cr")))
+    client.await_notification("textDocument/publishDiagnostics")
+
+    frames = [
+      {file: "#{root}/src/broken.cr", line: 7, column: 13, size: 0,
+       message: "instantiating 'Counter#bump(String)'"},
+      {file: "/opt/stdlib/int.cr", line: 3, column: 1, size: 0, message: "deep inside"},
+    ]
+    ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
+    client.save(broken_uri)
+    published = client.await_notification("textDocument/publishDiagnostics")
+    diagnostics = published.params.try(&.["diagnostics"].as_a) || Array(JSON::Any).new
+    published.params.try(&.["uri"].as_s).should eq(broken_uri)
+    diagnostics.size.should eq(1)
+    diagnostics[0]["source"].as_s.should eq("crystal")
+    diagnostics[0]["severity"].as_i.should eq(1)
+    diagnostics[0]["message"].as_s.should eq("instantiating 'Counter#bump(String)'")
+    diagnostics[0]["range"]["start"]["line"].as_i.should eq(6)
+    diagnostics[0]["range"]["start"]["character"].as_i.should eq(12)
+    diagnostics[0]["range"]["end"]["character"].as_i.should eq(16)
+    await_compiler(client, "done").params.try(&.["errors"].as_i).should eq(1)
+
+    ENV.delete("HEUCRISTIC_FAKE_ERRORS")
+    client.save(broken_uri)
+    cleared = client.await_notification("textDocument/publishDiagnostics")
+    cleared.params.try(&.["diagnostics"].as_a.size).should eq(0)
+    client.shutdown
+  end
+
+  it "reports a compiler that cannot run and says why" do
+    client = LspClient.in_process
+    client.initialize!(root, compiler: "/nonexistent/crystal")
+    client.await_notification("$/heucristic/indexed")
+    status = await_compiler(client, "unavailable")
+    status.params.try(&.["reason"].as_s).to_s.should contain("not found")
+    client.shutdown
+  end
+
+  it "runs the real compiler against the fixture and places its error", tags: "compiler" do
+    client = LspClient.in_process
+    client.initialize!(root)
+    client.await_notification("$/heucristic/indexed")
+    published = client.await_notification("textDocument/publishDiagnostics", 60.seconds)
+    published.params.try(&.["uri"].as_s).should eq(broken_uri)
+    diagnostics = published.params.try(&.["diagnostics"].as_a) || Array(JSON::Any).new
+    diagnostics.size.should eq(1)
+    diagnostics[0]["message"].as_s.should contain(
+      "expected argument #1 to 'Counter#bump' to be Int32, not String"
+    )
+    diagnostics[0]["range"]["start"]["line"].as_i.should eq(6)
     client.shutdown
   end
 end

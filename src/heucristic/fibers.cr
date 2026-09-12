@@ -10,6 +10,7 @@ module Heucristic
       Reader
       Indexer
       Macros
+      Compiler
     end
 
     @@parallel_contexts = Hash(Name, Fiber::ExecutionContext::Parallel).new

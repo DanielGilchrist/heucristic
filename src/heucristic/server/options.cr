@@ -9,6 +9,10 @@ module Heucristic
         raw.try(&.["semantic"]?).try(&.as_s?)
       end
 
+      def compiler(raw : JSON::Any?) : String?
+        raw.try(&.["compiler"]?).try(&.as_s?)
+      end
+
       def stdlib?(raw : JSON::Any?) : Bool
         return true unless raw
 

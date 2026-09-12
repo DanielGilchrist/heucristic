@@ -49,10 +49,12 @@ class LspClient
     stdlib : Bool = false,
     progress : Bool = false,
     semantic : String? = nil,
+    compiler : String? = nil,
   ) : Heucristic::Protocol::Response
     options = Hash(String, Bool | String).new
     options["stdlib"] = stdlib
     options["semantic"] = semantic if semantic
+    options["compiler"] = compiler if compiler
     response = request("initialize", {
       "processId"             => nil,
       "rootUri"               => "file://#{root}",
@@ -76,6 +78,10 @@ class LspClient
       "textDocument"   => {"uri" => uri, "version" => version},
       "contentChanges" => changes,
     })
+  end
+
+  def save(uri : String) : Nil
+    notify("textDocument/didSave", {"textDocument" => {"uri" => uri}})
   end
 
   def hover(uri : String, line : Int32, character : Int32) : Heucristic::Protocol::Response

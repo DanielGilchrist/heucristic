@@ -29,6 +29,9 @@ require "./completion"
 require "./rename"
 require "../index/sites"
 require "./macro_status"
+require "./compiler"
+require "./compiler_status"
+require "./published"
 require "../index/collector"
 require "../index/macro_site"
 require "../index/generated"
@@ -40,6 +43,7 @@ module Heucristic
     class Session
       INDEXED        = "$/heucristic/indexed"
       MACROS         = "$/heucristic/macros"
+      COMPILER       = "$/heucristic/compiler"
       GENERATED_PATH = "<macros>"
 
       getter root : String
@@ -55,6 +59,10 @@ module Heucristic
         @macro_sites = Hash(Int32, Index::MacroSite).new
         @generated = nil.as(Index::File?)
         @semantic = nil.as(String?)
+        @compiler = Compiler.new(events)
+        @compiler_status = CompilerPending.new.as(CompilerStatus)
+        @executable = nil.as(String?)
+        @published = Published.new
         @documents = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
         @workspace = Index::Workspace.new
@@ -83,6 +91,7 @@ module Heucristic
         end
         @index_stdlib = Options.stdlib?(params.initialization_options)
         @semantic = Options.semantic(params.initialization_options)
+        @executable = Options.compiler(params.initialization_options)
         supported = params.capabilities.window.try(&.work_done_progress) || false
         @progress = Progress.new(@transport, supported)
 
@@ -172,6 +181,7 @@ module Heucristic
           },
         ))
         @macros.start(@root, @semantic)
+        @compiler.start(@root, @executable)
       end
 
       def macros_started : Nil
@@ -211,6 +221,31 @@ module Heucristic
         @macros.finished(@root, @semantic)
       end
 
+      def compiler_started : Nil
+        @compiler_status = CompilerPending.new
+        notify_compiler
+      end
+
+      def compiler_finished(event : Index::CompilerFinished) : Nil
+        batch = compiler_batch(event.errors)
+        @published.compiler(batch).each { |uri| publish(uri, version_of(uri), @published.for(uri)) }
+        @compiler_status = CompilerDone.new(batch.size, event.elapsed.total_milliseconds.round)
+        notify_compiler
+        @compiler.finished(@root, @executable)
+      end
+
+      def compiler_failed(event : Index::CompilerFailed) : Nil
+        @compiler_status = CompilerBroken.new(event.reason)
+        notify_compiler
+        @compiler.finished(@root, @executable)
+      end
+
+      def compiler_unavailable(event : Index::CompilerUnavailable) : Nil
+        @compiler_status = CompilerOff.new(event.reason)
+        notify_compiler
+        @compiler.finished(@root, @executable)
+      end
+
       private def did_open(notification : Protocol::Notification) : Outcome
         params = DecodedParams.decode(notification.params, LSProtocol::DidOpenTextDocumentParams)
         return Silence.new if params.is_a?(DecodedParams::Invalid)
@@ -245,7 +280,8 @@ module Heucristic
         uri = params.text_document.uri.to_s
         @documents.close(uri)
         @trees.delete(uri)
-        publish(uri, nil, Diagnostics.none)
+        @published.forget(uri)
+        publish(uri, nil, @published.for(uri))
       end
 
       private def analyse(document : Document::Open) : Outcome
@@ -255,12 +291,13 @@ module Heucristic
         tree = Syntax.parse(document.text.source, path)
         case tree
         in Syntax::Broken
-          publish(document.uri, document.version, Diagnostics.for(tree, document.text))
+          @published.syntax(document.uri, Diagnostics.for(tree, document.text))
         in Crystal::ASTNode
           @trees[document.uri] = tree
           index_document(document)
-          publish(document.uri, document.version, Diagnostics.none)
+          @published.syntax(document.uri, Diagnostics.none)
         end
+        publish(document.uri, document.version, @published.for(document.uri))
       end
 
       private def index_document(document : Document::Open) : Nil
@@ -611,7 +648,51 @@ module Heucristic
 
       private def did_save : Outcome
         @macros.start(@root, @semantic)
+        @compiler.start(@root, @executable)
         Silence.new
+      end
+
+      private def notify_compiler : Nil
+        payload = case (status = @compiler_status)
+                  in CompilerPending
+                    {status: "pending", errors: 0, elapsed_ms: 0.0, reason: nil}
+                  in CompilerDone
+                    elapsed = status.elapsed_ms
+                    {status: "done", errors: status.errors, elapsed_ms: elapsed, reason: nil}
+                  in CompilerBroken
+                    {status: "failed", errors: 0, elapsed_ms: 0.0, reason: status.reason}
+                  in CompilerOff
+                    {status: "unavailable", errors: 0, elapsed_ms: 0.0, reason: status.reason}
+                  end
+        @transport.send(Protocol::Encoder.notification(COMPILER, payload))
+      end
+
+      private def compiler_batch(errors : Array(Check::CompilerError)) : Published::Batch
+        batch = Published::Batch.new
+        frame = errors.reverse.find { |error| project_file?(error.file) } || errors.first?
+        return batch unless frame
+
+        path = File.expand_path(frame.file, @root)
+        uri = Uri.from_path(path)
+        batch[uri] = [Diagnostics.compiler(frame, text_of(path))]
+        batch
+      end
+
+      private def project_file?(file : String) : Bool
+        path = File.expand_path(file, @root)
+        path.starts_with?(@root + "/") && !path.starts_with?(File.join(@root, "lib") + "/")
+      end
+
+      private def text_of(path : String) : Document::Text?
+        document = @documents[Uri.from_path(path)]
+        return document.text if document.is_a?(Document::Open)
+
+        @workspace.sites(path).try(&.text)
+      end
+
+      private def version_of(uri : String) : Int32?
+        document = @documents[uri]
+        document.is_a?(Document::Open) ? document.version : nil
       end
 
       private def notify_macros : Nil

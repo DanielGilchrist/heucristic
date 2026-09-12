@@ -6,10 +6,12 @@ require "../index/event"
 module Heucristic
   module Server
     class Progress
-      TOKEN        = "heucristic/indexing"
-      MACROS_TOKEN = "heucristic/macros"
-      TITLE        = "Indexing"
-      MACROS_TITLE = "Expanding macros"
+      TOKEN          = "heucristic/indexing"
+      MACROS_TOKEN   = "heucristic/macros"
+      TITLE          = "Indexing"
+      MACROS_TITLE   = "Expanding macros"
+      COMPILER_TOKEN = "heucristic/compiler"
+      COMPILER_TITLE = "Checking with the compiler"
 
       alias Value = LSProtocol::WorkDoneProgressBegin |
                     LSProtocol::WorkDoneProgressReport |
@@ -58,22 +60,37 @@ module Heucristic
       end
 
       def begin_macros(request_id : Protocol::Id) : Nil
+        begin_task(MACROS_TOKEN, MACROS_TITLE, request_id)
+      end
+
+      def finish_macros(message : String) : Nil
+        finish_task(MACROS_TOKEN, message)
+      end
+
+      def begin_compiler(request_id : Protocol::Id) : Nil
+        begin_task(COMPILER_TOKEN, COMPILER_TITLE, request_id)
+      end
+
+      def finish_compiler(message : String) : Nil
+        finish_task(COMPILER_TOKEN, message)
+      end
+
+      private def begin_task(token : String, title : String, request_id : Protocol::Id) : Nil
         return unless @supported
 
-        params = LSProtocol::WorkDoneProgressCreateParams.new(token: MACROS_TOKEN)
+        params = LSProtocol::WorkDoneProgressCreateParams.new(token: token)
         @transport.send(
           Protocol::Encoder.request(
             request_id, LSProtocol::WINDOW_WORK_DONE_PROGRESS_CREATE, params
           )
         )
-        value = LSProtocol::WorkDoneProgressBegin.new(kind: "begin", title: MACROS_TITLE)
-        send(value, MACROS_TOKEN)
+        send(LSProtocol::WorkDoneProgressBegin.new(kind: "begin", title: title), token)
       end
 
-      def finish_macros(message : String) : Nil
+      private def finish_task(token : String, message : String) : Nil
         return unless @supported
 
-        send(LSProtocol::WorkDoneProgressEnd.new(kind: "end", message: message), MACROS_TOKEN)
+        send(LSProtocol::WorkDoneProgressEnd.new(kind: "end", message: message), token)
       end
 
       private def send(value : Value, token : String = TOKEN) : Nil

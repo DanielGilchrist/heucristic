@@ -106,6 +106,21 @@ module Heucristic
         in Index::MacrosUnavailable
           @session.progress.finish_macros("unavailable: #{event.reason}")
           @session.macros_unavailable(event)
+        in Index::CompilerStarted
+          @next_request_id += 1
+          @session.progress.begin_compiler(@next_request_id)
+          @session.compiler_started
+        in Index::CompilerFinished
+          @session.progress.finish_compiler(
+            "#{event.errors.size} errors in #{event.elapsed.total_milliseconds.round}ms"
+          )
+          @session.compiler_finished(event)
+        in Index::CompilerFailed
+          @session.progress.finish_compiler("failed: #{event.reason}")
+          @session.compiler_failed(event)
+        in Index::CompilerUnavailable
+          @session.progress.finish_compiler("unavailable: #{event.reason}")
+          @session.compiler_unavailable(event)
         end
       end
     end
