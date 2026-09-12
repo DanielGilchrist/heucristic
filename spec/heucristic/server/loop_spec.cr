@@ -966,10 +966,10 @@ describe Heucristic::Server::Loop, "call checks" do
       {57, "undefined-constant", "undefined constant Nope"},
       {58, "undefined-constant", "undefined constant Greeter::Missing"},
       {59, "undefined-constant", "undefined constant Point::X"},
-      {62, "return-mismatch", "method Sizes#other must return String but it is returning Int32"},
-      {66, "return-mismatch", "method Sizes#wide must return Int32 but it is returning String"},
+      {63, "return-mismatch", "method Sizes#other must return String but it is returning Int32"},
+      {67, "return-mismatch", "method Sizes#wide must return Int32 but it is returning String"},
       {70, "return-mismatch", "method Sizes#label must return String but it is returning Nil"},
-      {73, "return-mismatch", "method Sizes#either must return Int32 but it is returning String"},
+      {74, "return-mismatch", "method Sizes#either must return Int32 but it is returning String"},
       {85, "uninitialized-instance-var",
        "this 'initialize' doesn't explicitly initialize instance variable '@level' of Gauge, " \
        "rendering it nilable"},
