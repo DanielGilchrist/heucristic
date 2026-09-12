@@ -742,3 +742,22 @@ describe Heucristic::Server::Loop, "completion insert text" do
     client.shutdown
   end
 end
+
+describe Heucristic::Server::Loop, "type declarations under the cursor" do
+  it "resolves the name of a class definition for hover, references and rename" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec")
+    client.await_notification("$/heucristic/indexed")
+
+    client.open(URI_A, "module App\n  class Context\n  end\nend\n\nApp::Context.new\n")
+    client.await_notification("textDocument/publishDiagnostics")
+
+    hover_text(client.hover(URI_A, 1, 10)).to_s.should contain("class App::Context")
+    found = client.references(URI_A, 1, 10).result.try(&.as_a?)
+    found.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([5])
+    edit = client.rename(URI_A, 1, 10, "Session").result
+    lines = edit.try(&.["changes"][URI_A].as_a.map(&.["range"]["start"]["line"].as_i))
+    lines.try(&.sort!).should eq([1, 5])
+    client.shutdown
+  end
+end

@@ -59,6 +59,7 @@ module Heucristic
       def visit(
         node : Crystal::ClassDef | Crystal::ModuleDef | Crystal::EnumDef | Crystal::LibDef,
       ) : Bool
+        declared_name(node.name)
         super
         @target.nil?
       end
@@ -80,6 +81,13 @@ module Heucristic
           offset -= name.size + 2
         end
         node.names.size - 1
+      end
+
+      private def declared_name(name : Crystal::Path) : Nil
+        location = name.location
+        return unless location && over?(location, name.to_s.size)
+
+        @target = OnPath.new(name, context, segment_at(name, location))
       end
 
       private def literal_name(node : Crystal::Call) : Nil
