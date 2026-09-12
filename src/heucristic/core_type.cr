@@ -42,6 +42,18 @@ module Heucristic
       nil
     end
 
+    def numeric? : ::Bool
+      case self
+      in Int8, Int16, Int32, Int64, Int128, UInt8, UInt16, UInt32, UInt64, UInt128, Float32,
+         Float64
+        true
+      in Nil, Bool, Char, String, Symbol, Regex, NoReturn, Tuple, NamedTuple, Array, Hash, Range,
+         Proc, Union, Object, Class, Exception, Indexable, Enumerable, Enum, Struct, Reference,
+         Value, Pointer
+        false
+      end
+    end
+
     def type_name : ::String
       case self
       in CoreType::Nil        then "Nil"

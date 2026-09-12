@@ -4,6 +4,9 @@ module Heucristic
       UndefinedMethod
       WrongArity
       BlockMismatch
+      TypeMismatch
+      NonExhaustiveCase
+      AbstractNotImplemented
 
       def code : String
         to_s.underscore.gsub('_', '-')

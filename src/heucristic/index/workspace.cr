@@ -15,6 +15,7 @@ module Heucristic
         @instance_vars = Hash(String, Array(InstanceVar)).new
         @aliases = Hash(String, Array(Alias)).new
         @constants = Hash(String, Array(Constant)).new
+        @constants_by_owner = Hash(String, Array(Constant)).new
         @macros = Hash(String, Array(MacroDef)).new
         @sites = Hash(String, Sites).new
         @call_uses = Hash(String, Array(CallUse)).new
@@ -36,7 +37,10 @@ module Heucristic
         file.mixins.each { |entry| add(@mixins, owner_key(entry.owner), entry) }
         file.instance_vars.each { |entry| add(@instance_vars, entry.owner, entry) }
         file.aliases.each { |entry| add(@aliases, entry.name, entry) }
-        file.constants.each { |entry| add(@constants, entry.name, entry) }
+        file.constants.each do |entry|
+          add(@constants, entry.name, entry)
+          add(@constants_by_owner, entry.name.rpartition("::")[0], entry)
+        end
         file.macros.each { |entry| add(@macros, entry.name, entry) }
       end
 
@@ -107,7 +111,10 @@ module Heucristic
         previous.mixins.each { |entry| drop(@mixins, owner_key(entry.owner), path) }
         previous.instance_vars.each { |entry| drop(@instance_vars, entry.owner, path) }
         previous.aliases.each { |entry| drop(@aliases, entry.name, path) }
-        previous.constants.each { |entry| drop(@constants, entry.name, path) }
+        previous.constants.each do |entry|
+          drop(@constants, entry.name, path)
+          drop(@constants_by_owner, entry.name.rpartition("::")[0], path)
+        end
         previous.macros.each { |entry| drop(@macros, entry.name, path) }
       end
 
@@ -129,6 +136,10 @@ module Heucristic
 
       def constants(name : String) : Array(Constant)
         @constants[name]? || Array(Constant).new
+      end
+
+      def constants_of(owner : String) : Array(Constant)
+        @constants_by_owner[owner]? || Array(Constant).new
       end
 
       def mixins_of(owner : Owner) : Array(Mixin)

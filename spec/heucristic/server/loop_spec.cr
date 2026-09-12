@@ -844,13 +844,28 @@ describe Heucristic::Server::Loop, "call checks" do
       Point.new(1, 2).copy_with(x: 3)
       Point.new(1)
       missing_thing
+      greeter.greet(1)
+      greeter.shout("a", 3_i64)
+      greeter.shout("a", 3)
+      greeter.shout(:a, 3)
+      case Clock::Start
+      in .start?       then 1
+      in .break_start? then 2
+      end
+      case Clock::Start
+      in .start?, .finish?, .break_start? then 1
+      end
+
+      class Circle < Shape
+      end
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 5 }
-    warnings.map(&.["range"]["start"]["line"].as_i).should eq([2, 3, 4, 7, 8])
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 9 }
+    warnings.map(&.["range"]["start"]["line"].as_i).should eq([2, 3, 4, 7, 8, 9, 12, 13, 21])
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     warnings.map(&.["code"].as_s).should eq([
       "undefined-method", "wrong-arity", "block-mismatch", "wrong-arity", "undefined-method",
+      "type-mismatch", "type-mismatch", "non-exhaustive-case", "abstract-not-implemented",
     ])
     warnings.map(&.["message"].as_s).should eq([
       "undefined method 'gret' for Greeter",
@@ -858,13 +873,17 @@ describe Heucristic::Server::Loop, "call checks" do
       "'Greeter#each_twice' is expected to be invoked with a block, but no block was given",
       "wrong number of arguments for 'Point#initialize' (given 1, expected 2)",
       "undefined local variable or method 'missing_thing' for top-level",
+      "expected argument #1 to 'Greeter#greet' to be String, not Int32",
+      "expected argument #1 to 'Greeter#shout' to be String, not Symbol",
+      "case is not exhaustive for enum Clock.\n\nMissing members:\n - Finish",
+      "abstract `def Shape#area()` must be implemented by Circle",
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 5
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 9
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }

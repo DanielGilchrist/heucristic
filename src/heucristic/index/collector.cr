@@ -695,6 +695,7 @@ module Heucristic
           node: yielding_without_restriction?(node) ? node : nil,
           with_yield: traits.with_yield,
           macro_body: traits.macro_body,
+          abstract_def: node.abstract?,
         )
       end
     end

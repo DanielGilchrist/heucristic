@@ -21,7 +21,8 @@ module Heucristic
       forwards_to : Crystal::ASTNode? = nil,
       node : Crystal::Def? = nil,
       with_yield : Bool = false,
-      macro_body : Bool = false do
+      macro_body : Bool = false,
+      abstract_def : Bool = false do
       def qualified : String
         case (namespace = owner)
         in TopLevel then name

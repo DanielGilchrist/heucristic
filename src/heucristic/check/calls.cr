@@ -12,6 +12,7 @@ require "./settled"
 require "./macro_uses"
 require "../syntax/well_known"
 require "../index/synthesized"
+require "../index/evident"
 require "../index/macro_hook"
 
 module Heucristic
@@ -61,7 +62,7 @@ module Heucristic
           return true
         end
 
-        shape(defs, call, receiver, span, findings)
+        shape(defs, call, receiver, site.context, span, findings)
         true
       end
 
@@ -201,6 +202,7 @@ module Heucristic
         defs : Array(Index::Def),
         call : Crystal::Call,
         receiver : Resolve::Resolution,
+        context : Syntax::Context,
         span : Document::Span,
         findings : Array(Finding),
       ) : Nil
@@ -225,14 +227,85 @@ module Heucristic
 
         return if fitting.any?(&.macro_body)
         given = !call.block.nil?
-        return unless fitting.all? { |entry| entry.yields != given }
-
-        message = String.build do |io|
-          io << '\'' << qualified << "' is " << (given ? "not " : "")
-          io << "expected to be invoked with a block, but " << (given ? "a block" : "no block")
-          io << " was given"
+        if fitting.all? { |entry| entry.yields != given }
+          message = String.build do |io|
+            io << '\'' << qualified << "' is " << (given ? "not " : "")
+            io << "expected to be invoked with a block, but " << (given ? "a block" : "no block")
+            io << " was given"
+          end
+          findings << Finding.new(:block_mismatch, message, span)
+          return
         end
-        findings << Finding.new(:block_mismatch, message, span)
+
+        matching = fitting.select { |entry| entry.yields == given }
+        argument_types(matching, call, context, span, findings)
+      end
+
+      private def argument_types(
+        fitting : Array(Index::Def),
+        call : Crystal::Call,
+        context : Syntax::Context,
+        span : Document::Span,
+        findings : Array(Finding),
+      ) : Nil
+        return if fitting.empty?
+
+        shape = @receiver.shape_of(call, context)
+        rejections = Array(Resolve::Methods::Rejected).new(fitting.size)
+        fitting.each do |entry|
+          rejected = @methods.rejected_argument(entry, shape)
+          return unless rejected
+          return unless evident_argument?(call.args[rejected.index]?, rejected, context)
+
+          rejections << rejected
+        end
+
+        qualified = fitting[0].qualified
+        message = String.build do |io|
+          if fitting.size == 1
+            rejected = rejections[0]
+            io << "expected argument #" << (rejected.index + 1) << " to '" << qualified
+            io << "' to be " << rejected.expected << ", not " << rejected.actual
+          else
+            io << "no overload matches '" << qualified << "' with type"
+            io << (shape.arguments.size == 1 ? " " : "s ")
+            shape.arguments.join(io, ", ")
+            io << "\n\nOverloads are:"
+            fitting.each { |entry| io << "\n - " << entry.signature }
+          end
+        end
+        findings << Finding.new(:type_mismatch, message, span)
+      end
+
+      private def evident_argument?(
+        node : Crystal::ASTNode?,
+        rejected : Resolve::Methods::Rejected,
+        context : Syntax::Context,
+      ) : Bool
+        case node
+        in Nil                    then false
+        in Crystal::NumberLiteral then !numeric?(rejected.expected)
+        in Crystal::Var
+          rejected.actual.is_a?(Resolve::TypeRef) && declared_parameter?(node.name, context)
+        in Crystal::ASTNode then Index::Evident.type(node).is_a?(Syntax::Type)
+        end
+      end
+
+      private def numeric?(expected : Resolve::Resolution) : Bool
+        case expected
+        in Resolve::TypeRef
+          CoreType.from_name(expected.name).try(&.numeric?) || false
+        in Resolve::UnionRef
+          expected.members.any? { |member| numeric?(member) }
+        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown then true
+        end
+      end
+
+      private def declared_parameter?(name : String, context : Syntax::Context) : Bool
+        definition = context.def_node
+        return false unless definition
+
+        definition.args.any? { |arg| arg.name == name && !arg.restriction.nil? }
       end
 
       private def keyword_parameters?(entry : Index::Def) : Bool

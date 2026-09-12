@@ -7,6 +7,8 @@ require "./types"
 module Heucristic
   module Resolve
     class Methods
+      record Rejected, index : Int32, expected : Resolution, actual : Resolved
+
       record Call,
         name : String,
         arity : Int32,
@@ -68,19 +70,27 @@ module Heucristic
       end
 
       def compatible?(entry : Index::Def, call : Call) : Bool
+        rejected_argument(entry, call).nil?
+      end
+
+      def rejected_argument(entry : Index::Def, call : Call) : Rejected?
         positional = entry.parameters.select(&.kind.positional?)
         owner = entry.owner
         owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
         type_vars = entry.free_vars + owner_vars
         scope = Scope.new(owner, type_vars)
         splat = entry.parameters.find(&.kind.splat?)
-        call.arguments.each_with_index.all? do |argument, index|
+        call.arguments.each_with_index do |argument, index|
           parameter = positional[index]? || splat
           restriction = parameter.try(&.restriction)
-          next true if argument.is_a?(Unknown) || !restriction.is_a?(Syntax::Type)
+          next if argument.is_a?(Unknown) || !restriction.is_a?(Syntax::Type)
 
-          admits?(@types.resolve_lexically(restriction, scope), argument)
+          expected = @types.resolve_lexically(restriction, scope)
+          next if admits?(expected, argument)
+
+          return Rejected.new(index, expected, argument)
         end
+        nil
       end
 
       def lookup(receiver : Resolution, call : Call) : Array(Index::Def)

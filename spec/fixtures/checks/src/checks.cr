@@ -3,6 +3,10 @@ class Greeter
     name
   end
 
+  def shout(name : String, times : Int32) : String
+    name * times
+  end
+
   def each_twice(& : -> Nil) : Nil
     yield
     yield
@@ -10,3 +14,19 @@ class Greeter
 end
 
 record Point, x : Int32, y : Int32
+
+enum Clock
+  Start
+  Finish
+  BreakStart
+end
+
+abstract class Shape
+  abstract def area : Int32
+end
+
+class Square < Shape
+  def area : Int32
+    4
+  end
+end

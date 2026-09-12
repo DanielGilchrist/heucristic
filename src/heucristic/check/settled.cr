@@ -21,11 +21,16 @@ module Heucristic
       ) : Nil
         @unsettled_files = Hash(String, Bool).new
         @settled_types = Hash(String, Bool).new
+        @declared_types = Hash(String, Bool).new
         @extended = nil.as(Set(String)?)
       end
 
       def type?(name : String) : Bool
         @settled_types[name] ||= settled_type?(name)
+      end
+
+      def declared?(name : String) : Bool
+        @declared_types[name] ||= declared_type?(name)
       end
 
       def program? : Bool
@@ -51,6 +56,25 @@ module Heucristic
 
         levels = [name] + chain
         levels.all? { |level| settled_level?(level) } && !missing_handler?(levels)
+      end
+
+      private def declared_type?(name : String) : Bool
+        return false unless ready?
+
+        entries = @workspace.namespaces(name)
+        return false if entries.empty?
+        return false unless entries.all? { |entry| declared_in_project?(entry) }
+        return false if entries.any? { |entry| !compiled?(entry.path) && macro_uses?(entry.path) }
+
+        chain = @types.ancestors(name)
+        return false if chain.is_a?(Resolve::Unknown)
+
+        chain.all? { |level| settled_level?(level) } && !missing_handler?([name] + chain)
+      end
+
+      private def macro_uses?(path : String) : Bool
+        sites = @workspace.sites(path)
+        sites.nil? || MacroUses.any?(sites, @workspace)
       end
 
       private def ready? : Bool

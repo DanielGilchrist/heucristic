@@ -231,6 +231,10 @@ module Heucristic
         end
       end
 
+      def typed(node : Crystal::ASTNode, context : Syntax::Context) : Resolution
+        type_of(node, context, Array(String).new, Array(Binding).new)
+      end
+
       def type_of(entry : Index::Constant) : Resolution
         constant_type(entry, entry.name, Array(String).new)
       end

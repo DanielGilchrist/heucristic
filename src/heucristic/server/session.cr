@@ -36,6 +36,8 @@ require "./stage"
 require "./published"
 require "./immediacy"
 require "../check/calls"
+require "../check/cases"
+require "../check/abstracts"
 require "../check/settled"
 require "../index/collector"
 require "../index/macro_site"
@@ -369,8 +371,11 @@ module Heucristic
         settled = Check::Settled.new(
           @workspace, @types, @macro_status.is_a?(MacrosDone), @dirty, @compiled, @root, shim_roots
         )
-        checks = Check::Calls.new(@workspace, @types, @methods, @receiver, settled)
-        checks.run(sites).findings.map { |finding| Diagnostics.warning(finding) }
+        calls = Check::Calls.new(@workspace, @types, @methods, @receiver, settled)
+        findings = calls.run(sites).findings
+        Check::Cases.new(@workspace, @receiver, settled).run(sites, findings)
+        Check::Abstracts.new(@workspace, @methods, settled).run(path, findings)
+        findings.map { |finding| Diagnostics.warning(finding) }
       end
 
       private def sweep : Nil
