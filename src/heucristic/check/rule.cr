@@ -13,6 +13,7 @@ module Heucristic
       WrongTypeArguments
       NotGeneric
       MisplacedControl
+      NamedArgument
 
       def code : String
         to_s.underscore.gsub('_', '-')

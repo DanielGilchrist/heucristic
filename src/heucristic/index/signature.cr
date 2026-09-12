@@ -23,6 +23,8 @@ module Heucristic
                  else
                    ParameterKind::Keyword
                  end
+          next if kind.splat? && arg.name.empty?
+
           parameters << Parameter.from(arg, kind)
         end
         if (double_splat = node.double_splat)

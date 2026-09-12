@@ -280,10 +280,12 @@ module Heucristic
         findings : Array(Finding),
       ) : Nil
         return if call.args.any? { |arg| splat?(arg) }
-        return unless call.named_args.nil? || call.named_args.try(&.empty?)
         return if call.block_arg
-        return if defs.any? { |entry| keyword_parameters?(entry) }
         return if Syntax::WellKnown::New.named?(call.name) && !constructor_known?(receiver)
+        keyworded = call.named_args.try { |named| !named.empty? } || false
+        if keyworded || defs.any? { |entry| keyword_parameters?(entry) }
+          return named_arguments(defs, call, context, span, findings)
+        end
 
         count = call.args.size
         fitting = defs.select(&.arity.accepts?(count))
@@ -312,6 +314,24 @@ module Heucristic
 
         matching = fitting.select { |entry| entry.yields == given }
         argument_types(matching, call, context, span, findings)
+      end
+
+      private def named_arguments(
+        defs : Array(Index::Def),
+        call : Crystal::Call,
+        context : Syntax::Context,
+        span : Document::Span,
+        findings : Array(Finding),
+      ) : Nil
+        return unless defs.size == 1
+
+        entry = defs[0]
+        shape = @receiver.shape_of(call, context)
+        complaint = shape.complaint(entry)
+        return unless complaint
+        return if entry.arity.splat && !complaint.starts_with?("no parameter")
+
+        findings << Finding.new(:named_argument, complaint, span)
       end
 
       private def argument_types(

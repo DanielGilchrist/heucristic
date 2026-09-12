@@ -7,6 +7,9 @@ class Greeter
     name * times
   end
 
+  def config(a : Int32, *, key : String) : Nil
+  end
+
   def each_twice(& : -> Nil) : Nil
     yield
     yield
