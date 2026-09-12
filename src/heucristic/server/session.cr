@@ -40,6 +40,7 @@ require "../check/cases"
 require "../check/generics"
 require "../check/controls"
 require "../check/paths"
+require "../check/returns"
 require "../check/abstracts"
 require "../check/settled"
 require "../index/collector"
@@ -385,6 +386,7 @@ module Heucristic
         Check::Generics.new(@workspace, @types, settled, @root).run(sites, findings)
         Check::Controls.new.run(sites, findings)
         Check::Paths.new(@workspace, @types, settled).run(sites, findings)
+        Check::Returns.new(@types, @methods, @receiver, settled).run(sites, findings)
         findings.sort_by! { |finding| {finding.span.start_line, finding.span.start_character} }
         findings.map { |finding| Diagnostics.warning(finding) }
       end

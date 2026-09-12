@@ -895,8 +895,27 @@ describe Heucristic::Server::Loop, "call checks" do
       Nope.new
       Greeter::Missing
       Point::X
+
+      class Sizes
+        def other : String
+          1 + 1
+        end
+
+        def wide : Int32
+          Greeter.new.greet("a")
+        end
+
+        def label : String
+        end
+
+        def either(flag : Bool) : Int32
+          return "no" if flag
+
+          1
+        end
+      end
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 23 }
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 27 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     reported = warnings.map do |warning|
@@ -928,13 +947,17 @@ describe Heucristic::Server::Loop, "call checks" do
       {57, "undefined-constant", "undefined constant Nope"},
       {58, "undefined-constant", "undefined constant Greeter::Missing"},
       {59, "undefined-constant", "undefined constant Point::X"},
+      {62, "return-mismatch", "method Sizes#other must return String but it is returning Int32"},
+      {66, "return-mismatch", "method Sizes#wide must return Int32 but it is returning String"},
+      {70, "return-mismatch", "method Sizes#label must return String but it is returning Nil"},
+      {73, "return-mismatch", "method Sizes#either must return Int32 but it is returning String"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 23
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 27
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }

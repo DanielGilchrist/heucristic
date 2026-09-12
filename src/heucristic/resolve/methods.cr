@@ -164,24 +164,7 @@ module Heucristic
         found
       end
 
-      def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
-        case receiver
-        in TypeRef
-          first_level(receiver.name, call, after: owner) do |entry|
-            entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
-          end
-        in MetaRef
-          of = receiver.of
-          return Array(Index::Def).new if of.is_a?(TypeVar)
-
-          first_level(of.name, call, after: owner) do |entry|
-            entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
-          end
-        in UnionRef, TypeVar then Array(Index::Def).new
-        end
-      end
-
-      private def admits?(restriction : Resolution, argument : Resolved) : Bool
+      def admits?(restriction : Resolution, argument : Resolved) : Bool
         if argument.is_a?(UnionRef)
           return argument.members.all? do |member|
             member.is_a?(Unknown) || admits?(restriction, member)
@@ -203,6 +186,23 @@ module Heucristic
           in MetaRef  then restriction.is?(:class) || module?(restriction.name)
           in TypeVar  then true
           end
+        end
+      end
+
+      def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
+        case receiver
+        in TypeRef
+          first_level(receiver.name, call, after: owner) do |entry|
+            entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
+          end
+        in MetaRef
+          of = receiver.of
+          return Array(Index::Def).new if of.is_a?(TypeVar)
+
+          first_level(of.name, call, after: owner) do |entry|
+            entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
+          end
+        in UnionRef, TypeVar then Array(Index::Def).new
         end
       end
 

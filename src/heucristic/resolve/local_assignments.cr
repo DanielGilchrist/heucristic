@@ -31,6 +31,10 @@ module Heucristic
         Crystal::Call.new(source, "[]", [Crystal::NumberLiteral.new(index)] of Crystal::ASTNode)
       end
 
+      def self.assigned_value(node : Crystal::OpAssign) : Crystal::ASTNode
+        node.op == "||" || node.op == "&&" ? node.value : node
+      end
+
       def self.first_target(body : Crystal::ASTNode, name : String) : Crystal::Var?
         finder = new(name)
         body.accept(finder)
@@ -53,11 +57,20 @@ module Heucristic
         @path.pop
       end
 
-      def visit(node : Crystal::Assign | Crystal::OpAssign) : Bool
+      def visit(node : Crystal::Assign) : Bool
         target = node.target
         return true unless target.is_a?(Crystal::Var) && target.name == @name
 
         remember(node.value)
+        @targets << target
+        true
+      end
+
+      def visit(node : Crystal::OpAssign) : Bool
+        target = node.target
+        return true unless target.is_a?(Crystal::Var) && target.name == @name
+
+        remember(LocalAssignments.assigned_value(node))
         @targets << target
         true
       end

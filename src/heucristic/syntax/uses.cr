@@ -10,12 +10,14 @@ module Heucristic
       record CaseSite, node : Crystal::Case, context : Context
       record GenericSite, node : Crystal::Generic, context : Context
       record ControlSite, node : Crystal::ASTNode, kind : ControlKind, context : Context
+      record DefSite, node : Crystal::Def, context : Context
 
       getter calls : Array(CallSite)
       getter paths : Array(PathSite)
       getter cases : Array(CaseSite)
       getter generics : Array(GenericSite)
       getter controls : Array(ControlSite)
+      getter def_sites : Array(DefSite)
 
       def self.in(tree : Crystal::ASTNode, path : String?) : Uses
         uses = new(path)
@@ -30,6 +32,13 @@ module Heucristic
         @cases = Array(CaseSite).new
         @generics = Array(GenericSite).new
         @controls = Array(ControlSite).new
+        @def_sites = Array(DefSite).new
+      end
+
+      def visit(node : Crystal::Def) : Bool
+        descend = super
+        @def_sites << DefSite.new(node, context) if node.name_location
+        descend
       end
 
       def visit(node : Crystal::Generic) : Bool

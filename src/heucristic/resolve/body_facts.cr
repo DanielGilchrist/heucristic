@@ -50,9 +50,15 @@ module Heucristic
         @path.pop
       end
 
-      def visit(node : Crystal::Assign | Crystal::OpAssign) : Bool
+      def visit(node : Crystal::Assign) : Bool
         target = node.target
         remember(target.name, node.value) if target.is_a?(Crystal::Var)
+        true
+      end
+
+      def visit(node : Crystal::OpAssign) : Bool
+        target = node.target
+        remember(target.name, LocalAssignments.assigned_value(node)) if target.is_a?(Crystal::Var)
         true
       end
 

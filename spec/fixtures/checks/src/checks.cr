@@ -28,6 +28,12 @@ abstract class Shape
   abstract def area : Int32
 end
 
+class Sizes
+  def fine(flag : Bool) : Int32?
+    flag ? 1 : nil
+  end
+end
+
 class Square < Shape
   def area : Int32
     4
