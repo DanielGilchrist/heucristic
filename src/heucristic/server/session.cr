@@ -31,6 +31,8 @@ require "../index/sites"
 require "./macro_status"
 require "./compiler"
 require "./compiler_status"
+require "./notice"
+require "./stage"
 require "./published"
 require "../index/collector"
 require "../index/macro_site"
@@ -41,9 +43,6 @@ require "../resolve/local_declarations"
 module Heucristic
   module Server
     class Session
-      INDEXED        = "$/heucristic/indexed"
-      MACROS         = "$/heucristic/macros"
-      COMPILER       = "$/heucristic/compiler"
       GENERATED_PATH = "<macros>"
 
       getter root : String
@@ -173,7 +172,7 @@ module Heucristic
         @types.invalidate
         @documents.each { |document| index_document(document) }
         @transport.send(Protocol::Encoder.notification(
-          INDEXED,
+          Notice::Indexed.method,
           {
             files:      @workspace.size,
             shims:      @shims.size,
@@ -655,16 +654,25 @@ module Heucristic
       private def notify_compiler : Nil
         payload = case (status = @compiler_status)
                   in CompilerPending
-                    {status: "pending", errors: 0, elapsed_ms: 0.0, reason: nil}
+                    {status: Stage::Pending.wire, errors: 0, elapsed_ms: 0.0, reason: nil}
                   in CompilerDone
-                    elapsed = status.elapsed_ms
-                    {status: "done", errors: status.errors, elapsed_ms: elapsed, reason: nil}
+                    {
+                      status:     Stage::Done.wire,
+                      errors:     status.errors,
+                      elapsed_ms: status.elapsed_ms,
+                      reason:     nil,
+                    }
                   in CompilerBroken
-                    {status: "failed", errors: 0, elapsed_ms: 0.0, reason: status.reason}
+                    {status: Stage::Failed.wire, errors: 0, elapsed_ms: 0.0, reason: status.reason}
                   in CompilerOff
-                    {status: "unavailable", errors: 0, elapsed_ms: 0.0, reason: status.reason}
+                    {
+                      status:     Stage::Unavailable.wire,
+                      errors:     0,
+                      elapsed_ms: 0.0,
+                      reason:     status.reason,
+                    }
                   end
-        @transport.send(Protocol::Encoder.notification(COMPILER, payload))
+        @transport.send(Protocol::Encoder.notification(Notice::Compiler.method, payload))
       end
 
       private def compiler_batch(errors : Array(Check::CompilerError)) : Published::Batch
@@ -698,15 +706,30 @@ module Heucristic
       private def notify_macros : Nil
         payload = case (status = @macro_status)
                   in MacrosPending
-                    {status: "pending", defs: 0, elapsed_ms: 0.0, reason: nil}
+                    {status: Stage::Pending.wire, defs: 0, elapsed_ms: 0.0, reason: nil}
                   in MacrosDone
-                    {status: "done", defs: status.defs, elapsed_ms: status.elapsed_ms, reason: nil}
+                    {
+                      status:     Stage::Done.wire,
+                      defs:       status.defs,
+                      elapsed_ms: status.elapsed_ms,
+                      reason:     nil,
+                    }
                   in MacrosStale
-                    {status: "stale", defs: status.defs, elapsed_ms: 0.0, reason: status.reason}
+                    {
+                      status:     Stage::Stale.wire,
+                      defs:       status.defs,
+                      elapsed_ms: 0.0,
+                      reason:     status.reason,
+                    }
                   in MacrosOff
-                    {status: "unavailable", defs: 0, elapsed_ms: 0.0, reason: status.reason}
+                    {
+                      status:     Stage::Unavailable.wire,
+                      defs:       0,
+                      elapsed_ms: 0.0,
+                      reason:     status.reason,
+                    }
                   end
-        @transport.send(Protocol::Encoder.notification(MACROS, payload))
+        @transport.send(Protocol::Encoder.notification(Notice::Macros.method, payload))
       end
 
       private def generated_defs : Int32

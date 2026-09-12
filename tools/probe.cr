@@ -19,7 +19,7 @@ module Probe
     STDERR.puts "macros: #{macros.try(&.params)}"
 
     client.open(uri, File.read(file))
-    diagnostics = client.await_notification("textDocument/publishDiagnostics")
+    diagnostics = client.await_diagnostics
     puts "diagnostics: #{diagnostics.params.try(&.["diagnostics"]).to_pretty_json}"
 
     if action.in?("hover", "both")
@@ -53,18 +53,20 @@ module Probe
 
   private def await_macros(client : LspClient) : Heucristic::Protocol::Notification?
     loop do
-      notification = client.await_notification("$/heucristic/macros", 60.seconds) rescue return
-      return notification unless notification.params.try(&.["status"]?) == "pending"
+      notice = Heucristic::Server::Notice::Macros
+      notification = client.await_notification(notice, 60.seconds) rescue return
+      stage = Heucristic::Server::Stage.read(notification.params)
+      return notification unless stage == Heucristic::Server::Stage::Pending
     end
   end
 
   private def await_indexed(client : LspClient) : Heucristic::Protocol::Notification
     loop do
-      notification = client.await_notification("$/progress", 30.seconds) rescue break
+      notification = client.await_notification(LSProtocol::PROGRESS, 30.seconds) rescue break
       STDERR.puts "progress: #{notification.params.try(&.["value"]?)}"
       break if notification.params.try(&.["value"]?.try(&.["kind"]?)) == "end"
     end
-    client.await_notification("$/heucristic/indexed", 30.seconds)
+    client.await_notification(Heucristic::Server::Notice::Indexed, 30.seconds)
   end
 
   private def parse(args : Array(String)) : {String, String, Int32, Int32, String}?

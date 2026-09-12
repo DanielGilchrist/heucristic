@@ -1,4 +1,7 @@
 require "json"
+require "lsprotocol"
+require "../../src/heucristic/server/notice"
+require "../../src/heucristic/server/stage"
 require "../../src/heucristic/protocol/framing"
 require "../../src/heucristic/protocol/decoder"
 require "../../src/heucristic/protocol/encoder"
@@ -55,18 +58,18 @@ class LspClient
     options["stdlib"] = stdlib
     options["semantic"] = semantic if semantic
     options["compiler"] = compiler if compiler
-    response = request("initialize", {
+    response = request(LSProtocol::INITIALIZE, {
       "processId"             => nil,
       "rootUri"               => "file://#{root}",
       "capabilities"          => {"window" => {"workDoneProgress" => progress}},
       "initializationOptions" => options,
     })
-    notify("initialized", Hash(String, String).new)
+    notify(LSProtocol::INITIALIZED, Hash(String, String).new)
     response
   end
 
   def open(uri : String, text : String, version : Int32 = 1) : Nil
-    notify("textDocument/didOpen", {
+    notify(LSProtocol::TEXT_DOCUMENT_DID_OPEN, {
       "textDocument" => {
         "uri" => uri, "languageId" => "crystal", "version" => version, "text" => text,
       },
@@ -74,18 +77,18 @@ class LspClient
   end
 
   def change(uri : String, version : Int32, changes : Array(T)) : Nil forall T
-    notify("textDocument/didChange", {
+    notify(LSProtocol::TEXT_DOCUMENT_DID_CHANGE, {
       "textDocument"   => {"uri" => uri, "version" => version},
       "contentChanges" => changes,
     })
   end
 
   def save(uri : String) : Nil
-    notify("textDocument/didSave", {"textDocument" => {"uri" => uri}})
+    notify(LSProtocol::TEXT_DOCUMENT_DID_SAVE, {"textDocument" => {"uri" => uri}})
   end
 
   def hover(uri : String, line : Int32, character : Int32) : Heucristic::Protocol::Response
-    request("textDocument/hover", position_params(uri, line, character))
+    request(LSProtocol::TEXT_DOCUMENT_HOVER, position_params(uri, line, character))
   end
 
   def references(
@@ -94,7 +97,7 @@ class LspClient
     character : Int32,
     include_declaration : Bool = false,
   ) : Heucristic::Protocol::Response
-    request("textDocument/references", {
+    request(LSProtocol::TEXT_DOCUMENT_REFERENCES, {
       "textDocument" => {"uri" => uri},
       "position"     => {"line" => line, "character" => character},
       "context"      => {"includeDeclaration" => include_declaration},
@@ -102,7 +105,7 @@ class LspClient
   end
 
   def completion(uri : String, line : Int32, character : Int32) : Heucristic::Protocol::Response
-    request("textDocument/completion", {
+    request(LSProtocol::TEXT_DOCUMENT_COMPLETION, {
       "textDocument" => {"uri" => uri},
       "position"     => {"line" => line, "character" => character},
     })
@@ -114,7 +117,7 @@ class LspClient
     character : Int32,
     new_name : String,
   ) : Heucristic::Protocol::Response
-    request("textDocument/rename", {
+    request(LSProtocol::TEXT_DOCUMENT_RENAME, {
       "textDocument" => {"uri" => uri},
       "position"     => {"line" => line, "character" => character},
       "newName"      => new_name,
@@ -122,20 +125,42 @@ class LspClient
   end
 
   def document_symbols(uri : String) : Heucristic::Protocol::Response
-    request("textDocument/documentSymbol", {"textDocument" => {"uri" => uri}})
+    request(LSProtocol::TEXT_DOCUMENT_DOCUMENT_SYMBOL, {"textDocument" => {"uri" => uri}})
   end
 
   def workspace_symbols(query : String) : Heucristic::Protocol::Response
-    request("workspace/symbol", {"query" => query})
+    request(LSProtocol::WORKSPACE_SYMBOL, {"query" => query})
   end
 
   def definition(uri : String, line : Int32, character : Int32) : Heucristic::Protocol::Response
-    request("textDocument/definition", position_params(uri, line, character))
+    request(LSProtocol::TEXT_DOCUMENT_DEFINITION, position_params(uri, line, character))
   end
 
   def shutdown : Nil
-    request("shutdown", nil)
-    notify("exit", nil)
+    request(LSProtocol::SHUTDOWN, nil)
+    notify(LSProtocol::EXIT, nil)
+  end
+
+  def await_notification(
+    notice : Heucristic::Server::Notice,
+    timeout : Time::Span = DEFAULT_TIMEOUT,
+  ) : Heucristic::Protocol::Notification
+    await_notification(notice.method, timeout)
+  end
+
+  def await_stage(
+    notice : Heucristic::Server::Notice,
+    stage : Heucristic::Server::Stage,
+    timeout : Time::Span = DEFAULT_TIMEOUT,
+  ) : Heucristic::Protocol::Notification
+    loop do
+      notification = await_notification(notice, timeout)
+      return notification if Heucristic::Server::Stage.read(notification.params) == stage
+    end
+  end
+
+  def await_diagnostics(timeout : Time::Span = DEFAULT_TIMEOUT) : Heucristic::Protocol::Notification
+    await_notification(LSProtocol::TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS, timeout)
   end
 
   def await_notification(
