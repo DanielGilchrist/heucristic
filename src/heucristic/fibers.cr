@@ -12,6 +12,7 @@ module Heucristic
       Macros
       Compiler
       Sweep
+      Check
     end
 
     @@parallel_contexts = Hash(Name, Fiber::ExecutionContext::Parallel).new

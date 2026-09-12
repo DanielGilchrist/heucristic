@@ -34,6 +34,7 @@ require "./compiler_status"
 require "./notice"
 require "./stage"
 require "./published"
+require "./immediacy"
 require "../check/calls"
 require "../check/settled"
 require "../index/collector"
@@ -46,6 +47,7 @@ module Heucristic
   module Server
     class Session
       GENERATED_PATH = "<macros>"
+      CHECK_DELAY    = 300.milliseconds
 
       getter root : String
 
@@ -65,6 +67,7 @@ module Heucristic
         @executable = nil.as(String?)
         @published = Published.new
         @dirty = Set(String).new
+        @check_generations = Hash(String, Int32).new
         @compiled = Set(String).new
         @sweep = 0
         @documents = Document::Store.new
@@ -279,7 +282,7 @@ module Heucristic
         document = @documents.open(
           text_document.uri.to_s, text_document.version, text_document.text
         )
-        analyse(document)
+        analyse(document, Immediacy::Now)
       end
 
       private def did_change(notification : Protocol::Notification) : Outcome
@@ -292,7 +295,7 @@ module Heucristic
         case document
         in Document::Open
           @dirty << document_path(document)
-          analyse(document)
+          analyse(document, Immediacy::AfterPause)
         in Document::Store::Missing then Silence.new
         in Document::OutOfRange
           Log.info("edit out of range at line #{document.line} in #{params.text_document.uri}")
@@ -308,11 +311,12 @@ module Heucristic
         @documents.close(uri)
         @trees.delete(uri)
         @dirty.delete(path_of(uri))
+        @check_generations.delete(uri)
         @published.forget(uri)
         publish(uri, nil, @published.for(uri))
       end
 
-      private def analyse(document : Document::Open) : Outcome
+      private def analyse(document : Document::Open, immediacy : Immediacy) : Outcome
         path = document_path(document)
         tree = Syntax.parse(document.text.source, path)
         case tree
@@ -322,9 +326,30 @@ module Heucristic
           @trees[document.uri] = tree
           index_document(document)
           @published.syntax(document.uri, Diagnostics.none)
-          @published.checks(document.uri, check(path))
+          case immediacy
+          in .now?         then @published.checks(document.uri, check(path))
+          in .after_pause? then schedule_check(document.uri)
+          end
         end
         publish(document.uri, document.version, @published.for(document.uri))
+      end
+
+      private def schedule_check(uri : String) : Nil
+        generation = (@check_generations[uri] ||= 0) + 1
+        @check_generations[uri] = generation
+        Fibers.detach(:check) do
+          sleep CHECK_DELAY
+          check_after_pause(uri, generation)
+        end
+      end
+
+      private def check_after_pause(uri : String, generation : Int32) : Nil
+        return unless @check_generations[uri]? == generation
+        document = @documents[uri]
+        return unless document.is_a?(Document::Open)
+
+        changed = @published.checks(uri, check(path_of(uri)))
+        publish(uri, document.version, @published.for(uri)) if changed
       end
 
       private def document_path(document : Document::Open) : String
