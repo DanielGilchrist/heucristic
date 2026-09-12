@@ -136,6 +136,10 @@ module Score
     total = 0
     checked = 0
     calls = 0
+    skips = Hash(Heucristic::Check::Skip, Int32).new(0)
+    examples = Hash(Heucristic::Check::Skip, String).new
+    unknown = Hash(String, Int32).new(0)
+    unsettled = Hash(String, Int32).new(0)
     timings = Array(Timing).new
     elapsed = Time.measure do
       all.sort_by(&.path).each do |sites|
@@ -147,6 +151,10 @@ module Score
         spent = Time.measure do
           outcome = checks.run(sites)
           checked += outcome.checked
+          outcome.skips.each { |skip, count| skips[skip] += count }
+          outcome.examples.each { |skip, where| examples[skip] ||= where }
+          outcome.unknown_receivers.each { |detail, count| unknown[detail] += count }
+          outcome.unsettled_types.each { |type, count| unsettled[type] += count }
           findings = outcome.findings
           Heucristic::Check::Cases.new(workspace, types, receiver, settled).run(sites, findings)
           Heucristic::Check::Abstracts.new(workspace, methods, settled).run(sites.path, findings)
@@ -168,6 +176,7 @@ module Score
     end
     puts "#{total} findings; #{checked} of #{calls} calls in #{all.size} files were checkable " \
          "(#{elapsed.total_milliseconds.round}ms cold sweep)"
+    explain_skips(skips, examples, unknown, unsettled, root) if ARGV.includes?("--why")
     timings.clear
     only = ARGV.index("--only").try { |index| ARGV[index + 1]? }
     all.each do |sites|
@@ -185,6 +194,33 @@ module Score
     return 3 if over
 
     total.zero? ? 0 : 2
+  end
+
+  private def explain_skips(
+    skips : Hash(Heucristic::Check::Skip, Int32),
+    examples : Hash(Heucristic::Check::Skip, String),
+    unknown : Hash(String, Int32),
+    unsettled : Hash(String, Int32),
+    root : String,
+  ) : Nil
+    puts
+    puts "not checkable because:"
+    skips.to_a.sort_by { |_, count| -count }.each do |skip, count|
+      where = examples[skip]?.try(&.sub(root + "/", "")) || ""
+      puts "  #{count.to_s.rjust(6)}  #{skip.label.ljust(22)} e.g. #{where}"
+    end
+    top("receivers the resolver could not type:", unknown)
+    top("receiver types that are not settled:", unsettled)
+  end
+
+  private def top(title : String, counts : Hash(String, Int32)) : Nil
+    return if counts.empty?
+
+    puts
+    puts title
+    counts.to_a.sort_by { |_, count| -count }.first(12).each do |detail, count|
+      puts "  #{count.to_s.rjust(6)}  #{detail}"
+    end
   end
 
   private def targets_of(

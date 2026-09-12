@@ -8,6 +8,7 @@ require "../resolve/scope"
 require "../resolve/receiver"
 require "./finding"
 require "./outcome"
+require "./skip"
 require "./settled"
 require "./macro_uses"
 require "../syntax/well_known"
@@ -34,50 +35,73 @@ module Heucristic
       def run(sites : Index::Sites) : Outcome
         findings = Array(Finding).new
         checked = 0
-        sites.calls.each { |site| checked += 1 if check(site, sites.text, findings) }
-        Outcome.new(findings, checked)
+        skips = Hash(Skip, Int32).new(0)
+        examples = Hash(Skip, String).new
+        unknown = Hash(String, Int32).new(0)
+        unsettled = Hash(String, Int32).new(0)
+        sites.calls.each do |site|
+          skip = check(site, sites.text, findings, unknown, unsettled)
+          if skip
+            skips[skip] += 1
+            examples[skip] ||= "#{sites.path}:#{site.call.name_location.try(&.line_number)}"
+          else
+            checked += 1
+          end
+        end
+        Outcome.new(findings, checked, skips, examples, unknown, unsettled)
       end
 
       private def check(
         site : Syntax::Uses::CallSite,
         text : Document::Text,
         findings : Array(Finding),
-      ) : Bool
+        unknown : Hash(String, Int32),
+        unsettled : Hash(String, Int32),
+      ) : Skip?
         call = site.call
         location = call.name_location
-        return false unless location
-        return false unless @workspace.macros(call.name).empty?
-        return false if MacroArguments.within?(site.context.ancestors, @workspace)
-        return false if select_condition?(call, site.context.ancestors)
-        return false if call.obj.is_a?(Crystal::ImplicitObj)
-        return false if Resolve::Receiver.chained_comparison?(call)
+        return Skip::NoLocation unless location
+        return Skip::MacroInvocation unless @workspace.macros(call.name).empty?
+        return Skip::MacroArguments if MacroArguments.within?(site.context.ancestors, @workspace)
+        return Skip::SelectCondition if select_condition?(call, site.context.ancestors)
+        return Skip::ImplicitObject if call.obj.is_a?(Crystal::ImplicitObj)
+        return Skip::ChainedComparison if Resolve::Receiver.chained_comparison?(call)
 
         start = Document::Point.from(location)
         span = text.span(start, start.advance(call.name_size))
-        return false unless span.is_a?(Document::Span)
+        return Skip::NoLocation unless span.is_a?(Document::Span)
 
         known = Syntax::WellKnown.from_name(call.name)
-        return orphan(known, call, site.context, span, findings) if known.try(&.unchecked?)
+        if known.try(&.unchecked?)
+          return orphan(known, call, site.context, span, findings) ? nil : Skip::OrphanOutsideDef
+        end
 
         receiver = @receiver.of_call(call, site.context)
-        return true if abstract_instantiation(known, call, receiver, span, findings)
+        return if abstract_instantiation(known, call, receiver, span, findings)
+        if receiver.is_a?(Resolve::Unknown)
+          unknown[receiver.to_s] += 1
+          return Skip::ReceiverUnknown
+        end
         if receiver.is_a?(Resolve::UnionRef)
-          return false if call.obj.nil?
+          return Skip::ImplicitObject if call.obj.nil?
 
           return union_receiver(receiver, call, span, findings)
         end
 
         defs = definitions(receiver, call, site.context)
-        return false unless defs
+        if defs.is_a?(Skip)
+          unsettled[described(receiver)] += 1 if defs.type_unsettled?
+          return defs
+        end
 
         if defs.empty?
           findings << Finding.new(:undefined_method, undefined(call, receiver), span)
-          return true
+          return
         end
-        return true if visibility(defs, call, receiver, site.context, span, findings)
+        return if visibility(defs, call, receiver, site.context, span, findings)
 
         shape(defs, call, receiver, site.context, span, findings)
-        true
+        nil
       end
 
       private def visibility(
@@ -191,39 +215,41 @@ module Heucristic
         call : Crystal::Call,
         span : Document::Span,
         findings : Array(Finding),
-      ) : Bool
+      ) : Skip?
         members = receiver.members.map do |member|
-          return false unless member.is_a?(Resolve::TypeRef)
-          return false unless @settled.type?(member.name)
-          return false if @settled.extended?(member.name)
+          return Skip::UnionMemberNotType unless member.is_a?(Resolve::TypeRef)
+          return Skip::TypeUnsettled unless @settled.type?(member.name)
+          return Skip::TypeHasSubclasses if @settled.extended?(member.name)
 
           member
         end
         missing = members.find { |member| @methods.named_on(member, call.name).empty? }
-        return true unless missing
+        return unless missing
 
         message = String.build do |io|
           io << "undefined method '" << call.name << "' for " << missing
           io << " (compile-time type is (" << receiver << "))"
         end
         findings << Finding.new(:undefined_on_member, message, span)
-        true
+        nil
       end
 
       private def definitions(
         receiver : Resolve::Resolution,
         call : Crystal::Call,
         context : Syntax::Context,
-      ) : Array(Index::Def)?
+      ) : Array(Index::Def) | Skip
         case receiver
-        in Resolve::Unknown, Resolve::UnionRef, Resolve::TypeVar then nil
+        in Resolve::Unknown  then Skip::ReceiverUnknown
+        in Resolve::UnionRef then Skip::UnionMemberNotType
+        in Resolve::TypeVar  then Skip::ReceiverTypeVar
         in Resolve::TypeRef
           return program_definitions(call, context) if receiver.program?
 
           typed_definitions(receiver, receiver.name, call, context)
         in Resolve::MetaRef
           of = receiver.of
-          return if of.is_a?(Resolve::TypeVar)
+          return Skip::ReceiverTypeVar if of.is_a?(Resolve::TypeVar)
 
           typed_definitions(receiver, of.name, call, context)
         end
@@ -232,9 +258,9 @@ module Heucristic
       private def program_definitions(
         call : Crystal::Call,
         context : Syntax::Context,
-      ) : Array(Index::Def)?
-        return unless @settled.program?
-        return if dsl_block?(context)
+      ) : Array(Index::Def) | Skip
+        return Skip::ProgramUnsettled unless @settled.program?
+        return Skip::DslBlock if dsl_block?(context)
 
         found = top_level(call.name)
         found.concat(@methods.named_on(object_type, call.name))
@@ -280,14 +306,14 @@ module Heucristic
         type : String,
         call : Crystal::Call,
         context : Syntax::Context,
-      ) : Array(Index::Def)?
-        return unless @settled.type?(type)
-        return if @settled.extended?(type)
+      ) : Array(Index::Def) | Skip
+        return Skip::TypeUnsettled unless @settled.type?(type)
+        return Skip::TypeHasSubclasses if @settled.extended?(type)
 
         defs = @methods.named_on(receiver, call.name)
         return defs unless call.obj.nil?
-        return unless @settled.program?
-        return if dsl_block?(context)
+        return Skip::ProgramUnsettled unless @settled.program?
+        return Skip::DslBlock if dsl_block?(context)
 
         defs.concat(top_level(call.name))
         top_level_mixed_in(call.name, defs)
