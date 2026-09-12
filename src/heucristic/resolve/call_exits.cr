@@ -24,7 +24,7 @@ module Heucristic
       end
 
       private def no_return?(restriction : Index::Restriction) : Bool
-        restriction.is_a?(Syntax::Named) && restriction.names == ["NoReturn"]
+        restriction.is_a?(Syntax::Named) && restriction.names == [CoreType::NoReturn.type_name]
       end
     end
   end

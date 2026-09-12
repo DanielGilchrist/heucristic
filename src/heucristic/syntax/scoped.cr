@@ -3,6 +3,7 @@ require "./target"
 require "./defined_variables"
 require "../syntax"
 require "../index/macro_text"
+require "../index/synthesized"
 
 module Heucristic
   module Syntax
@@ -100,7 +101,7 @@ module Heucristic
       end
 
       private def record_name(node : Crystal::Call) : Crystal::Path?
-        return unless node.name == "record" && node.obj.nil?
+        return unless node.obj.nil? && Index::Synthesized.from_name(node.name).try(&.record?)
 
         name = node.args[0]?
         name.is_a?(Crystal::Path) ? name : nil

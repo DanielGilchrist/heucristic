@@ -16,6 +16,8 @@ require "./flow"
 require "./call_exits"
 require "../syntax/yield_sites"
 
+require "../syntax/well_known"
+
 module Heucristic
   module Resolve
     class Receiver
@@ -36,7 +38,7 @@ module Heucristic
         )
       end
 
-      FALSEY = {"Nil", "Bool", "Pointer"}
+      FALSEY = {CoreType::Nil, CoreType::Bool, CoreType::Pointer}
 
       def initialize(
         @workspace : Index::Workspace,
@@ -53,11 +55,11 @@ module Heucristic
         locals : Array(Binding) = Array(Binding).new,
         visiting : Array(String) = Array(String).new,
       ) : Resolution
-        return TypeRef.new("Bool", Array(Resolution).new) if chained_comparison?(call)
+        return TypeRef.of(:bool) if chained_comparison?(call)
 
         receiver = of_call(call, context, locals, visiting)
         return receiver if receiver.is_a?(Unknown)
-        if receiver.is_a?(TypeRef) && receiver.name == "Tuple"
+        if receiver.is_a?(TypeRef) && receiver.is?(:tuple)
           element = tuple_element_at(receiver, call)
           return element if element
         end
@@ -66,7 +68,7 @@ module Heucristic
         site = Site.new(
           call.block, context, locals, visiting, shape.named_arguments, call.block_arg
         )
-        if call.obj.nil? && call.name == "super"
+        if call.obj.nil? && Syntax::WellKnown::Super.named?(call.name)
           return super_result(call, receiver, shape, site)
         end
 
@@ -110,7 +112,7 @@ module Heucristic
             "#{receiver} is a type variable; `#{call.name}` depends on its instantiation",
           )
         end
-        return receiver if receiver.is_a?(TypeRef) && receiver.name == "NoReturn"
+        return receiver if receiver.is_a?(TypeRef) && receiver.is?(:no_return)
         if receiver.is_a?(MetaRef) && call.name == "|"
           other = call.arguments[0]?
           return UnionRef.new([receiver, other] of Resolution) if other.is_a?(MetaRef)
@@ -161,10 +163,10 @@ module Heucristic
         site : Site = Site::NONE,
       ) : Resolution
         receiver = owning(entry, receiver)
-        if entry.name == "initialize" && receiver.is_a?(MetaRef)
+        if Syntax::WellKnown::Initialize.named?(entry.name) && receiver.is_a?(MetaRef)
           return receiver.of
         end
-        if entry.name == "new" && receiver.is_a?(MetaRef)
+        if Syntax::WellKnown::New.named?(entry.name) && receiver.is_a?(MetaRef)
           return receiver.of if entry.return_type.is_a?(Index::Unrestricted)
         end
         if entry.qualified == "Object#class"
@@ -177,7 +179,7 @@ module Heucristic
         if entry.qualified == "Proc#call" && receiver.is_a?(TypeRef)
           return receiver.arguments.last? || Unknown.new(:unsupported, "a proc without a signature")
         end
-        if receiver.is_a?(TypeRef) && receiver.name == "Tuple"
+        if receiver.is_a?(TypeRef) && receiver.is?(:tuple)
           special = tuple_special(entry, receiver, arguments, site)
           return special if special
         end
@@ -262,7 +264,7 @@ module Heucristic
           return Unknown.new(:no_annotation, "super outside a method")
         end
 
-        return TypeRef.new("Nil", Array(Resolution).new) if definition.name == "initialize"
+        return TypeRef.of(:nil) if Syntax::WellKnown::Initialize.named?(definition.name)
 
         arity = call.has_parentheses? ? shape.arity : definition.args.size
         parent_call = Methods::Call.new(
@@ -363,7 +365,7 @@ module Heucristic
         if otherwise
           branches << type_of(otherwise, context.inside(node, otherwise), visiting, locals)
         elsif !node.exhaustive?
-          branches << TypeRef.new("Nil", Array(Resolution).new)
+          branches << TypeRef.of(:nil)
         end
         union(branches)
       end
@@ -394,7 +396,7 @@ module Heucristic
         value = type_of(node.value, context, visiting, locals)
         if node.op == "||"
           present = truthy(current, true)
-          return value if present.is_a?(TypeRef) && present.name == "Nil"
+          return value if present.is_a?(TypeRef) && present.is?(:nil)
 
           return union([present, value] of Resolution)
         end
@@ -425,7 +427,7 @@ module Heucristic
         value = union(values)
         return value if value.is_a?(Unknown)
 
-        TypeRef.new("Hash", [key, value] of Resolution)
+        TypeRef.of(:hash, [key, value] of Resolution)
       end
 
       private def yielded_result(context : Syntax::Context) : Resolution
@@ -479,7 +481,7 @@ module Heucristic
 
         member = receiver.arguments[index]?
         if call.name == "[]?"
-          nil_type = TypeRef.new("Nil", Array(Resolution).new)
+          nil_type = TypeRef.of(:nil)
           return member ? union([member, nil_type] of Resolution) : nil_type
         end
 
@@ -502,7 +504,7 @@ module Heucristic
           member = entry.name == "first?" ? members.first? : members.last?
           return unless member
 
-          return union([member, TypeRef.new("Nil", Array(Resolution).new)] of Resolution)
+          return union([member, TypeRef.of(:nil)] of Resolution)
         end
         return unless qualified == "Tuple#map"
 
@@ -512,7 +514,7 @@ module Heucristic
         mapped = scope.bound("U")
         return unless mapped
 
-        TypeRef.new("Tuple", Array(Resolution).new(members.size, mapped))
+        TypeRef.of(:tuple, Array(Resolution).new(members.size, mapped))
       end
 
       private def zipped(
@@ -534,24 +536,24 @@ module Heucristic
           other = element_of(argument)
           return other if other.is_a?(Unknown)
 
-          nil_type = TypeRef.new("Nil", Array(Resolution).new)
+          nil_type = TypeRef.of(:nil)
           members << (nilable ? union([other, nil_type] of Resolution) : other)
         end
-        TypeRef.new("Array", [TypeRef.new("Tuple", members)] of Resolution)
+        TypeRef.of(:array, [TypeRef.of(:tuple, members)] of Resolution)
       end
 
       private def pairs_to_hash(receiver : TypeRef) : Resolution
         element = element_of(receiver)
         return element if element.is_a?(Unknown)
-        unless element.is_a?(TypeRef) && element.name == "Tuple" && element.arguments.size == 2
+        unless element.is_a?(TypeRef) && element.is?(:tuple) && element.arguments.size == 2
           return Unknown.new(:no_annotation, "to_h needs elements typed as two-element tuples")
         end
 
-        TypeRef.new("Hash", element.arguments)
+        TypeRef.of(:hash, element.arguments)
       end
 
       private def element_of(collection : TypeRef) : Resolution
-        bindings = @types.bindings(collection, "Enumerable")
+        bindings = @types.bindings(collection, CoreType::Enumerable.type_name)
         return bindings if bindings.is_a?(Unknown)
 
         bindings.find(&.name.==("T")).try(&.value) ||
@@ -571,11 +573,13 @@ module Heucristic
           next unless mixin.kind.include?
           target = mixin.target
           next unless target.is_a?(Syntax::Type)
+          includer = mixin.owner
+          next unless includer.is_a?(String)
 
-          resolved = @types.resolve_lexically(target, Scope.of(mixin.owner))
+          resolved = @types.resolve_lexically(target, Scope.of(includer))
           next unless resolved.is_a?(TypeRef) && resolved.name == owner
 
-          context = Syntax::Context.new([mixin.owner], Array(String).new, nil)
+          context = Syntax::Context.new([includer], Array(String).new, nil)
           resolution = instance_var(name, context, visiting + [owner])
           found << resolution unless resolution.is_a?(Unknown)
         end
@@ -634,19 +638,19 @@ module Heucristic
           branches << type_of(node.then, context.inside(node, node.then), visiting, locals)
           branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
           union(branches)
-        in Crystal::Return, Crystal::Break then TypeRef.new("NoReturn", Array(Resolution).new)
+        in Crystal::Return, Crystal::Break then TypeRef.of(:no_return)
         in Crystal::Case                   then case_value(node, context, visiting, locals)
         in Crystal::ExceptionHandler       then rescued_value(node, context, visiting, locals)
         in Crystal::Assign                 then type_of(node.value, context, visiting, locals)
         in Crystal::OpAssign               then op_assigned(node, context, visiting, locals)
         in Crystal::Yield                  then yielded_result(context)
         in Crystal::SizeOf, Crystal::InstanceSizeOf, Crystal::AlignOf, Crystal::InstanceAlignOf
-          TypeRef.new("Int32", Array(Resolution).new)
+          TypeRef.of(:int32)
         in Crystal::RangeLiteral
           bounds = Array(Resolution).new(2)
           bounds << type_of(node.from, context, visiting, locals)
           bounds << type_of(node.to, context, visiting, locals)
-          bounds.find(&.is_a?(Unknown)) || TypeRef.new("Range", bounds)
+          bounds.find(&.is_a?(Unknown)) || TypeRef.of(:range, bounds)
         in Crystal::Or
           left = type_of(node.left, context.inside(node, node.left), visiting, locals)
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
@@ -657,22 +661,22 @@ module Heucristic
           union([truthy(left, false), right] of Resolution)
         in Crystal::Next
           value = node.exp
-          return TypeRef.new("Nil", Array(Resolution).new) unless value
+          return TypeRef.of(:nil) unless value
 
           type_of(value, context, visiting, locals)
         in Crystal::ArrayLiteral
           elements(node.elements, context, visiting, locals) do |inner|
-            TypeRef.new("Array", [inner] of Resolution)
+            TypeRef.of(:array, [inner] of Resolution)
           end
         in Crystal::HashLiteral then hash_literal(node, context, visiting, locals)
         in Crystal::TupleLiteral
           members = Array(Resolution).new(node.elements.size)
           node.elements.each { |element| members << type_of(element, context, visiting, locals) }
-          members.find(&.is_a?(Unknown)) || TypeRef.new("Tuple", members)
-        in Crystal::Nop then TypeRef.new("Nil", Array(Resolution).new)
+          members.find(&.is_a?(Unknown)) || TypeRef.of(:tuple, members)
+        in Crystal::Nop then TypeRef.of(:nil)
         in Crystal::Expressions
           last = node.expressions.last?
-          return TypeRef.new("Nil", Array(Resolution).new) unless last
+          return TypeRef.of(:nil) unless last
 
           type_of(last, context.inside(node, last), visiting, locals)
         in Crystal::ASTNode
@@ -686,7 +690,7 @@ module Heucristic
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
-        return implicit_self(context) if name == "self"
+        return implicit_self(context) if Syntax::WellKnown::SelfName.named?(name)
         exits = CallExits.new(@methods, implicit_self(context))
         steps = Flow.steps(name, context.ancestors, exits)
         if (local = locals.find(&.name.==(name)))
@@ -729,7 +733,7 @@ module Heucristic
             typed = type_of(step.value, at, visiting + [key], seeded(locals, name, current))
             value = settled(name, current, step.value, typed)
             present = truthy(current, true)
-            if present.is_a?(TypeRef) && present.name == "Nil"
+            if present.is_a?(TypeRef) && present.is?(:nil)
               value
             else
               union([present, value] of Resolution)
@@ -746,8 +750,8 @@ module Heucristic
         members = current.is_a?(UnionRef) ? current.members : [current] of Resolution
         kept = members.select do |member|
           next true if member.is_a?(Unknown)
-          falsey = member.is_a?(TypeRef) && FALSEY.includes?(member.name)
-          positive ? !(member.is_a?(TypeRef) && member.name == "Nil") : falsey
+          falsey = member.is_a?(TypeRef) && FALSEY.any? { |core| member.is?(core) }
+          positive ? !(member.is_a?(TypeRef) && member.is?(:nil)) : falsey
         end
         return current if kept.empty?
 
@@ -840,7 +844,7 @@ module Heucristic
           return typed if typed.is_a?(Unknown)
           return typed unless definition.splat_index == definition.args.index(parameter)
 
-          return TypeRef.new("Tuple", [typed] of Resolution)
+          return TypeRef.of(:tuple, [typed] of Resolution)
         end
 
         if definition && (block_arg = definition.block_arg) && block_arg.name == name
@@ -873,7 +877,7 @@ module Heucristic
           )
         end
         if steps.any? { |step| assigning?(step) }
-          return TypeRef.new("Nil", Array(Resolution).new)
+          return TypeRef.of(:nil)
         end
 
         assigned = Array(Resolution).new(assignments.size)
@@ -924,7 +928,7 @@ module Heucristic
           end
           results << start
         end
-        return TypeRef.new("NoReturn", Array(Resolution).new) if results.empty?
+        return TypeRef.of(:no_return) if results.empty?
 
         union(results)
       end
@@ -978,7 +982,7 @@ module Heucristic
 
       private def rescued_type(rescued : Crystal::Rescue, context : Syntax::Context) : Resolution
         types = rescued.types
-        return TypeRef.new("Exception", Array(Resolution).new) unless types
+        return TypeRef.of(:exception) unless types
 
         union(types.map { |type| declared(Syntax::TypeReader.read(type), scope(context)) })
       end
@@ -987,14 +991,14 @@ module Heucristic
         members = Array(Resolution).new
         resolutions.each do |resolution|
           return resolution if resolution.is_a?(Unknown)
-          next if resolution.is_a?(TypeRef) && resolution.name == "NoReturn"
+          next if resolution.is_a?(TypeRef) && resolution.is?(:no_return)
           if resolution.is_a?(UnionRef)
             resolution.members.each { |inner| members << inner unless members.includes?(inner) }
           else
             members << resolution unless members.includes?(resolution)
           end
         end
-        return TypeRef.new("NoReturn", Array(Resolution).new) if members.empty?
+        return TypeRef.of(:no_return) if members.empty?
 
         members = absorb(members)
         members.size == 1 ? members[0] : UnionRef.new(members)
@@ -1013,11 +1017,9 @@ module Heucristic
         end
       end
 
-      PROGRAM = "Program"
-
       private def implicit_self(context : Syntax::Context) : Resolution
         owner = context.owner
-        return TypeRef.new(PROGRAM, Array(Resolution).new) if owner.is_a?(Index::TopLevel)
+        return TypeRef.program if owner.is_a?(Index::TopLevel)
 
         this = TypeRef.new(owner, Array(Resolution).new)
         definition = context.def_node
@@ -1030,8 +1032,8 @@ module Heucristic
         element = receiver.arguments[0]?
         return receiver unless element.is_a?(UnionRef)
 
-        kept = element.members.reject { |member| member.is_a?(TypeRef) && member.name == "Nil" }
-        TypeRef.new("Array", [union(kept)] of Resolution)
+        kept = element.members.reject { |member| member.is_a?(TypeRef) && member.is?(:nil) }
+        TypeRef.of(:array, [union(kept)] of Resolution)
       end
 
       private def forwarded(
@@ -1202,14 +1204,14 @@ module Heucristic
         unless input.is_a?(TypeRef)
           return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
         end
-        if input.name == "Tuple"
+        if input.is?(:tuple)
           element = input.arguments[position]?
           return element || Unknown.new(:unsupported, "#{name} unpacks past the tuple's size")
         end
 
         chain = @types.ancestors(input.name)
-        inherits = !chain.is_a?(Unknown) && chain.includes?("Indexable")
-        indexable = input.name == "Indexable" || inherits
+        inherits = !chain.is_a?(Unknown) && chain.includes?(CoreType::Indexable.type_name)
+        indexable = input.is?(:indexable) || inherits
         unless indexable
           return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
         end
@@ -1261,7 +1263,7 @@ module Heucristic
 
         if restriction.inputs.size == 1 && parameters > 1
           yielded = @types.resolve(restriction.inputs[0], scope)
-          if yielded.is_a?(TypeRef) && yielded.name == "Tuple"
+          if yielded.is_a?(TypeRef) && yielded.is?(:tuple)
             element = yielded.arguments[index]?
             return element if element
           end
@@ -1352,7 +1354,7 @@ module Heucristic
 
         proc = type_of(passed, site.context, site.visiting, site.locals)
         return proc if proc.is_a?(Unknown)
-        if proc.is_a?(TypeRef) && proc.name == "Proc" && (output = proc.arguments.last?)
+        if proc.is_a?(TypeRef) && proc.is?(:proc) && (output = proc.arguments.last?)
           return output
         end
 

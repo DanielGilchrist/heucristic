@@ -216,8 +216,9 @@ module Heucristic
         conds.each do |cond|
           case cond
           in Crystal::Path, Crystal::Generic then types << cond
-          in Crystal::NilLiteral             then types << Crystal::Path.global("Nil")
-          in Crystal::ASTNode                then return
+          in Crystal::NilLiteral
+            types << Crystal::Path.global(CoreType::Nil.type_name)
+          in Crystal::ASTNode then return
           end
         end
         types

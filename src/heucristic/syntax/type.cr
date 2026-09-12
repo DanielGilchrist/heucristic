@@ -1,8 +1,14 @@
+require "../core_type"
+
 module Heucristic
   module Syntax
     class Named
       getter names : Array(String)
       getter? global : Bool
+
+      def self.of(core : CoreType, global : Bool = true) : Named
+        new([core.type_name], global)
+      end
 
       def initialize(@names : Array(String), @global : Bool) : Nil
       end

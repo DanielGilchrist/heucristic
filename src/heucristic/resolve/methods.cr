@@ -1,6 +1,7 @@
 require "../index/def"
 require "../index/workspace"
 require "../syntax/type"
+require "../syntax/well_known"
 require "./types"
 
 module Heucristic
@@ -99,8 +100,23 @@ module Heucristic
         in TypeRef  then instance_candidates(receiver.name)
         in MetaRef  then metaclass_candidates(receiver.of)
         in UnionRef then union_candidates(receiver)
-        in TypeVar  then instance_candidates("Object")
+        in TypeVar  then instance_candidates(CoreType::Object.type_name)
         end
+      end
+
+      def named_on(receiver : Resolved, name : String) : Array(Index::Def)
+        case receiver
+        in TypeRef then instance_named(receiver.name, name)
+        in MetaRef
+          of = receiver.of
+          of.is_a?(TypeVar) ? Array(Index::Def).new : metaclass_named(of.name, name)
+        in UnionRef, TypeVar then Array(Index::Def).new
+        end
+      end
+
+      def levels(type : String) : Array(String)
+        chain = @types.ancestors(type)
+        chain.is_a?(Unknown) ? [type] : [type] + chain
       end
 
       def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
@@ -139,14 +155,14 @@ module Heucristic
               ancestor?(argument.name, restriction.name) ||
               autocast?(argument, restriction)
           in UnionRef then false
-          in MetaRef  then restriction.name == "Class"
+          in MetaRef  then restriction.is?(:class)
           in TypeVar  then true
           end
         end
       end
 
       private def autocast?(argument : TypeRef, restriction : TypeRef) : Bool
-        return false unless argument.name == "Symbol"
+        return false unless argument.is?(:symbol)
 
         @workspace.namespaces(restriction.name).any?(Index::EnumNamespace)
       end
@@ -183,10 +199,12 @@ module Heucristic
           next unless mixin.kind.include?
           target = mixin.target
           next unless target.is_a?(Syntax::Type)
+          owner = mixin.owner
+          next unless owner.is_a?(String)
 
-          scope = Scope.new(mixin.owner, @types.type_vars_of(mixin.owner))
+          scope = Scope.new(owner, @types.type_vars_of(owner))
           resolved = @types.resolve_lexically(target, scope)
-          names << mixin.owner if resolved.is_a?(TypeRef) && resolved.name == type
+          names << owner if resolved.is_a?(TypeRef) && resolved.name == type
         end
         names.uniq!
       end
@@ -200,9 +218,14 @@ module Heucristic
         extended = extended_methods(type, call)
         return extended unless extended.empty?
 
-        if call.name == "new"
+        if Syntax::WellKnown::New.named?(call.name)
           constructor = Call.new(
-            "initialize", call.arity, call.block, call.arguments, call.named, call.named_arguments
+            Syntax::WellKnown::Initialize.method_name,
+            call.arity,
+            call.block,
+            call.arguments,
+            call.named,
+            call.named_arguments,
           )
           constructed = instance_methods(type, constructor)
           return constructed unless constructed.empty?
@@ -240,21 +263,21 @@ module Heucristic
       end
 
       private def metaclass_candidates(of : TypeRef | TypeVar) : Array(Index::Def)
-        return instance_candidates("Class") if of.is_a?(TypeVar)
+        return instance_candidates(CoreType::Class.type_name) if of.is_a?(TypeVar)
 
         found = Array(Index::Def).new
         levels(of.name).each do |level|
           @workspace.defs_of(level).each { |entry| found << entry if entry.receiver.metaclass? }
         end
-        found.concat(instance_candidates("Class"))
+        found.concat(instance_candidates(CoreType::Class.type_name))
         found
       end
 
       private def metaclass_methods(of : TypeRef | TypeVar, call : Call) : Array(Index::Def)
-        return class_methods("Object", call) if of.is_a?(TypeVar)
+        return class_methods(CoreType::Object.type_name, call) if of.is_a?(TypeVar)
 
         found = class_methods(of.name, call)
-        found.empty? ? instance_methods("Class", call) : found
+        found.empty? ? instance_methods(CoreType::Class.type_name, call) : found
       end
 
       private def top_level(call : Call) : Array(Index::Def)
@@ -268,14 +291,15 @@ module Heucristic
         return Array(Index::Def).new if call.arity > 0 || call.block || !call.named.empty?
 
         searched = levels(type)
-        declared = @workspace.named("initialize").any? { |entry| searched.includes?(entry.owner) }
+        initialize = Syntax::WellKnown::Initialize.method_name
+        declared = @workspace.named(initialize).any? { |entry| searched.includes?(entry.owner) }
         return Array(Index::Def).new if declared
 
         entry = @workspace.namespaces(type).select(Index::ClassNamespace).first?
         return Array(Index::Def).new unless entry
 
         [Index::Def.new(
-          name: "new",
+          name: Syntax::WellKnown::New.method_name,
           owner: type,
           receiver: :metaclass,
           path: entry.path,
@@ -358,9 +382,47 @@ module Heucristic
         strictly
       end
 
-      private def levels(type : String) : Array(String)
-        chain = @types.ancestors(type)
-        chain.is_a?(Unknown) ? [type] : [type] + chain
+      private def instance_named(type : String, name : String) : Array(Index::Def)
+        searched = levels(type)
+        found = @workspace.named(name).select do |entry|
+          entry.receiver.instance? && searched.includes?(entry.owner)
+        end
+        return found unless found.empty?
+        return found if @including.includes?(type)
+        return found unless @workspace.namespaces(type).any?(Index::ModuleNamespace)
+
+        @including << type
+        includers_of(type).each { |includer| found.concat(instance_named(includer, name)) }
+        @including.pop
+        found.uniq!
+      end
+
+      private def metaclass_named(type : String, name : String) : Array(Index::Def)
+        searched = levels(type)
+        found = @workspace.named(name).select do |entry|
+          entry.receiver.metaclass? && searched.includes?(entry.owner)
+        end
+        searched.each do |level|
+          @workspace.mixins_of(level).each do |mixin|
+            next unless mixin.kind.extend?
+
+            module_name = extended_module(mixin, level)
+            found.concat(instance_named(module_name, name)) if module_name
+          end
+        end
+        found.concat(instance_named(CoreType::Class.type_name, name))
+        found.concat(constructors(type)) if Syntax::WellKnown::New.named?(name)
+        found.uniq!
+      end
+
+      private def constructors(type : String) : Array(Index::Def)
+        levels(type).each do |level|
+          declared = @workspace.named(Syntax::WellKnown::Initialize.method_name).select do |entry|
+            entry.receiver.instance? && entry.owner == level
+          end
+          return declared unless declared.empty?
+        end
+        default_constructor(type, Call.new(Syntax::WellKnown::New.method_name, 0, false))
       end
     end
   end

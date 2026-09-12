@@ -2,10 +2,13 @@ require "compiler/crystal/syntax"
 require "../document/text"
 require "./file"
 require "./accessor"
+require "./synthesized"
+require "./macro_hook"
 require "./signature"
 require "./evident"
 require "./macro_text"
 require "../syntax"
+require "../syntax/well_known"
 
 module Heucristic
   module Index
@@ -244,9 +247,14 @@ module Heucristic
         if node.obj.nil? && (accessor = Accessor.from_name(node.name))
           return accessors(node, accessor)
         end
-        return delegates(node) if node.obj.nil? && node.name == "delegate"
-        record_macro("method_missing", node) if node.obj.nil? && node.name == "forward_missing_to"
-        return true unless node.name == "record" && node.obj.nil?
+        synthesized = node.obj.nil? ? Synthesized.from_name(node.name) : nil
+        return true unless synthesized
+
+        case synthesized
+        in .delegate?           then return delegates(node)
+        in .forward_missing_to? then return record_macro(MacroHook::MethodMissing.macro_name, node)
+        in .record?             then nil
+        end
         name = node.args[0]?
         return true unless name.is_a?(Crystal::Path)
 
@@ -265,6 +273,7 @@ module Heucristic
         fields = node.args.skip(1)
         fields.each { |field| record_field(field) }
         record_initializer(name, fields)
+        record_copies(name)
         node.block.try(&.accept(self))
         @owners.pop
         false
@@ -274,15 +283,16 @@ module Heucristic
         true
       end
 
-      private def record_macro(name : String, node : Crystal::ASTNode) : Nil
+      private def record_macro(name : String, node : Crystal::ASTNode) : Bool
         location = node.name_location || node.location
-        return unless location
+        return false unless location
 
         start = Document::Point.from(location)
         span = @text.span(start, start.advance(name.size))
-        return unless span.is_a?(Document::Span)
+        return false unless span.is_a?(Document::Span)
 
         @macros << MacroDef.new(name, owner, @path, span)
+        false
       end
 
       private def enum_member(owner : String, member : Crystal::ASTNode) : Nil
@@ -305,10 +315,19 @@ module Heucristic
           name_span: span,
           arity: Arity.new(0, 0, false),
           parameters: Array(Parameter).new,
-          return_type: Syntax::Named.new(["Bool"], true),
+          return_type: Syntax::Named.of(:bool),
           free_vars: Array(String).new,
           yields: false,
         )
+      end
+
+      private def record_copies(name : Crystal::Path) : Nil
+        span = span_of(name, name.to_s.size)
+        return unless span
+
+        add_def("clone", :instance, span, Array(Parameter).new, Syntax::SelfType.new)
+        changes = Parameter.new("changes", "changes", Unrestricted.new, nil, :double_splat)
+        add_def("copy_with", :instance, span, [changes], Syntax::SelfType.new)
       end
 
       private def record_initializer(name : Crystal::Path, fields : Array(Crystal::ASTNode)) : Nil
@@ -333,7 +352,7 @@ module Heucristic
         end
         required = parameters.count(&.default.nil?)
         @defs << Def.new(
-          name: "initialize",
+          name: Syntax::WellKnown::Initialize.method_name,
           owner: owner,
           receiver: :instance,
           path: @path,
@@ -364,10 +383,7 @@ module Heucristic
       end
 
       private def mixin(kind : MixinKind, target : Crystal::ASTNode) : Bool
-        namespace = owner
-        return false if namespace.is_a?(TopLevel)
-
-        @mixins << Mixin.new(namespace, kind, Syntax::TypeReader.read(target), @path)
+        @mixins << Mixin.new(owner, kind, Syntax::TypeReader.read(target), @path)
         false
       end
 
@@ -624,7 +640,7 @@ module Heucristic
 
       private def fun_return_type(node : Crystal::FunDef) : Restriction
         returning = node.return_type
-        returning ? Restrictions.of(returning) : Syntax::Named.new(["Nil"], true)
+        returning ? Restrictions.of(returning) : Syntax::Named.of(:nil)
       end
 
       private def c_field(field : Crystal::ASTNode) : Nil

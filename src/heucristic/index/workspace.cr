@@ -33,7 +33,7 @@ module Heucristic
           add(@defs_by_owner, owner_key(entry.owner), entry)
         end
         file.namespaces.each { |entry| add(@namespaces, entry.name, entry) }
-        file.mixins.each { |entry| add(@mixins, entry.owner, entry) }
+        file.mixins.each { |entry| add(@mixins, owner_key(entry.owner), entry) }
         file.instance_vars.each { |entry| add(@instance_vars, entry.owner, entry) }
         file.aliases.each { |entry| add(@aliases, entry.name, entry) }
         file.constants.each { |entry| add(@constants, entry.name, entry) }
@@ -104,7 +104,7 @@ module Heucristic
           drop(@defs_by_owner, owner_key(entry.owner), path)
         end
         previous.namespaces.each { |entry| drop(@namespaces, entry.name, path) }
-        previous.mixins.each { |entry| drop(@mixins, entry.owner, path) }
+        previous.mixins.each { |entry| drop(@mixins, owner_key(entry.owner), path) }
         previous.instance_vars.each { |entry| drop(@instance_vars, entry.owner, path) }
         previous.aliases.each { |entry| drop(@aliases, entry.name, path) }
         previous.constants.each { |entry| drop(@constants, entry.name, path) }
@@ -131,8 +131,8 @@ module Heucristic
         @constants[name]? || Array(Constant).new
       end
 
-      def mixins_of(owner : String) : Array(Mixin)
-        @mixins[owner]? || Array(Mixin).new
+      def mixins_of(owner : Owner) : Array(Mixin)
+        @mixins[owner_key(owner)]? || Array(Mixin).new
       end
 
       def each_mixin(& : Mixin ->) : Nil

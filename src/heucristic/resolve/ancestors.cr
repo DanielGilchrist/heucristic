@@ -76,7 +76,7 @@ module Heucristic
         return bind_positional(type_vars, arguments) if packed < 0
 
         bindings = bind_positional(type_vars[0, splat], arguments[0, splat])
-        pack = TypeRef.new("Tuple", arguments[splat, packed])
+        pack = TypeRef.of(:tuple, arguments[splat, packed])
         bindings << Binding.new(type_vars[splat], pack)
         bindings.concat(bind_positional(type_vars[(splat + 1)..], arguments[(splat + packed)..]))
       end
@@ -156,7 +156,7 @@ module Heucristic
             next if stated.is_a?(Index::Unrestricted)
             return resolve_parent(stated, name, types)
           in Index::EnumNamespace
-            return Parent.new("Enum", Array(Syntax::Type).new)
+            return Parent.new(CoreType::Enum.type_name, Array(Syntax::Type).new)
           in Index::ModuleNamespace, Index::LibNamespace, Index::AnnotationNamespace
             return Builtins::NoSuperclass.new
           end
@@ -171,7 +171,7 @@ module Heucristic
         name = if Builtins.includes?(entry.name)
                  Builtins.superclass(entry.name)
                else
-                 entry.kind.struct? ? "Struct" : "Reference"
+                 (entry.kind.struct? ? CoreType::Struct : CoreType::Reference).type_name
                end
         return name if name.is_a?(Builtins::NoSuperclass)
 

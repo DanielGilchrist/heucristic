@@ -3,6 +3,8 @@ require "../index/workspace"
 require "../index/entry"
 require "./uri"
 
+require "../syntax/well_known"
+
 module Heucristic
   module Server
     class Symbols
@@ -176,7 +178,7 @@ module Heucristic
       private def kind_of(entry : Index::Entry) : LSProtocol::SymbolKind
         case entry
         in Index::Def
-          constructor = entry.name == "initialize"
+          constructor = Syntax::WellKnown::Initialize.named?(entry.name)
           constructor ? LSProtocol::SymbolKind::Constructor : LSProtocol::SymbolKind::Method
         in Index::ClassNamespace
           entry.kind.struct? ? LSProtocol::SymbolKind::Struct : LSProtocol::SymbolKind::Class

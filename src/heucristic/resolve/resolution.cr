@@ -1,6 +1,30 @@
+require "../core_type"
+
 module Heucristic
   module Resolve
     record TypeRef, name : String, arguments : Array(Resolution) do
+      PROGRAM = "Program"
+
+      def self.program : TypeRef
+        new(PROGRAM, Array(Resolution).new)
+      end
+
+      def self.of(core : CoreType) : TypeRef
+        new(core.type_name, Array(Resolution).new)
+      end
+
+      def self.of(core : CoreType, arguments : Array(Resolution)) : TypeRef
+        new(core.type_name, arguments)
+      end
+
+      def program? : Bool
+        name == PROGRAM && arguments.empty?
+      end
+
+      def is?(core : CoreType) : Bool
+        name == core.type_name
+      end
+
       def to_s(io : IO) : Nil
         io << name
         return if arguments.empty?

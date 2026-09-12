@@ -176,7 +176,10 @@ describe Heucristic::Index::Collector, "record" do
       {entry.qualified, entry.return_type.to_s}
     end
     getters.should eq(
-      [{"M::Point#x", "Int32"}, {"M::Point#label", "String"}, {"M::Point#sum", "Int32"}]
+      [
+        {"M::Point#x", "Int32"}, {"M::Point#label", "String"}, {"M::Point#clone", "self"},
+        {"M::Point#sum", "Int32"},
+      ]
     )
   end
 
@@ -393,5 +396,42 @@ describe Heucristic::Index::Collector, "macro regions" do
     read = index(source).defs.find!(&.name.==("read"))
     read.name_span.start_line.should eq(2)
     read.signature.should eq("def self.read(name : String, blocking = nil) : String")
+  end
+end
+
+describe Heucristic::Index::Collector, "macros and mixins" do
+  it "indexes macro definitions by name and owner without descending into their bodies" do
+    file = index(<<-CR)
+      macro shout(text)
+        puts {{text}}.upcase
+      end
+
+      class Wrapper
+        macro wrap(name)
+          def {{name}}; end
+        end
+
+        forward_missing_to @inner
+      end
+      CR
+    owners = file.macros.map do |entry|
+      owner = entry.owner
+      {entry.name, owner.is_a?(String) ? owner : "top-level"}
+    end
+    owners.should eq([{"shout", "top-level"}, {"wrap", "Wrapper"}, {"method_missing", "Wrapper"}])
+    file.defs.should be_empty
+  end
+
+  it "records a top-level include with a top-level owner" do
+    file = index("include Spec::Methods\n")
+    file.mixins.size.should eq(1)
+    file.mixins[0].owner.should be_a(Heucristic::Index::TopLevel)
+    file.mixins[0].kind.include?.should be_true
+  end
+
+  it "synthesizes clone and copy_with for records" do
+    file = index("record Pair, left : Int32, right : Int32\n")
+    copies = file.defs.select(&.name.in?("clone", "copy_with"))
+    copies.map(&.signature).should eq(["def clone : self", "def copy_with(**changes) : self"])
   end
 end

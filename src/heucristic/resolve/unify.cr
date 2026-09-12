@@ -47,7 +47,7 @@ module Heucristic
         in Syntax::Union
           bind_union(restriction, argument, free_vars, bindings, types, scope)
         in Syntax::Proc
-          return unless argument.is_a?(TypeRef) && argument.name == "Proc"
+          return unless argument.is_a?(TypeRef) && argument.is?(:proc)
           return unless (result = argument.arguments.last?)
 
           restriction.inputs.zip?(argument.arguments[0...-1]) do |inner, value|
@@ -105,7 +105,7 @@ module Heucristic
         bind(bare, argument, free_vars, bindings, types, scope) if bare
       end
 
-      private NIL = TypeRef.new("Nil", Array(Resolution).new)
+      private NIL = TypeRef.of(:nil)
     end
   end
 end

@@ -53,7 +53,7 @@ module Heucristic
         locate(path, scope, true, true)
       end
 
-      private NIL = Syntax::Named.new(["Nil"], true)
+      private NIL = Syntax::Named.of(:nil)
 
       private def resolve(type : Syntax::Type, scope : Scope, with_ancestors : Bool) : Resolution
         case type
@@ -250,7 +250,7 @@ module Heucristic
             arguments << resolve(argument, scope, with_ancestors)
           end
         end
-        return union_of(arguments) if base.name == "Union"
+        return union_of(arguments) if base.name == CoreType::Union.type_name
 
         TypeRef.new(base.name, arguments)
       end
@@ -266,9 +266,9 @@ module Heucristic
         arguments << if output
           resolve(output, scope, with_ancestors)
         else
-          TypeRef.new("Nil", Array(Resolution).new)
+          TypeRef.of(:nil)
         end
-        TypeRef.new("Proc", arguments)
+        TypeRef.of(:proc, arguments)
       end
 
       private def resolve_splat(type : Syntax::Splat, scope : Scope) : Resolution
@@ -286,21 +286,21 @@ module Heucristic
         return unless inner.is_a?(Syntax::Named) && inner.names.size == 1
 
         bound = scope.bound(inner.names[0])
-        bound.is_a?(TypeRef) && bound.name == "Tuple" ? bound : nil
+        bound.is_a?(TypeRef) && bound.is?(:tuple) ? bound : nil
       end
 
       private def union_of(members : Array(Resolution)) : Resolution
         flat = Array(Resolution).new
         members.each do |member|
           return member if member.is_a?(Unknown)
-          next if member.is_a?(TypeRef) && member.name == "NoReturn"
+          next if member.is_a?(TypeRef) && member.is?(:no_return)
           if member.is_a?(UnionRef)
             member.members.each { |inner| flat << inner unless flat.includes?(inner) }
           else
             flat << member unless flat.includes?(member)
           end
         end
-        return TypeRef.new("NoReturn", Array(Resolution).new) if flat.empty?
+        return TypeRef.of(:no_return) if flat.empty?
 
         flat.size == 1 ? flat[0] : UnionRef.new(flat)
       end
@@ -322,14 +322,14 @@ module Heucristic
         members.each do |member|
           resolution = resolve(member, scope, with_ancestors)
           return resolution if resolution.is_a?(Unknown)
-          next if resolution.is_a?(TypeRef) && resolution.name == "NoReturn"
+          next if resolution.is_a?(TypeRef) && resolution.is?(:no_return)
           if resolution.is_a?(UnionRef)
             resolution.members.each { |inner| resolved << inner unless resolved.includes?(inner) }
           else
             resolved << resolution unless resolved.includes?(resolution)
           end
         end
-        return TypeRef.new("NoReturn", Array(Resolution).new) if resolved.empty?
+        return TypeRef.of(:no_return) if resolved.empty?
 
         resolved.size == 1 ? resolved[0] : UnionRef.new(resolved)
       end

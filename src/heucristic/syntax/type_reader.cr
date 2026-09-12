@@ -35,7 +35,7 @@ module Heucristic
 
           arguments << inner
         end
-        Generic.new(Named.new(["Tuple"], false), arguments, Array(Generic::NamedArgument).new)
+        Generic.new(Named.of(:tuple, false), arguments, Array(Generic::NamedArgument).new)
       end
 
       private def read_union(node : Crystal::Union) : Outcome
@@ -95,7 +95,7 @@ module Heucristic
       end
 
       private def nil_marker?(node : Crystal::ASTNode) : Bool
-        node.is_a?(Crystal::Path) && node.global? && node.names == ["Nil"]
+        node.is_a?(Crystal::Path) && node.global? && node.names == [CoreType::Nil.type_name]
       end
     end
   end

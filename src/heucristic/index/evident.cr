@@ -1,4 +1,6 @@
 require "compiler/crystal/syntax"
+require "../syntax/well_known"
+require "../core_type"
 require "../syntax/type_reader"
 
 module Heucristic
@@ -10,19 +12,19 @@ module Heucristic
 
       def type(node : Crystal::ASTNode) : Syntax::Type | NotEvident
         case node
-        in Crystal::StringLiteral, Crystal::StringInterpolation then builtin("String")
-        in Crystal::CharLiteral                                 then builtin("Char")
-        in Crystal::BoolLiteral                                 then builtin("Bool")
-        in Crystal::NilLiteral                                  then builtin("Nil")
-        in Crystal::SymbolLiteral                               then builtin("Symbol")
-        in Crystal::RegexLiteral                                then builtin("Regex")
+        in Crystal::StringLiteral, Crystal::StringInterpolation then builtin(:string)
+        in Crystal::CharLiteral                                 then builtin(:char)
+        in Crystal::BoolLiteral                                 then builtin(:bool)
+        in Crystal::NilLiteral                                  then builtin(:nil)
+        in Crystal::SymbolLiteral                               then builtin(:symbol)
+        in Crystal::RegexLiteral                                then builtin(:regex)
         in Crystal::NumberLiteral
           builtin(number_type(node.kind))
         in Crystal::Path, Crystal::Generic then metaclass(node)
         in Crystal::Call                   then constructed(node)
         in Crystal::Cast                   then read(node.to)
         in Crystal::NilableCast            then nilable(node.to)
-        in Crystal::ArrayLiteral           then collection("Array", node.of)
+        in Crystal::ArrayLiteral           then collection(:array, node.of)
         in Crystal::HashLiteral            then hash(node)
         in Crystal::ProcLiteral            then proc_literal(node.def)
         in Crystal::Expressions
@@ -34,7 +36,8 @@ module Heucristic
 
       private def constructed(call : Crystal::Call) : Syntax::Type | NotEvident
         target = call.obj
-        return NotEvident.new unless target && call.name == "new" && call.block.nil?
+        return NotEvident.new unless target && Syntax::WellKnown::New.named?(call.name)
+        return NotEvident.new unless call.block.nil?
         return NotEvident.new unless target.is_a?(Crystal::Path) || target.is_a?(Crystal::Generic)
 
         read(target)
@@ -54,7 +57,7 @@ module Heucristic
         Syntax::Nilable.new(inner)
       end
 
-      private def collection(base : String, of : Crystal::ASTNode?) : Syntax::Type | NotEvident
+      private def collection(base : CoreType, of : Crystal::ASTNode?) : Syntax::Type | NotEvident
         return NotEvident.new unless of
 
         element = read(of)
@@ -77,7 +80,7 @@ module Heucristic
         return value if value.is_a?(NotEvident)
 
         arguments = [key, value] of Syntax::Type
-        Syntax::Generic.new(builtin("Hash"), arguments, Array(Syntax::Generic::NamedArgument).new)
+        Syntax::Generic.new(builtin(:hash), arguments, Array(Syntax::Generic::NamedArgument).new)
       end
 
       private def proc_literal(definition : Crystal::Def) : Syntax::Type | NotEvident
@@ -105,24 +108,24 @@ module Heucristic
         type.is_a?(Syntax::TypeReader::Unsupported) ? NotEvident.new : type
       end
 
-      private def builtin(name : String) : Syntax::Named
-        Syntax::Named.new([name], true)
+      private def builtin(core : CoreType) : Syntax::Named
+        Syntax::Named.of(core)
       end
 
-      private def number_type(kind : Crystal::NumberKind) : String
+      private def number_type(kind : Crystal::NumberKind) : CoreType
         case kind
-        in .i8?   then "Int8"
-        in .i16?  then "Int16"
-        in .i32?  then "Int32"
-        in .i64?  then "Int64"
-        in .i128? then "Int128"
-        in .u8?   then "UInt8"
-        in .u16?  then "UInt16"
-        in .u32?  then "UInt32"
-        in .u64?  then "UInt64"
-        in .u128? then "UInt128"
-        in .f32?  then "Float32"
-        in .f64?  then "Float64"
+        in .i8?   then CoreType::Int8
+        in .i16?  then CoreType::Int16
+        in .i32?  then CoreType::Int32
+        in .i64?  then CoreType::Int64
+        in .i128? then CoreType::Int128
+        in .u8?   then CoreType::UInt8
+        in .u16?  then CoreType::UInt16
+        in .u32?  then CoreType::UInt32
+        in .u64?  then CoreType::UInt64
+        in .u128? then CoreType::UInt128
+        in .f32?  then CoreType::Float32
+        in .f64?  then CoreType::Float64
         end
       end
     end
