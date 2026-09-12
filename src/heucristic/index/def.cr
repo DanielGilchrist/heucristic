@@ -4,6 +4,7 @@ require "./owner"
 require "./parameter"
 require "./signature"
 require "./receiver"
+require "./visibility"
 
 module Heucristic
   module Index
@@ -22,7 +23,8 @@ module Heucristic
       node : Crystal::Def? = nil,
       with_yield : Bool = false,
       macro_body : Bool = false,
-      abstract_def : Bool = false do
+      abstract_def : Bool = false,
+      visibility : Visibility = Visibility::Public do
       def qualified : String
         case (namespace = owner)
         in TopLevel then name

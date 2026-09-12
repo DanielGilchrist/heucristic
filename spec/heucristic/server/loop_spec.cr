@@ -929,8 +929,10 @@ describe Heucristic::Server::Loop, "call checks" do
           @count = 2
         end
       end
+      greeter.secret
+      greeter.guarded
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 30 }
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 32 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     reported = warnings.map do |warning|
@@ -972,13 +974,15 @@ describe Heucristic::Server::Loop, "call checks" do
       {89, "instance-var-mismatch",
        "instance variable '@level' of Gauge must be Int32, not String"},
       {90, "unknown-instance-var", "can't infer the type of instance variable '@missing' of Gauge"},
+      {94, "private-call", "private method 'secret' called for Greeter"},
+      {95, "protected-call", "protected method 'guarded' called for Greeter"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 30
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 32
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }

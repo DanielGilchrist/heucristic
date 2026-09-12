@@ -10,6 +10,12 @@ class Greeter
   def config(a : Int32, *, key : String) : Nil
   end
 
+  private def secret : Nil
+  end
+
+  protected def guarded : Nil
+  end
+
   def each_twice(& : -> Nil) : Nil
     yield
     yield

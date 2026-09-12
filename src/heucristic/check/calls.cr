@@ -74,9 +74,47 @@ module Heucristic
           findings << Finding.new(:undefined_method, undefined(call, receiver), span)
           return true
         end
+        return true if visibility(defs, call, receiver, site.context, span, findings)
 
         shape(defs, call, receiver, site.context, span, findings)
         true
+      end
+
+      private def visibility(
+        defs : Array(Index::Def),
+        call : Crystal::Call,
+        receiver : Resolve::Resolution,
+        context : Syntax::Context,
+        span : Document::Span,
+        findings : Array(Finding),
+      ) : Bool
+        obj = call.obj
+        return false if obj.nil?
+        return false if obj.is_a?(Crystal::Var) && Syntax::WellKnown::SelfName.named?(obj.name)
+
+        if defs.all?(&.visibility.private?)
+          message = "private method '#{call.name}' called for #{described(receiver)}"
+          findings << Finding.new(:private_call, message, span)
+          return true
+        end
+        return false unless defs.all?(&.visibility.protected?)
+        return false unless receiver.is_a?(Resolve::TypeRef)
+        return false unless protected_from_outside?(receiver.name, context.owner)
+
+        message = "protected method '#{call.name}' called for #{described(receiver)}"
+        findings << Finding.new(:protected_call, message, span)
+        true
+      end
+
+      private def protected_from_outside?(receiver : String, caller : Index::Owner) : Bool
+        return true if caller.is_a?(Index::TopLevel)
+        return false if caller == receiver
+        return false if @methods.levels(caller).includes?(receiver)
+        return false if @methods.levels(receiver).includes?(caller)
+
+        receiver_root = receiver.partition("::")[0]
+        caller_root = caller.partition("::")[0]
+        receiver_root != caller_root
       end
 
       private def orphan(

@@ -20,6 +20,8 @@ module Heucristic
       UnknownInstanceVar
       InstanceVarMismatch
       UninitializedInstanceVar
+      PrivateCall
+      ProtectedCall
 
       def code : String
         to_s.underscore.gsub('_', '-')

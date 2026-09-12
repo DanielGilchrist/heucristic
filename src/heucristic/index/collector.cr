@@ -30,6 +30,7 @@ module Heucristic
         @constants = Array(Constant).new
         @macros = Array(MacroDef).new
         @def_depth = 0
+        @visibilities = Array(Visibility).new
         @owners = Array(String).new
       end
 
@@ -41,11 +42,14 @@ module Heucristic
 
       def visit(node : Crystal::VisibilityModifier) : Bool
         @file_private = node.exp if node.modifier.private? && owner.is_a?(TopLevel)
+        applies = modifies_defs?(node.exp)
+        @visibilities << (applies ? Visibility.from(node.modifier) : Visibility::Public)
         true
       end
 
       def end_visit(node : Crystal::VisibilityModifier) : Nil
         @file_private = nil
+        @visibilities.pop
       end
 
       def visit(node : Crystal::ClassDef) : Bool
@@ -603,7 +607,20 @@ module Heucristic
           return_type: return_type,
           free_vars: Array(String).new,
           yields: false,
+          visibility: visibility,
         )
+      end
+
+      private def visibility : Visibility
+        @visibilities.last? || Visibility::Public
+      end
+
+      private def modifies_defs?(exp : Crystal::ASTNode) : Bool
+        return true if exp.is_a?(Crystal::Def)
+        return false unless exp.is_a?(Crystal::Call) && exp.obj.nil?
+        return true if Accessor.from_name(exp.name)
+
+        Synthesized.from_name(exp.name).try(&.delegate?) || false
       end
 
       private def span_of(node : Crystal::ASTNode, size : Int32) : Document::Span?
@@ -708,6 +725,7 @@ module Heucristic
           with_yield: traits.with_yield,
           macro_body: traits.macro_body,
           abstract_def: node.abstract?,
+          visibility: visibility,
         )
       end
     end
