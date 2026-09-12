@@ -28,7 +28,7 @@ module Heucristic
         params = LSProtocol::WorkDoneProgressCreateParams.new(token: TOKEN)
         @transport.send(
           Protocol::Encoder.request(
-            request_id, LSProtocol::WINDOW_WORK_DONE_PROGRESS_CREATE, params
+            request_id, Protocol::Method::WorkDoneProgressCreate, params
           )
         )
         send(LSProtocol::WorkDoneProgressBegin.new(
@@ -81,7 +81,7 @@ module Heucristic
         params = LSProtocol::WorkDoneProgressCreateParams.new(token: token)
         @transport.send(
           Protocol::Encoder.request(
-            request_id, LSProtocol::WINDOW_WORK_DONE_PROGRESS_CREATE, params
+            request_id, Protocol::Method::WorkDoneProgressCreate, params
           )
         )
         send(LSProtocol::WorkDoneProgressBegin.new(kind: "begin", title: title), token)
@@ -95,7 +95,7 @@ module Heucristic
 
       private def send(value : Value, token : String = TOKEN) : Nil
         params = {token: token, value: value}
-        @transport.send(Protocol::Encoder.notification(LSProtocol::PROGRESS, params))
+        @transport.send(Protocol::Encoder.notification(Protocol::Method::Progress, params))
       end
     end
   end

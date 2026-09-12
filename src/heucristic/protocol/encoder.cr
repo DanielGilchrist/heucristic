@@ -1,4 +1,5 @@
 require "json"
+require "./method"
 require "./message"
 
 module Heucristic
@@ -36,6 +37,14 @@ module Heucristic
             end
           end
         end
+      end
+
+      def request(id : Id, method : Method, params : T) : String forall T
+        request(id, method.wire, params)
+      end
+
+      def notification(method : Method, params : T) : String forall T
+        notification(method.wire, params)
       end
 
       def request(id : Id, method : String, params : T) : String forall T

@@ -15,6 +15,7 @@ module Heucristic
         @instance_vars = Hash(String, Array(InstanceVar)).new
         @aliases = Hash(String, Array(Alias)).new
         @constants = Hash(String, Array(Constant)).new
+        @macros = Hash(String, Array(MacroDef)).new
         @sites = Hash(String, Sites).new
         @call_uses = Hash(String, Array(CallUse)).new
         @path_uses = Hash(String, Array(PathUse)).new
@@ -36,6 +37,7 @@ module Heucristic
         file.instance_vars.each { |entry| add(@instance_vars, entry.owner, entry) }
         file.aliases.each { |entry| add(@aliases, entry.name, entry) }
         file.constants.each { |entry| add(@constants, entry.name, entry) }
+        file.macros.each { |entry| add(@macros, entry.name, entry) }
       end
 
       def replace_all(files : Array(File)) : Nil
@@ -106,6 +108,7 @@ module Heucristic
         previous.instance_vars.each { |entry| drop(@instance_vars, entry.owner, path) }
         previous.aliases.each { |entry| drop(@aliases, entry.name, path) }
         previous.constants.each { |entry| drop(@constants, entry.name, path) }
+        previous.macros.each { |entry| drop(@macros, entry.name, path) }
       end
 
       def named(name : String) : Array(Def)
@@ -138,6 +141,10 @@ module Heucristic
 
       def instance_vars_of(owner : String) : Array(InstanceVar)
         @instance_vars[owner]? || Array(InstanceVar).new
+      end
+
+      def macros(name : String) : Array(MacroDef)
+        @macros[name]? || Array(MacroDef).new
       end
 
       private def owner_key(owner : Owner) : String

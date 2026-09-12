@@ -31,6 +31,7 @@ module Heucristic
           file.instance_vars,
           file.aliases,
           file.constants,
+          file.macros,
         )
       end
 

@@ -53,7 +53,7 @@ module Heucristic
           outcome = @session.handle(incoming)
           deliver(outcome)
         in Protocol::Notification
-          start_indexing if incoming.method == LSProtocol::INITIALIZED
+          start_indexing if Protocol::Method.from_wire(incoming.method).try(&.initialized?)
           deliver(@session.handle(incoming))
         in Protocol::Response
           deliver(@session.handle(incoming))

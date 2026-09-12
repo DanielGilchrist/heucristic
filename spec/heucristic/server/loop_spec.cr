@@ -74,7 +74,7 @@ describe Heucristic::Server::Loop do
   it "rejects an unknown method with method not found" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")
-    response = client.request("textDocument/unknownThing", {"x" => 1})
+    response = client.request_raw("textDocument/unknownThing", {"x" => 1})
     response.error.try(&.["code"]?).try(&.as_i?).should eq(-32601)
     client.shutdown
   end
@@ -226,7 +226,7 @@ describe Heucristic::Server::Loop do
 
     kinds = Array(String).new
     until kinds.last? == "end"
-      value = client.await_notification("$/progress").params.try(&.["value"]?)
+      value = client.await_notification(:progress).params.try(&.["value"]?)
       kinds << value.try(&.["kind"]?).try(&.as_s?).to_s
     end
     kinds.first.should eq("begin")

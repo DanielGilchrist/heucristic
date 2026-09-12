@@ -4,6 +4,7 @@ require "./mixin"
 require "./instance_var"
 require "./alias"
 require "./constant"
+require "./macro_def"
 
 module Heucristic
   module Index
@@ -14,6 +15,7 @@ module Heucristic
       mixins : Array(Mixin),
       instance_vars : Array(InstanceVar),
       aliases : Array(Alias),
-      constants : Array(Constant)
+      constants : Array(Constant),
+      macros : Array(MacroDef) = Array(MacroDef).new
   end
 end

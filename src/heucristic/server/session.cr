@@ -114,16 +114,23 @@ module Heucristic
       end
 
       def handle(request : Protocol::Request) : Outcome
-        case request.method
-        when LSProtocol::INITIALIZE                    then initialize_session(request)
-        when LSProtocol::SHUTDOWN                      then reply(request.id, nil)
-        when LSProtocol::TEXT_DOCUMENT_HOVER           then hover(request)
-        when LSProtocol::TEXT_DOCUMENT_DEFINITION      then definition(request)
-        when LSProtocol::TEXT_DOCUMENT_REFERENCES      then references(request)
-        when LSProtocol::TEXT_DOCUMENT_DOCUMENT_SYMBOL then document_symbols(request)
-        when LSProtocol::TEXT_DOCUMENT_COMPLETION      then completion(request)
-        when LSProtocol::TEXT_DOCUMENT_RENAME          then rename(request)
-        when LSProtocol::WORKSPACE_SYMBOL              then workspace_symbols(request)
+        method = Protocol::Method.from_wire(request.method)
+        unless method
+          return error(
+            request.id, Protocol::Encoder::METHOD_NOT_FOUND, "unsupported method #{request.method}"
+          )
+        end
+
+        case method
+        when .initialize?       then initialize_session(request)
+        when .shutdown?         then reply(request.id, nil)
+        when .hover?            then hover(request)
+        when .definition?       then definition(request)
+        when .references?       then references(request)
+        when .document_symbol?  then document_symbols(request)
+        when .completion?       then completion(request)
+        when .rename?           then rename(request)
+        when .workspace_symbol? then workspace_symbols(request)
         else
           error(
             request.id, Protocol::Encoder::METHOD_NOT_FOUND, "unsupported method #{request.method}"
@@ -132,12 +139,15 @@ module Heucristic
       end
 
       def handle(notification : Protocol::Notification) : Outcome
-        case notification.method
-        when LSProtocol::EXIT                     then Stop.new
-        when LSProtocol::TEXT_DOCUMENT_DID_OPEN   then did_open(notification)
-        when LSProtocol::TEXT_DOCUMENT_DID_CHANGE then did_change(notification)
-        when LSProtocol::TEXT_DOCUMENT_DID_CLOSE  then did_close(notification)
-        when LSProtocol::TEXT_DOCUMENT_DID_SAVE   then did_save
+        method = Protocol::Method.from_wire(notification.method)
+        return Silence.new unless method
+
+        case method
+        when .exit?       then Stop.new
+        when .did_open?   then did_open(notification)
+        when .did_change? then did_change(notification)
+        when .did_close?  then did_close(notification)
+        when .did_save?   then did_save
         else
           Silence.new
         end
@@ -875,7 +885,7 @@ module Heucristic
           diagnostics: diagnostics, uri: URI.parse(uri), version: version
         )
         @transport.send(
-          Protocol::Encoder.notification(LSProtocol::TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS, params)
+          Protocol::Encoder.notification(Protocol::Method::PublishDiagnostics, params)
         )
         Silence.new
       end

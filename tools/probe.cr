@@ -16,7 +16,7 @@ module Probe
     indexed = await_indexed(client)
     STDERR.puts "indexed: #{indexed.params}"
     macros = await_macros(client)
-    STDERR.puts "macros: #{macros.try(&.params)}"
+    STDERR.puts "macros: #{macros.params}"
 
     client.open(uri, File.read(file))
     diagnostics = client.await_diagnostics
@@ -51,10 +51,10 @@ module Probe
     process.wait.exit_code
   end
 
-  private def await_macros(client : LspClient) : Heucristic::Protocol::Notification?
+  private def await_macros(client : LspClient) : Heucristic::Protocol::Notification
     loop do
       notice = Heucristic::Server::Notice::Macros
-      notification = client.await_notification(notice, 60.seconds) rescue return
+      notification = client.await_notification(notice, 60.seconds)
       stage = Heucristic::Server::Stage.read(notification.params)
       return notification unless stage == Heucristic::Server::Stage::Pending
     end
@@ -62,7 +62,7 @@ module Probe
 
   private def await_indexed(client : LspClient) : Heucristic::Protocol::Notification
     loop do
-      notification = client.await_notification(LSProtocol::PROGRESS, 30.seconds) rescue break
+      notification = client.await_notification(:progress, 30.seconds)
       STDERR.puts "progress: #{notification.params.try(&.["value"]?)}"
       break if notification.params.try(&.["value"]?.try(&.["kind"]?)) == "end"
     end

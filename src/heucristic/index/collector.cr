@@ -29,11 +29,14 @@ module Heucristic
         @instance_vars = Array(InstanceVar).new
         @aliases = Array(Alias).new
         @constants = Array(Constant).new
+        @macros = Array(MacroDef).new
         @owners = Array(String).new
       end
 
       def file : File
-        File.new(@path, @defs, @namespaces, @mixins, @instance_vars, @aliases, @constants)
+        File.new(
+          @path, @defs, @namespaces, @mixins, @instance_vars, @aliases, @constants, @macros
+        )
       end
 
       def visit(node : Crystal::VisibilityModifier) : Bool
@@ -228,6 +231,11 @@ module Heucristic
         true
       end
 
+      def visit(node : Crystal::Macro) : Bool
+        record_macro(node.name, node)
+        false
+      end
+
       def visit(node : Crystal::MacroIf) : Bool
         expanded = MacroText.expand(node)
         return false if expanded.is_a?(MacroText::Undecidable)
@@ -240,6 +248,7 @@ module Heucristic
       def visit(node : Crystal::Call) : Bool
         return accessors(node) if node.obj.nil? && ACCESSORS.includes?(node.name)
         return delegates(node) if node.obj.nil? && node.name == "delegate"
+        record_macro("method_missing", node) if node.obj.nil? && node.name == "forward_missing_to"
         return true unless node.name == "record" && node.obj.nil?
         name = node.args[0]?
         return true unless name.is_a?(Crystal::Path)
@@ -266,6 +275,17 @@ module Heucristic
 
       def visit(node : Crystal::ASTNode) : Bool
         true
+      end
+
+      private def record_macro(name : String, node : Crystal::ASTNode) : Nil
+        location = node.name_location || node.location
+        return unless location
+
+        start = Document::Point.from(location)
+        span = @text.span(start, start.advance(name.size))
+        return unless span.is_a?(Document::Span)
+
+        @macros << MacroDef.new(name, owner, @path, span)
       end
 
       private def enum_member(owner : String, member : Crystal::ASTNode) : Nil
