@@ -40,14 +40,37 @@ module Semantic
 
     private def collect(program : Crystal::Program) : Nil
       all_types(program).each do |type|
-        next unless type.is_a?(Crystal::ModuleType)
         next if type.is_a?(Crystal::LibType)
+        declared_by_macro = macro_declared?(type)
+        case type
+        in Crystal::Const
+          emit("::#{type} = #{constant_value(type.value)}") if declared_by_macro
+        in Crystal::AliasType
+          emit("alias ::#{type} = #{type.aliased_type}") if declared_by_macro
+        in Crystal::ModuleType
+          generated = generated_defs(type, false) + generated_defs(type.metaclass, true)
+          parents = project?(type) ? module_parents(type) : Array(String).new
+          next if generated.empty? && parents.empty? && !declared_by_macro
 
-        generated = generated_defs(type, false) + generated_defs(type.metaclass, true)
-        parents = project?(type) ? module_parents(type) : Array(String).new
-        next if generated.empty? && parents.empty?
+          reopen(type, generated, parents, declared_by_macro)
+        in Crystal::Type then nil
+        end
+      end
+    end
 
-        reopen(type, generated, parents)
+    private def macro_declared?(type : Crystal::Type) : Bool
+      locations = type.locations
+      return false if locations.nil? || locations.empty?
+
+      locations.all? { |location| location.filename.is_a?(Crystal::VirtualFile) }
+    end
+
+    private def constant_value(value : Crystal::ASTNode) : String
+      case value
+      in Crystal::NumberLiteral, Crystal::StringLiteral, Crystal::SymbolLiteral,
+         Crystal::BoolLiteral, Crystal::NilLiteral, Crystal::CharLiteral
+        value.to_s
+      in Crystal::ASTNode then "uninitialized ::Nil"
       end
     end
 
@@ -130,8 +153,14 @@ module Semantic
       type : Crystal::ModuleType,
       generated : Array(Generated),
       parents : Array(String),
+      declared_by_macro : Bool,
     ) : Nil
-      emit(Header.reopen(type))
+      emit(declared_by_macro ? Header.declare(type) : Header.reopen(type))
+      if declared_by_macro && type.is_a?(Crystal::EnumType)
+        type.types?.try &.each do |name, member|
+          emit("  #{name} = #{member.value}") if member.is_a?(Crystal::Const)
+        end
+      end
       parents.each { |parent| emit("  include ::#{parent}") }
       generated.each do |item|
         header = Header.def(item.definition, item.metaclass)

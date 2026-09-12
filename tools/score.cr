@@ -18,6 +18,7 @@ require "../src/heucristic/check/cases"
 require "../src/heucristic/check/abstracts"
 require "../src/heucristic/check/generics"
 require "../src/heucristic/check/controls"
+require "../src/heucristic/check/paths"
 require "../src/heucristic/check/settled"
 
 module Score
@@ -137,6 +138,7 @@ module Score
     elapsed = Time.measure do
       all.sort_by(&.path).each do |sites|
         next if sites.path.starts_with?(File.join(root, "lib") + "/")
+        next if shim_roots.any? { |shim_root| sites.path.starts_with?(shim_root + "/") }
 
         calls += sites.calls.size
         findings = Array(Heucristic::Check::Finding).new
@@ -148,6 +150,7 @@ module Score
           Heucristic::Check::Abstracts.new(workspace, methods, settled).run(sites.path, findings)
           Heucristic::Check::Generics.new(workspace, types, settled, root).run(sites, findings)
           Heucristic::Check::Controls.new.run(sites, findings)
+          Heucristic::Check::Paths.new(workspace, types, settled).run(sites, findings)
         end
         timings << Timing.new(sites.path.sub(root + "/", ""), spent.total_milliseconds)
         findings.sort_by! { |finding| {finding.span.start_line, finding.span.start_character} }

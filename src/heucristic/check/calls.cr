@@ -13,6 +13,7 @@ require "./macro_uses"
 require "../syntax/well_known"
 require "../index/synthesized"
 require "../index/evident"
+require "./macro_arguments"
 require "../index/macro_hook"
 
 module Heucristic
@@ -45,7 +46,7 @@ module Heucristic
         location = call.name_location
         return false unless location
         return false unless @workspace.macros(call.name).empty?
-        return false if within_macro_arguments?(site.context.ancestors)
+        return false if MacroArguments.within?(site.context.ancestors, @workspace)
         return false if select_condition?(call, site.context.ancestors)
         return false if call.obj.is_a?(Crystal::ImplicitObj)
         return false if Resolve::Receiver.chained_comparison?(call)
@@ -273,20 +274,6 @@ module Heucristic
 
         defs = @methods.lookup(target, @receiver.shape_of(block_call, context))
         defs.empty? || defs.any?(&.with_yield)
-      end
-
-      private def within_macro_arguments?(ancestors : Array(Crystal::ASTNode)) : Bool
-        ancestors.each_with_index.any? do |node, index|
-          next false unless node.is_a?(Crystal::Call) && node.obj.nil? && macro_like?(node.name)
-
-          block = node.block
-          block.nil? || !ancestors[index + 1]?.try(&.same?(block))
-        end
-      end
-
-      private def macro_like?(name : String) : Bool
-        !Index::Accessor.from_name(name).nil? || !Index::Synthesized.from_name(name).nil? ||
-          !@workspace.macros(name).empty?
       end
 
       private def undefined(call : Crystal::Call, receiver : Resolve::Resolution) : String

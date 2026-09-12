@@ -892,8 +892,11 @@ describe Heucristic::Server::Loop, "call checks" do
       greeter.config(1)
       greeter.config(1, a: 2, key: "x")
       greeter.config(1, key: "a")
+      Nope.new
+      Greeter::Missing
+      Point::X
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 20 }
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 23 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     reported = warnings.map do |warning|
@@ -922,13 +925,16 @@ describe Heucristic::Server::Loop, "call checks" do
       {53, "named-argument", "no parameter named 'other'"},
       {54, "named-argument", "missing argument: key"},
       {55, "named-argument", "argument for parameter 'a' already specified"},
+      {57, "undefined-constant", "undefined constant Nope"},
+      {58, "undefined-constant", "undefined constant Greeter::Missing"},
+      {59, "undefined-constant", "undefined constant Point::X"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 20
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 23
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }

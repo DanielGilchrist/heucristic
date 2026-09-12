@@ -15,6 +15,7 @@ module Heucristic
       MisplacedControl
       NamedArgument
       UndefinedOnMember
+      UndefinedConstant
 
       def code : String
         to_s.underscore.gsub('_', '-')

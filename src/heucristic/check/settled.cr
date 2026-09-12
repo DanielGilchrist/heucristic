@@ -33,6 +33,10 @@ module Heucristic
         @declared_types[name] ||= declared_type?(name)
       end
 
+      def namespace?(name : String) : Bool
+        type?(name) || declared?(name)
+      end
+
       def compiled_level?(name : String) : Bool
         @workspace.namespaces(name).any? { |entry| compiled?(entry.path) }
       end

@@ -27,8 +27,19 @@ module Heucristic
         {"Exception", "Reference"}, {"Enum", "Value"}, {"Proc", "Value"}, {"Union", "Value"},
       }
 
+      CONSTANTS = {
+        "Crystal::BUILD_COMMIT", "Crystal::BUILD_DATE", "Crystal::CACHE_DIR",
+        "Crystal::DEFAULT_PATH", "Crystal::DESCRIPTION", "Crystal::PATH", "Crystal::VERSION",
+        "Crystal::LLVM_VERSION", "Crystal::HOST_TRIPLE", "Crystal::TARGET_TRIPLE",
+        "Crystal::LIBRARY_PATH", "Crystal::LIBRARY_RPATH",
+      }
+
       def self.includes?(name : String) : Bool
         ROOTS.includes?(name) || SUPERCLASSES.any? { |entry| entry[0] == name }
+      end
+
+      def self.constant?(name : String) : Bool
+        CONSTANTS.includes?(name)
       end
 
       def self.type_vars(name : String) : Array(String)

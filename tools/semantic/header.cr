@@ -13,6 +13,17 @@ module Semantic
       "#{keyword} ::#{type}"
     end
 
+    def declare(type : Crystal::ModuleType) : String
+      header = reopen(type)
+      return header unless type.is_a?(Crystal::ClassType)
+
+      superclass = type.superclass
+      return header unless superclass
+      return header if superclass.to_s.in?("Reference", "Struct", "Object", "Value", "Enum")
+
+      "#{header} < ::#{superclass}"
+    end
+
     def def(definition : Crystal::Def, metaclass : Bool) : String
       header = Crystal::Def.new(
         definition.name,

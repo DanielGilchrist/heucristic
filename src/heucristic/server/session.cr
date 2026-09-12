@@ -39,6 +39,7 @@ require "../check/calls"
 require "../check/cases"
 require "../check/generics"
 require "../check/controls"
+require "../check/paths"
 require "../check/abstracts"
 require "../check/settled"
 require "../index/collector"
@@ -372,6 +373,7 @@ module Heucristic
         sites = @workspace.sites(path)
         return Diagnostics.none unless sites
         return Diagnostics.none if path.starts_with?(File.join(@root, "lib") + "/")
+        return Diagnostics.none if shimmed?(path)
 
         settled = Check::Settled.new(
           @workspace, @types, @macro_status.is_a?(MacrosDone), @dirty, @compiled, @root, shim_roots
@@ -382,8 +384,13 @@ module Heucristic
         Check::Abstracts.new(@workspace, @methods, settled).run(path, findings)
         Check::Generics.new(@workspace, @types, settled, @root).run(sites, findings)
         Check::Controls.new.run(sites, findings)
+        Check::Paths.new(@workspace, @types, settled).run(sites, findings)
         findings.sort_by! { |finding| {finding.span.start_line, finding.span.start_character} }
         findings.map { |finding| Diagnostics.warning(finding) }
+      end
+
+      private def shimmed?(path : String) : Bool
+        shim_roots.any? { |shim_root| path.starts_with?("#{shim_root}/") }
       end
 
       private def sweep : Nil

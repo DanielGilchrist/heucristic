@@ -115,6 +115,7 @@ module Heucristic
         end
 
         scopes = path.global? ? [Index::TopLevel.new] of Index::Owner : scope.chain
+        scopes.concat(top_level_includes(scope)) unless path.global?
         scopes.each do |prefix|
           search_in(prefix, with_ancestors) do |namespace|
             head = qualify(namespace, first)
@@ -127,6 +128,19 @@ module Heucristic
         end
 
         Unknown.new(:unresolved_name, path.to_s)
+      end
+
+      private def top_level_includes(scope : Scope) : Array(Index::Owner)
+        included = Array(Index::Owner).new
+        @workspace.mixins_of(Index::TopLevel.new).each do |mixin|
+          next unless mixin.kind.include?
+          target = mixin.target
+          next unless target.is_a?(Syntax::Named)
+
+          full = target.names.join("::")
+          included << full if declared?(full, false, scope)
+        end
+        included
       end
 
       private def through_alias(name : String, scope : Scope) : String
@@ -245,6 +259,7 @@ module Heucristic
         return true if namespaces.any? { |entry| visible?(entry.private_path, scope) }
         return true unless visible_aliases(name, scope).empty?
         if constants
+          return true if Builtins.constant?(name)
           constants_named = @workspace.constants(name)
           return true if constants_named.any? { |entry| visible?(entry.private_path, scope) }
         end
