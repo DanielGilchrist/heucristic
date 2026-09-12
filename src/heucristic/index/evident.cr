@@ -10,24 +10,24 @@ module Heucristic
 
       def type(node : Crystal::ASTNode) : Syntax::Type | NotEvident
         case node
-        when Crystal::StringLiteral, Crystal::StringInterpolation then builtin("String")
-        when Crystal::CharLiteral                                 then builtin("Char")
-        when Crystal::BoolLiteral                                 then builtin("Bool")
-        when Crystal::NilLiteral                                  then builtin("Nil")
-        when Crystal::SymbolLiteral                               then builtin("Symbol")
-        when Crystal::RegexLiteral                                then builtin("Regex")
-        when Crystal::NumberLiteral
+        in Crystal::StringLiteral, Crystal::StringInterpolation then builtin("String")
+        in Crystal::CharLiteral                                 then builtin("Char")
+        in Crystal::BoolLiteral                                 then builtin("Bool")
+        in Crystal::NilLiteral                                  then builtin("Nil")
+        in Crystal::SymbolLiteral                               then builtin("Symbol")
+        in Crystal::RegexLiteral                                then builtin("Regex")
+        in Crystal::NumberLiteral
           builtin(number_type(node.kind))
-        when Crystal::Path, Crystal::Generic then metaclass(node)
-        when Crystal::Call                   then constructed(node)
-        when Crystal::Cast                   then read(node.to)
-        when Crystal::NilableCast            then nilable(node.to)
-        when Crystal::ArrayLiteral           then collection("Array", node.of)
-        when Crystal::HashLiteral            then hash(node)
-        when Crystal::ProcLiteral            then proc_literal(node.def)
-        when Crystal::Expressions
+        in Crystal::Path, Crystal::Generic then metaclass(node)
+        in Crystal::Call                   then constructed(node)
+        in Crystal::Cast                   then read(node.to)
+        in Crystal::NilableCast            then nilable(node.to)
+        in Crystal::ArrayLiteral           then collection("Array", node.of)
+        in Crystal::HashLiteral            then hash(node)
+        in Crystal::ProcLiteral            then proc_literal(node.def)
+        in Crystal::Expressions
           node.expressions.size == 1 ? type(node.expressions[0]) : NotEvident.new
-        else
+        in Crystal::ASTNode
           NotEvident.new
         end
       end

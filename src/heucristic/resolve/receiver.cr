@@ -392,19 +392,16 @@ module Heucristic
       ) : Resolution
         current = type_of(node.target, context, visiting, locals)
         value = type_of(node.value, context, visiting, locals)
-        case node.op
-        when "||"
+        if node.op == "||"
           present = truthy(current, true)
           return value if present.is_a?(TypeRef) && present.name == "Nil"
 
-          union([present, value] of Resolution)
-        when "&&"
-          union([truthy(current, false), value] of Resolution)
-        else
-          return current if current.is_a?(Unknown)
-
-          result_of(current, Methods::Call.new(node.op, 1, false, [value] of Resolution))
+          return union([present, value] of Resolution)
         end
+        return union([truthy(current, false), value] of Resolution) if node.op == "&&"
+        return current if current.is_a?(Unknown)
+
+        result_of(current, Methods::Call.new(node.op, 1, false, [value] of Resolution))
       end
 
       private def hash_literal(
@@ -496,22 +493,26 @@ module Heucristic
         site : Site,
       ) : Resolution?
         members = receiver.arguments
-        case entry.qualified
-        when "Tuple#first", "Tuple#last"
+        qualified = entry.qualified
+        if qualified == "Tuple#first" || qualified == "Tuple#last"
           member = entry.name == "first" ? members.first? : members.last?
-          member || Unknown.new(:no_annotation, "#{receiver} has no elements")
-        when "Tuple#first?", "Tuple#last?"
-          member = entry.name == "first?" ? members.first? : members.last?
-          member ? union([member, TypeRef.new("Nil", Array(Resolution).new)] of Resolution) : nil
-        when "Tuple#map"
-          scope = return_scope(entry, receiver, arguments, site)
-          return scope if scope.is_a?(Unknown)
-
-          mapped = scope.bound("U")
-          return unless mapped
-
-          TypeRef.new("Tuple", Array(Resolution).new(members.size, mapped))
+          return member || Unknown.new(:no_annotation, "#{receiver} has no elements")
         end
+        if qualified == "Tuple#first?" || qualified == "Tuple#last?"
+          member = entry.name == "first?" ? members.first? : members.last?
+          return unless member
+
+          return union([member, TypeRef.new("Nil", Array(Resolution).new)] of Resolution)
+        end
+        return unless qualified == "Tuple#map"
+
+        scope = return_scope(entry, receiver, arguments, site)
+        return scope if scope.is_a?(Unknown)
+
+        mapped = scope.bound("U")
+        return unless mapped
+
+        TypeRef.new("Tuple", Array(Resolution).new(members.size, mapped))
       end
 
       private def zipped(
@@ -622,59 +623,59 @@ module Heucristic
         return declared(evident, scope(context)) if evident.is_a?(Syntax::Type)
 
         case node
-        when Crystal::Var then variable(node.name, context, visiting, locals)
-        when Crystal::InstanceVar, Crystal::ClassVar
+        in Crystal::Var then variable(node.name, context, visiting, locals)
+        in Crystal::InstanceVar, Crystal::ClassVar
           instance_var(node.name, context, visiting)
-        when Crystal::Call        then result_of(node, context, locals, visiting)
-        when Crystal::Path        then constant(node, context, visiting)
-        when Crystal::ImplicitObj then case_subject(context, visiting, locals)
-        when Crystal::If, Crystal::Unless
+        in Crystal::Call        then result_of(node, context, locals, visiting)
+        in Crystal::Path        then constant(node, context, visiting)
+        in Crystal::ImplicitObj then case_subject(context, visiting, locals)
+        in Crystal::If, Crystal::Unless
           branches = Array(Resolution).new(2)
           branches << type_of(node.then, context.inside(node, node.then), visiting, locals)
           branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
           union(branches)
-        when Crystal::Return, Crystal::Break then TypeRef.new("NoReturn", Array(Resolution).new)
-        when Crystal::Case                   then case_value(node, context, visiting, locals)
-        when Crystal::ExceptionHandler       then rescued_value(node, context, visiting, locals)
-        when Crystal::Assign                 then type_of(node.value, context, visiting, locals)
-        when Crystal::OpAssign               then op_assigned(node, context, visiting, locals)
-        when Crystal::Yield                  then yielded_result(context)
-        when Crystal::SizeOf, Crystal::InstanceSizeOf, Crystal::AlignOf, Crystal::InstanceAlignOf
+        in Crystal::Return, Crystal::Break then TypeRef.new("NoReturn", Array(Resolution).new)
+        in Crystal::Case                   then case_value(node, context, visiting, locals)
+        in Crystal::ExceptionHandler       then rescued_value(node, context, visiting, locals)
+        in Crystal::Assign                 then type_of(node.value, context, visiting, locals)
+        in Crystal::OpAssign               then op_assigned(node, context, visiting, locals)
+        in Crystal::Yield                  then yielded_result(context)
+        in Crystal::SizeOf, Crystal::InstanceSizeOf, Crystal::AlignOf, Crystal::InstanceAlignOf
           TypeRef.new("Int32", Array(Resolution).new)
-        when Crystal::RangeLiteral
+        in Crystal::RangeLiteral
           bounds = Array(Resolution).new(2)
           bounds << type_of(node.from, context, visiting, locals)
           bounds << type_of(node.to, context, visiting, locals)
           bounds.find(&.is_a?(Unknown)) || TypeRef.new("Range", bounds)
-        when Crystal::Or
+        in Crystal::Or
           left = type_of(node.left, context.inside(node, node.left), visiting, locals)
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
           union([truthy(left, true), right] of Resolution)
-        when Crystal::And
+        in Crystal::And
           left = type_of(node.left, context.inside(node, node.left), visiting, locals)
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
           union([truthy(left, false), right] of Resolution)
-        when Crystal::Next
+        in Crystal::Next
           value = node.exp
           return TypeRef.new("Nil", Array(Resolution).new) unless value
 
           type_of(value, context, visiting, locals)
-        when Crystal::ArrayLiteral
+        in Crystal::ArrayLiteral
           elements(node.elements, context, visiting, locals) do |inner|
             TypeRef.new("Array", [inner] of Resolution)
           end
-        when Crystal::HashLiteral then hash_literal(node, context, visiting, locals)
-        when Crystal::TupleLiteral
+        in Crystal::HashLiteral then hash_literal(node, context, visiting, locals)
+        in Crystal::TupleLiteral
           members = Array(Resolution).new(node.elements.size)
           node.elements.each { |element| members << type_of(element, context, visiting, locals) }
           members.find(&.is_a?(Unknown)) || TypeRef.new("Tuple", members)
-        when Crystal::Nop then TypeRef.new("Nil", Array(Resolution).new)
-        when Crystal::Expressions
+        in Crystal::Nop then TypeRef.new("Nil", Array(Resolution).new)
+        in Crystal::Expressions
           last = node.expressions.last?
           return TypeRef.new("Nil", Array(Resolution).new) unless last
 
           type_of(last, context.inside(node, last), visiting, locals)
-        else
+        in Crystal::ASTNode
           Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
         end
       end

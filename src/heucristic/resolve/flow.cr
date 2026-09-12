@@ -46,26 +46,26 @@ module Heucristic
       ) : Nil
         @prefix = prefix
         case parent
-        when Crystal::If
+        in Crystal::If
           condition(parent.cond, true) if parent.then.same?(child)
           condition(parent.cond, false) if parent.else.same?(child)
-        when Crystal::Unless
+        in Crystal::Unless
           condition(parent.cond, false) if parent.then.same?(child)
           condition(parent.cond, true) if parent.else.same?(child)
-        when Crystal::While
+        in Crystal::While
           condition(parent.cond, true) if parent.body.same?(child)
-        when Crystal::Until
+        in Crystal::Until
           condition(parent.cond, false) if parent.body.same?(child)
-        when Crystal::And
+        in Crystal::And
           condition(parent.left, true) if parent.right.same?(child)
-        when Crystal::Or
+        in Crystal::Or
           condition(parent.left, false) if parent.right.same?(child)
-        when Crystal::Case
+        in Crystal::Case
           case_branch(parent, child)
-        when Crystal::When
-          nil
-        when Crystal::Expressions
+        in Crystal::Expressions
           sequence(parent.expressions, child)
+        in Crystal::When, Crystal::ASTNode
+          nil
         end
       end
 
@@ -82,11 +82,11 @@ module Heucristic
 
       def exits?(node : Crystal::ASTNode?) : Bool
         case node
-        when Crystal::Return, Crystal::Break, Crystal::Next then true
-        when Crystal::Call                                  then @exits.terminates?(node)
-        when Crystal::Expressions
+        in Crystal::Return, Crystal::Break, Crystal::Next then true
+        in Crystal::Call                                  then @exits.terminates?(node)
+        in Crystal::Expressions
           node.expressions.last?.try { |last| exits?(last) } || false
-        else false
+        in Crystal::ASTNode, Nil then false
         end
       end
 
@@ -108,36 +108,36 @@ module Heucristic
 
       private def guarded(statement : Crystal::ASTNode, within : Array(Crystal::ASTNode)) : Nil
         case statement
-        when Crystal::Assign
+        in Crystal::Assign
           target = statement.target
           return unless target.is_a?(Crystal::Var) && target.name == @name
 
           @steps << Assigned.new(statement.value, within)
-        when Crystal::OpAssign
+        in Crystal::OpAssign
           target = statement.target
           return unless target.is_a?(Crystal::Var) && target.name == @name && statement.op == "||"
 
           @steps << OrAssigned.new(statement.value, within)
-        when Crystal::MultiAssign
+        in Crystal::MultiAssign
           value = LocalAssignments.unpacked(statement, @name)
           @steps << Assigned.new(value, within) if value
-        when Crystal::If
+        in Crystal::If
           branches = [Branch.new(true, statement.then), Branch.new(false, statement.else)]
           @steps << Branched.new(statement.cond, branches, within, assigns?(statement))
-        when Crystal::Unless
+        in Crystal::Unless
           branches = [Branch.new(false, statement.then), Branch.new(true, statement.else)]
           @steps << Branched.new(statement.cond, branches, within, assigns?(statement))
-        when Crystal::Or
+        in Crystal::Or
           condition(statement.left, true) if exits?(statement.right)
-        when Crystal::Case
+        in Crystal::Case
           case_exits(statement)
-        when Crystal::While
+        in Crystal::While
           nested(statement)
           condition(statement.cond, false)
-        when Crystal::Until
+        in Crystal::Until
           nested(statement)
           condition(statement.cond, true)
-        else
+        in Crystal::ASTNode
           nested(statement)
         end
       end
@@ -215,9 +215,9 @@ module Heucristic
         types = Array(Crystal::ASTNode).new(conds.size)
         conds.each do |cond|
           case cond
-          when Crystal::Path, Crystal::Generic then types << cond
-          when Crystal::NilLiteral             then types << Crystal::Path.global("Nil")
-          else                                      return
+          in Crystal::Path, Crystal::Generic then types << cond
+          in Crystal::NilLiteral             then types << Crystal::Path.global("Nil")
+          in Crystal::ASTNode                then return
           end
         end
         types
@@ -225,9 +225,9 @@ module Heucristic
 
       private def condition(cond : Crystal::ASTNode, positive : Bool) : Nil
         case cond
-        when Crystal::Var
+        in Crystal::Var
           @steps << Truthy.new(positive) if cond.name == @name
-        when Crystal::IsA
+        in Crystal::IsA
           obj = unwrapped(cond.obj)
           if obj.is_a?(Crystal::Assign) && (target = obj.target).is_a?(Crystal::Var)
             return unless target.name == @name
@@ -237,32 +237,33 @@ module Heucristic
           elsif obj.is_a?(Crystal::Var) && obj.name == @name
             @steps << IsA.new([cond.const], positive)
           end
-        when Crystal::Not
+        in Crystal::Not
           inside(cond) { condition(cond.exp, !positive) }
-        when Crystal::And
+        in Crystal::And
           return unless positive
 
           inside(cond) do
             condition(cond.left, true)
             condition(cond.right, true)
           end
-        when Crystal::Or
+        in Crystal::Or
           return either_is_a(cond) if positive
 
           inside(cond) do
             condition(cond.left, false)
             condition(cond.right, false)
           end
-        when Crystal::Assign
+        in Crystal::Assign
           target = cond.target
           return unless target.is_a?(Crystal::Var) && target.name == @name
 
           @steps << Assigned.new(cond.value, @prefix + [cond])
           @steps << Truthy.new(positive)
-        when Crystal::Expressions
+        in Crystal::Expressions
           return unless cond.expressions.size == 1
 
           inside(cond) { condition(cond.expressions[0], positive) }
+        in Crystal::ASTNode then nil
         end
       end
 

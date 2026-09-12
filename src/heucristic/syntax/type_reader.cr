@@ -12,18 +12,18 @@ module Heucristic
 
       def read(node : Crystal::ASTNode) : Outcome
         case node
-        when Crystal::Path          then Named.new(node.names, node.global?)
-        when Crystal::Union         then read_union(node)
-        when Crystal::Generic       then read_generic(node)
-        when Crystal::TupleLiteral  then read_tuple(node)
-        when Crystal::ProcNotation  then read_proc(node)
-        when Crystal::Metaclass     then wrap(node.name) { |inner| Metaclass.new(inner) }
-        when Crystal::Splat         then wrap(node.exp) { |inner| Splat.new(inner) }
-        when Crystal::NumberLiteral then Literal.new(node.to_s)
-        when Crystal::TypeOf        then TypeOf.new(node.expressions.join(", "))
-        when Crystal::Self          then SelfType.new
-        when Crystal::Underscore    then Underscore.new
-        else                             Unsupported.new(node.class.name, node.to_s)
+        in Crystal::Path          then Named.new(node.names, node.global?)
+        in Crystal::Union         then read_union(node)
+        in Crystal::Generic       then read_generic(node)
+        in Crystal::TupleLiteral  then read_tuple(node)
+        in Crystal::ProcNotation  then read_proc(node)
+        in Crystal::Metaclass     then wrap(node.name) { |inner| Metaclass.new(inner) }
+        in Crystal::Splat         then wrap(node.exp) { |inner| Splat.new(inner) }
+        in Crystal::NumberLiteral then Literal.new(node.to_s)
+        in Crystal::TypeOf        then TypeOf.new(node.expressions.join(", "))
+        in Crystal::Self          then SelfType.new
+        in Crystal::Underscore    then Underscore.new
+        in Crystal::ASTNode       then Unsupported.new(node.class.name, node.to_s)
         end
       end
 

@@ -108,8 +108,8 @@ module Heucristic
 
       private def type_vars_of(node : Crystal::ASTNode) : Array(String)
         case node
-        when Crystal::ClassDef, Crystal::ModuleDef then node.type_vars || Array(String).new
-        else                                            Array(String).new
+        in Crystal::ClassDef, Crystal::ModuleDef then node.type_vars || Array(String).new
+        in Crystal::ASTNode                      then Array(String).new
         end
       end
 

@@ -1,4 +1,5 @@
 require "compiler/crystal/syntax"
+require "./version_comparison"
 require "semantic_version"
 
 module Heucristic
@@ -50,12 +51,12 @@ module Heucristic
 
       private def text(node : Crystal::ASTNode) : String | Undecidable
         case node
-        when Crystal::MacroLiteral then node.value
-        when Crystal::Nop          then ""
-        when Crystal::MacroIf
+        in Crystal::MacroLiteral then node.value
+        in Crystal::Nop          then ""
+        in Crystal::MacroIf
           inner = expand(node)
           inner.is_a?(Undecidable) ? inner : inner.text
-        when Crystal::Expressions
+        in Crystal::Expressions
           String.build do |io|
             node.expressions.each do |piece|
               part = text(piece)
@@ -63,23 +64,23 @@ module Heucristic
               io << part
             end
           end
-        else
+        in Crystal::ASTNode
           Undecidable.new("#{node.class.name} inside a macro body")
         end
       end
 
       private def evaluate(cond : Crystal::ASTNode) : Bool | Undecidable
         case cond
-        when Crystal::BoolLiteral then cond.value
-        when Crystal::Not
+        in Crystal::BoolLiteral then cond.value
+        in Crystal::Not
           inner = evaluate(cond.exp)
           inner.is_a?(Bool) ? !inner : inner
-        when Crystal::And
+        in Crystal::And
           both(evaluate(cond.left), evaluate(cond.right)) { |left, right| left && right }
-        when Crystal::Or
+        in Crystal::Or
           both(evaluate(cond.left), evaluate(cond.right)) { |left, right| left || right }
-        when Crystal::Call then call(cond)
-        else
+        in Crystal::Call then call(cond)
+        in Crystal::ASTNode
           Undecidable.new(cond.to_s)
         end
       end
@@ -122,16 +123,10 @@ module Heucristic
           return Undecidable.new("compare_versions against #{against}")
         end
 
-        comparison = a <=> b
-        case operator
-        when ">=" then comparison >= 0
-        when ">"  then comparison > 0
-        when "<=" then comparison <= 0
-        when "<"  then comparison < 0
-        when "==" then comparison == 0
-        when "!=" then comparison != 0
-        else           Undecidable.new("compare_versions #{operator}")
-        end
+        wanted = VersionComparison.from_operator(operator)
+        return Undecidable.new("compare_versions #{operator}") unless wanted
+
+        wanted.holds?(a <=> b)
       end
 
       private def version_constant?(node : Crystal::Path) : Bool
@@ -140,9 +135,9 @@ module Heucristic
 
       private def version_of(node : Crystal::ASTNode) : SemanticVersion?
         source = case node
-                 when Crystal::StringLiteral then node.value
-                 when Crystal::Path
-                   version_constant?(node) ? Crystal::VERSION : nil
+                 in Crystal::StringLiteral then node.value
+                 in Crystal::Path          then version_constant?(node) ? Crystal::VERSION : nil
+                 in Crystal::ASTNode       then nil
                  end
         return unless source
 

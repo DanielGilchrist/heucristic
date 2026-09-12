@@ -122,18 +122,21 @@ module Heucristic
         end
 
         case method
-        when .initialize?       then initialize_session(request)
-        when .shutdown?         then reply(request.id, nil)
-        when .hover?            then hover(request)
-        when .definition?       then definition(request)
-        when .references?       then references(request)
-        when .document_symbol?  then document_symbols(request)
-        when .completion?       then completion(request)
-        when .rename?           then rename(request)
-        when .workspace_symbol? then workspace_symbols(request)
-        else
+        in .initialize?       then initialize_session(request)
+        in .shutdown?         then reply(request.id, nil)
+        in .hover?            then hover(request)
+        in .definition?       then definition(request)
+        in .references?       then references(request)
+        in .document_symbol?  then document_symbols(request)
+        in .completion?       then completion(request)
+        in .rename?           then rename(request)
+        in .workspace_symbol? then workspace_symbols(request)
+        in .initialized?, .exit?, .did_open?, .did_change?, .did_close?, .did_save?,
+           .publish_diagnostics?, .progress?, .work_done_progress_create?
           error(
-            request.id, Protocol::Encoder::METHOD_NOT_FOUND, "unsupported method #{request.method}"
+            request.id,
+            Protocol::Encoder::INVALID_REQUEST,
+            "#{request.method} is not a request",
           )
         end
       end
@@ -143,12 +146,16 @@ module Heucristic
         return Silence.new unless method
 
         case method
-        when .exit?       then Stop.new
-        when .did_open?   then did_open(notification)
-        when .did_change? then did_change(notification)
-        when .did_close?  then did_close(notification)
-        when .did_save?   then did_save
-        else
+        in .exit?        then Stop.new
+        in .did_open?    then did_open(notification)
+        in .did_change?  then did_change(notification)
+        in .did_close?   then did_close(notification)
+        in .did_save?    then did_save
+        in .initialized? then Silence.new
+        in .initialize?, .shutdown?, .hover?, .definition?, .references?, .document_symbol?,
+           .completion?, .rename?, .workspace_symbol?, .publish_diagnostics?, .progress?,
+           .work_done_progress_create?
+          Log.info("#{notification.method} arrived as a notification and was ignored")
           Silence.new
         end
       end

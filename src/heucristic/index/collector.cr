@@ -1,6 +1,7 @@
 require "compiler/crystal/syntax"
 require "../document/text"
 require "./file"
+require "./accessor"
 require "./signature"
 require "./evident"
 require "./macro_text"
@@ -9,12 +10,6 @@ require "../syntax"
 module Heucristic
   module Index
     class Collector < Crystal::Visitor
-      ACCESSORS = {
-        "getter", "getter?", "getter!", "property", "property?", "property!", "setter",
-        "class_getter", "class_getter?", "class_getter!", "class_property", "class_property?",
-        "class_property!", "class_setter",
-      }
-
       def self.collect(path : String, text : Document::Text, tree : Crystal::ASTNode) : File
         collector = new(path, text)
         tree.accept(collector)
@@ -246,7 +241,9 @@ module Heucristic
       end
 
       def visit(node : Crystal::Call) : Bool
-        return accessors(node) if node.obj.nil? && ACCESSORS.includes?(node.name)
+        if node.obj.nil? && (accessor = Accessor.from_name(node.name))
+          return accessors(node, accessor)
+        end
         return delegates(node) if node.obj.nil? && node.name == "delegate"
         record_macro("method_missing", node) if node.obj.nil? && node.name == "forward_missing_to"
         return true unless node.name == "record" && node.obj.nil?
@@ -320,17 +317,18 @@ module Heucristic
 
         parameters = fields.compact_map do |field|
           case field
-          when Crystal::TypeDeclaration
+          in Crystal::TypeDeclaration
             var = field.var
             next unless var.is_a?(Crystal::Var)
             restriction = Syntax::TypeReader.read(field.declared_type)
             Parameter.new(var.name, var.name, restriction, field.value.try(&.to_s), :positional)
-          when Crystal::Assign
+          in Crystal::Assign
             target = field.target
             next unless target.is_a?(Crystal::Var)
             evident = Evident.type(field.value)
             type = evident.is_a?(Syntax::Type) ? evident : Unrestricted.new
             Parameter.new(target.name, target.name, type, field.value.to_s, :positional)
+          in Crystal::ASTNode then nil
           end
         end
         required = parameters.count(&.default.nil?)
@@ -473,9 +471,10 @@ module Heucristic
 
         node.args.each do |arg|
           name = case arg
-                 when Crystal::SymbolLiteral, Crystal::StringLiteral then arg.value
-                 when Crystal::Call
+                 in Crystal::SymbolLiteral, Crystal::StringLiteral then arg.value
+                 in Crystal::Call
                    arg.obj.nil? && arg.args.empty? ? arg.name : nil
+                 in Crystal::ASTNode then nil
                  end
           next unless name
           span = span_of(arg, name.size + 1)
@@ -498,43 +497,42 @@ module Heucristic
         false
       end
 
-      private def accessors(node : Crystal::Call) : Bool
+      private def accessors(node : Crystal::Call, accessor : Accessor) : Bool
         return false if owner.is_a?(TopLevel)
 
-        macro_name = node.name
-        receiver = macro_name.starts_with?("class_") ? Receiver::Metaclass : Receiver::Instance
-        base = macro_name.lchop("class_")
-        node.args.each { |arg| accessor(arg, base, receiver) }
+        node.args.each { |arg| accessor(arg, accessor) }
         false
       end
 
-      private def accessor(arg : Crystal::ASTNode, base : String, receiver : Receiver) : Nil
+      private def accessor(arg : Crystal::ASTNode, accessor : Accessor) : Nil
+        receiver = accessor.receiver
         case arg
-        when Crystal::TypeDeclaration
+        in Crystal::TypeDeclaration
           var = arg.var
           return unless var.is_a?(Crystal::Var)
           type = Syntax::TypeReader.read(arg.declared_type)
-          accessor_defs(var, var.name, type, base, receiver)
+          accessor_defs(var, var.name, type, accessor)
           return unless receiver.instance?
 
           instance_var("@#{var.name}", type, span_of(var, var.name.size), :declared)
-        when Crystal::Assign
+        in Crystal::Assign
           target = arg.target
           return unless target.is_a?(Crystal::Var)
           evident = Evident.type(arg.value)
           type = evident.is_a?(Syntax::Type) ? evident : Unrestricted.new
-          accessor_defs(target, target.name, type, base, receiver)
+          accessor_defs(target, target.name, type, accessor)
           return unless receiver.instance? && evident.is_a?(Syntax::Type)
 
           instance_var("@#{target.name}", evident, span_of(target, target.name.size), :assigned)
-        when Crystal::Var
-          accessor_defs(arg, arg.name, Unrestricted.new, base, receiver)
-        when Crystal::Call
+        in Crystal::Var
+          accessor_defs(arg, arg.name, Unrestricted.new, accessor)
+        in Crystal::Call
           return unless arg.obj.nil? && arg.args.empty?
 
-          accessor_defs(arg, arg.name, Unrestricted.new, base, receiver)
-        when Crystal::SymbolLiteral, Crystal::StringLiteral
-          accessor_defs(arg, arg.value, Unrestricted.new, base, receiver)
+          accessor_defs(arg, arg.name, Unrestricted.new, accessor)
+        in Crystal::SymbolLiteral, Crystal::StringLiteral
+          accessor_defs(arg, arg.value, Unrestricted.new, accessor)
+        in Crystal::ASTNode then nil
         end
       end
 
@@ -542,21 +540,17 @@ module Heucristic
         node : Crystal::ASTNode,
         name : String,
         type : Restriction,
-        base : String,
-        receiver : Receiver,
+        accessor : Accessor,
       ) : Nil
         span = span_of(node, name.size)
         return unless span
 
-        reader = case base
-                 when "getter?", "property?" then "#{name}?"
-                 when "getter!", "property!" then "#{name}!"
-                 else                             name
-                 end
-        unless base == "setter"
+        receiver = accessor.receiver
+        if accessor.reads?
+          reader = "#{name}#{accessor.reader_suffix}"
           add_def(reader, receiver, span, Array(Parameter).new, type)
         end
-        return unless base.starts_with?("property") || base == "setter"
+        return unless accessor.writes?
 
         value = Parameter.new("value", "value", type, nil, :positional)
         add_def("#{name}=", receiver, span, [value], type)

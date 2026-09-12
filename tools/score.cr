@@ -3,6 +3,7 @@ require "../src/heucristic/index/loader"
 require "../src/heucristic/index/shims"
 require "../src/heucristic/index/workspace"
 require "../src/heucristic/index/collector"
+require "../src/heucristic/index/accessor"
 require "../src/heucristic/crystal_env"
 require "../src/heucristic/server/shim_roots"
 require "../src/heucristic/server/macros"
@@ -21,7 +22,7 @@ module Score
     "record", "delegate", "def_equals", "def_hash", "def_equals_and_hash", "forward_missing_to",
     "def_clone",
   }
-  SKIPPED = Heucristic::Index::Collector::ACCESSORS + STATEMENTS + DECLARATIONS
+  SKIPPED = Heucristic::Index::Accessor.names + STATEMENTS.to_a + DECLARATIONS.to_a
 
   record Outcome,
     path : String,
@@ -191,7 +192,7 @@ module Score
   end
 
   private def declaration?(name : String) : Bool
-    DECLARATIONS.includes?(name) || Heucristic::Index::Collector::ACCESSORS.includes?(name)
+    DECLARATIONS.includes?(name) || !Heucristic::Index::Accessor.from_name(name).nil?
   end
 
   private def expand_macros(
@@ -221,7 +222,9 @@ module Score
     in Heucristic::Index::MacrosFailed      then puts "macros: failed (#{result.reason})"
     in Heucristic::Index::MacrosUnavailable then puts "macros: unavailable (#{result.reason})"
     in Heucristic::Index::Started, Heucristic::Index::Advanced, Heucristic::Index::Finished,
-       Heucristic::Index::MacrosStarted
+       Heucristic::Index::MacrosStarted, Heucristic::Index::CompilerStarted,
+       Heucristic::Index::CompilerFinished, Heucristic::Index::CompilerFailed,
+       Heucristic::Index::CompilerUnavailable
       puts "macros: unexpected #{result.class.name}"
     end
   end
