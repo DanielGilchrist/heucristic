@@ -26,9 +26,11 @@ module Heucristic
         @files.size
       end
 
-      def update(file : File) : Nil
+      def update(file : File) : Bool
+        previous = @files[file.path]?
         remove(file.path)
         @files[file.path] = file
+        changed = previous.nil? || previous.fingerprint != file.fingerprint
         file.defs.each do |entry|
           add(@defs, entry.name, entry)
           add(@defs_by_owner, owner_key(entry.owner), entry)
@@ -42,6 +44,7 @@ module Heucristic
           add(@constants_by_owner, entry.name.rpartition("::")[0], entry)
         end
         file.macros.each { |entry| add(@macros, entry.name, entry) }
+        changed
       end
 
       def replace_all(files : Array(File)) : Nil

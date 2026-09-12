@@ -2,6 +2,7 @@ require "compiler/crystal/syntax"
 require "./terminator"
 require "./local_assignments"
 require "./reassignment"
+require "./body_facts"
 
 module Heucristic
   module Resolve
@@ -26,15 +27,16 @@ module Heucristic
         name : String,
         ancestors : Array(Crystal::ASTNode),
         exits : Terminator,
+        facts : BodyFacts? = nil,
       ) : Array(Step)
-        flow = new(name, exits)
+        flow = new(name, exits, facts)
         (0...ancestors.size - 1).each do |index|
           flow.between(ancestors[index], ancestors[index + 1], ancestors[0..index])
         end
         flow.steps
       end
 
-      def initialize(@name : String, @exits : Terminator) : Nil
+      def initialize(@name : String, @exits : Terminator, @facts : BodyFacts? = nil) : Nil
         @steps = Array(Step).new
         @prefix = Array(Crystal::ASTNode).new
       end
@@ -91,8 +93,10 @@ module Heucristic
       end
 
       private def sequence(statements : Array(Crystal::ASTNode), child : Crystal::ASTNode) : Nil
+        facts = @facts
         statements.each do |statement|
           break if statement.same?(child)
+          next if facts && !facts.mentions?(@name, statement)
 
           guard(statement)
         end
@@ -171,12 +175,24 @@ module Heucristic
       end
 
       private def assigns?(statement : Crystal::ASTNode) : Bool
-        !LocalAssignments.find(statement, @name).empty?
+        !reassignments_within(statement).empty?
       end
 
       private def nested(statement : Crystal::ASTNode) : Nil
-        values = LocalAssignments.locate(statement, @name)
+        values = reassignments_within(statement)
         @steps << Reassigned.new(values, @prefix + [statement]) unless values.empty?
+      end
+
+      private def reassignments_within(statement : Crystal::ASTNode) : Array(Reassignment)
+        facts = @facts
+        return LocalAssignments.locate(statement, @name) unless facts
+
+        found = Array(Reassignment).new
+        facts.reassigned(@name).each do |item|
+          index = item.path.index(&.same?(statement))
+          found << Reassignment.new(item.value, item.path[(index + 1)..]) if index
+        end
+        found
       end
 
       private def case_branch(parent : Crystal::Case, child : Crystal::ASTNode) : Nil

@@ -9,6 +9,7 @@ require "./methods"
 require "./unify"
 require "./render"
 require "./local_declarations"
+require "./body_facts"
 require "./local_assignments"
 require "./variable_references"
 require "./rescue_variables"
@@ -47,7 +48,10 @@ module Heucristic
         @methods : Methods,
       ) : Nil
         @depth = 0
-        @exit_answers = Hash(UInt64, Bool).new
+        @exit_answers = Hash(String, Hash(UInt64, Bool)).new
+        @facts = Hash(UInt64, BodyFacts).new
+        @typed_values = Hash(UInt64, Resolution).new
+        @block_inputs = Hash({UInt64, Int32}, Resolution).new
       end
 
       def result_of(
@@ -234,13 +238,27 @@ module Heucristic
 
       def invalidate : Nil
         @exit_answers.clear
+        @facts.clear
+        @typed_values.clear
+        @block_inputs.clear
+      end
+
+      def forget(path : String) : Nil
+        @exit_answers.delete(path)
+        @facts.clear
+        @typed_values.clear
+        @block_inputs.clear
       end
 
       def remembered_exit(call : Crystal::Call, & : -> Bool) : Bool
-        cached = @exit_answers[call.object_id]?
+        filename = call.location.try(&.filename)
+        return yield unless filename.is_a?(String)
+
+        answers = @exit_answers[filename] ||= Hash(UInt64, Bool).new
+        cached = answers[call.object_id]?
         return cached unless cached.nil?
 
-        @exit_answers[call.object_id] = yield
+        answers[call.object_id] = yield
       end
 
       def no_return?(entry : Index::Def) : Bool
@@ -253,7 +271,8 @@ module Heucristic
       end
 
       def narrowing_steps(name : String, context : Syntax::Context) : Array(Flow::Step)
-        Flow.steps(name, context.ancestors, exits_for(context, Array(String).new))
+        exits = exits_for(context, Array(String).new)
+        Flow.steps(name, context.ancestors, exits, facts_for(context))
       end
 
       def self.chained_comparison?(call : Crystal::Call) : Bool
@@ -726,7 +745,8 @@ module Heucristic
         return implicit_self(context) if Syntax::WellKnown::SelfName.named?(name)
         key = variable_key(name, context)
         exits = exits_for(context, visiting + [key])
-        steps = Flow.steps(name, context.ancestors, exits)
+        facts = facts_for(context)
+        steps = Flow.steps(name, context.ancestors, exits, facts)
         if (local = locals.find(&.name.==(name)))
           return narrow(local.value, name, steps, context, visiting, locals)
         end
@@ -735,13 +755,23 @@ module Heucristic
         if (inner = shadowing_block(name, context))
           from_block = block_parameter(name, context, locals, visiting + [key])
           if from_block
-            inner_steps = Flow.steps(name, context.ancestors[inner..], exits)
+            inner_steps = Flow.steps(name, context.ancestors[inner..], exits, facts)
             return narrow(from_block, name, inner_steps, context, visiting, locals)
           end
         end
 
         base = declared_variable(name, context, visiting, locals, steps)
         narrow(base, name, steps, context, visiting, locals)
+      end
+
+      private def facts_of(body : Crystal::ASTNode) : BodyFacts
+        @facts[body.object_id] ||= BodyFacts.of(body)
+      end
+
+      private def facts_for(context : Syntax::Context) : BodyFacts?
+        definition = context.def_node
+        body = definition ? definition.body : context.ancestors.first?
+        body ? facts_of(body) : nil
       end
 
       private def shadowing_block(name : String, context : Syntax::Context) : Int32?
@@ -763,7 +793,12 @@ module Heucristic
           case step
           in Flow::Assigned
             at = context.at(step.within)
-            typed = type_of(step.value, at, visiting + [key], seeded(locals, name, current))
+            typed = value_type(step.value, locals) ||
+                    remember_value(
+                      step.value,
+                      type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
+                      locals,
+                    )
             settled(name, current, step.value, typed)
           in Flow::Branched then branched(current, step, name, context, visiting, locals)
           in Flow::Reassigned
@@ -772,13 +807,21 @@ module Heucristic
             seeded_locals = seeded(locals, name, current)
             step.values.each do |item|
               at = context.at(step.within + item.path)
-              typed = type_of(item.value, at, visiting + [key], seeded_locals)
+              typed = value_type(item.value, locals) ||
+                      remember_value(
+                        item.value, type_of(item.value, at, visiting + [key], seeded_locals), locals
+                      )
               values << settled(name, current, item.value, typed)
             end
             union(values)
           in Flow::OrAssigned
             at = context.at(step.within)
-            typed = type_of(step.value, at, visiting + [key], seeded(locals, name, current))
+            typed = value_type(step.value, locals) ||
+                    remember_value(
+                      step.value,
+                      type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
+                      locals,
+                    )
             value = settled(name, current, step.value, typed)
             present = truthy(current, true)
             if present.is_a?(TypeRef) && present.is?(:nil)
@@ -891,7 +934,8 @@ module Heucristic
           return Unknown.new(:no_annotation, "#{name} is outside any method or script")
         end
 
-        rescued = RescueVariables.find(body, name)
+        facts = facts_of(body)
+        rescued = facts.rescued(name)
         if rescued && context.ancestors.any?(&.same?(rescued))
           return rescued_type(rescued, context)
         end
@@ -917,7 +961,7 @@ module Heucristic
           return declared(Syntax::TypeReader.read(restriction), scope(context))
         end
 
-        if (declaration = LocalDeclarations.find(body, name))
+        if (declaration = facts.declaration(name))
           return declared(Syntax::TypeReader.read(declaration.declared_type), scope(context))
         end
 
@@ -928,10 +972,9 @@ module Heucristic
           return from_block
         end
 
-        rescued = RescueVariables.find(body, name)
         return rescued_type(rescued, context) if rescued
 
-        assignments = LocalAssignments.find(body, name)
+        assignments = facts.assigned(name)
         if assignments.empty?
           return Unknown.new(
             :no_annotation, "#{name} is not a parameter and is never assigned here"
@@ -945,7 +988,8 @@ module Heucristic
         deferred = Array(Crystal::ASTNode).new
         key = variable_key(name, context)
         assignments.each do |value|
-          typed = type_of(value, context, visiting + [key], locals)
+          typed = value_type(value, locals) ||
+                  remember_value(value, type_of(value, context, visiting + [key], locals), locals)
           if typed.is_a?(Unknown) && typed.reason.cycle?
             deferred << value
           else
@@ -977,13 +1021,13 @@ module Heucristic
         results = Array(Resolution).new(step.branches.size)
         step.branches.each do |branch|
           body = branch.body
-          entry = Flow.new(name, exits)
+          entry = Flow.new(name, exits, facts_for(context))
           next if body && entry.exits?(body)
 
           entry.collect(step.cond, branch.positive, step.within)
           start = narrow(current, name, entry.steps, context, visiting, locals)
           if body && !body.is_a?(Crystal::Nop)
-            inner = Flow.new(name, exits)
+            inner = Flow.new(name, exits, facts_for(context))
             inner.walk(body, step.within + [body])
             start = narrow(start, name, inner.steps, context, visiting, locals)
           end
@@ -992,6 +1036,25 @@ module Heucristic
         return TypeRef.of(:no_return) if results.empty?
 
         union(results)
+      end
+
+      private def value_type(value : Crystal::ASTNode, locals : Array(Binding)) : Resolution?
+        return unless locals.empty?
+
+        @typed_values[value.object_id]?
+      end
+
+      private def remember_value(
+        value : Crystal::ASTNode,
+        typed : Resolution,
+        locals : Array(Binding),
+      ) : Resolution
+        @typed_values[value.object_id] = typed if locals.empty? && !unsettled?(typed)
+        typed
+      end
+
+      private def unsettled?(typed : Resolution) : Bool
+        typed.is_a?(Unknown) && (typed.reason.cycle? || typed.reason.too_deep?)
       end
 
       private def settled(
@@ -1241,8 +1304,14 @@ module Heucristic
           receiver = of_call(call, outer, locals, visiting)
           return receiver if receiver.is_a?(Unknown)
 
-          shape = shape_of(call, outer, locals, visiting)
-          input = block_inputs(receiver, shape, index, block.args.size)
+          input = @block_inputs[{call.object_id, index}]? || begin
+            shape = shape_of(call, outer, locals, visiting)
+            computed = block_inputs(receiver, shape, index, block.args.size)
+            if locals.empty? && !unsettled?(computed)
+              @block_inputs[{call.object_id, index}] = computed
+            end
+            computed
+          end
           return input unless unpacked
 
           return tuple_element(input, unpacked[1], name)

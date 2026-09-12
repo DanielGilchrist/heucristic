@@ -94,6 +94,11 @@ module Heucristic
 
       def initialize(@workspace : Index::Workspace, @types : Types) : Nil
         @including = Array(String).new
+        @includers = Hash(String, Array(String)).new
+      end
+
+      def invalidate : Nil
+        @includers.clear
       end
 
       def compatible?(entry : Index::Def, call : Call) : Bool
@@ -234,6 +239,13 @@ module Heucristic
       end
 
       private def includers_of(type : String) : Array(String)
+        cached = @includers[type]?
+        return cached if cached
+
+        @includers[type] = compute_includers(type)
+      end
+
+      private def compute_includers(type : String) : Array(String)
         names = Array(String).new
         @workspace.each_mixin do |mixin|
           next unless mixin.kind.include?

@@ -8,13 +8,24 @@ require "./ancestors"
 module Heucristic
   module Resolve
     class Types
+      record LocateKey,
+        names : Array(String),
+        global : Bool,
+        namespace : Index::Owner,
+        type_vars : Array(String),
+        path : String?,
+        ancestors : Bool,
+        constants : Bool
+
       def initialize(@workspace : Index::Workspace) : Nil
         @ancestors = Ancestors.new(@workspace)
         @inheriting = Array(String).new
+        @located = Hash(LocateKey, String | Unknown).new
       end
 
       def invalidate : Nil
         @ancestors.invalidate
+        @located.clear
       end
 
       def ancestors(name : String) : Ancestors::Chain
@@ -76,6 +87,22 @@ module Heucristic
       end
 
       private def locate(
+        path : Syntax::Named,
+        scope : Scope,
+        with_ancestors : Bool,
+        constants : Bool,
+      ) : String | Unknown
+        key = LocateKey.new(
+          path.names, path.global?, scope.namespace, scope.type_vars, scope.path,
+          with_ancestors, constants,
+        )
+        cached = @located[key]?
+        return cached unless cached.nil?
+
+        @located[key] = search(path, scope, with_ancestors, constants)
+      end
+
+      private def search(
         path : Syntax::Named,
         scope : Scope,
         with_ancestors : Bool,

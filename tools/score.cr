@@ -30,6 +30,11 @@ module Score
   }
   SKIPPED = Heucristic::Index::Accessor.names + STATEMENTS.to_a + DECLARATIONS.to_a
 
+  BUDGET_MS = 25.0
+  ROUNDS    =    3
+
+  record Timing, path : String, milliseconds : Float64
+
   record Outcome,
     path : String,
     line : Int32,
@@ -128,18 +133,23 @@ module Score
     total = 0
     checked = 0
     calls = 0
+    timings = Array(Timing).new
     elapsed = Time.measure do
       all.sort_by(&.path).each do |sites|
         next if sites.path.starts_with?(File.join(root, "lib") + "/")
 
         calls += sites.calls.size
-        outcome = checks.run(sites)
-        checked += outcome.checked
-        findings = outcome.findings
-        Heucristic::Check::Cases.new(workspace, types, receiver, settled).run(sites, findings)
-        Heucristic::Check::Abstracts.new(workspace, methods, settled).run(sites.path, findings)
-        Heucristic::Check::Generics.new(workspace, types, settled, root).run(sites, findings)
-        Heucristic::Check::Controls.new.run(sites, findings)
+        findings = Array(Heucristic::Check::Finding).new
+        spent = Time.measure do
+          outcome = checks.run(sites)
+          checked += outcome.checked
+          findings = outcome.findings
+          Heucristic::Check::Cases.new(workspace, types, receiver, settled).run(sites, findings)
+          Heucristic::Check::Abstracts.new(workspace, methods, settled).run(sites.path, findings)
+          Heucristic::Check::Generics.new(workspace, types, settled, root).run(sites, findings)
+          Heucristic::Check::Controls.new.run(sites, findings)
+        end
+        timings << Timing.new(sites.path.sub(root + "/", ""), spent.total_milliseconds)
         findings.sort_by! { |finding| {finding.span.start_line, finding.span.start_character} }
         findings.each do |finding|
           total += 1
@@ -149,7 +159,23 @@ module Score
       end
     end
     puts "#{total} findings; #{checked} of #{calls} calls in #{all.size} files were checkable " \
-         "(#{elapsed.total_milliseconds.round}ms)"
+         "(#{elapsed.total_milliseconds.round}ms cold sweep)"
+    timings.clear
+    only = ARGV.index("--only").try { |index| ARGV[index + 1]? }
+    all.each do |sites|
+      next if sites.path.starts_with?(File.join(root, "lib") + "/")
+      next if only && !sites.path.ends_with?(only)
+
+      rounds = only ? ROUNDS * 10 : ROUNDS
+      spent = Time.measure { rounds.times { checks.run(sites) } }
+      timings << Timing.new(sites.path.sub(root + "/", ""), spent.total_milliseconds / rounds)
+    end
+    slowest = timings.sort_by { |timing| -timing.milliseconds }.first(3)
+    slowest.each { |timing| puts "  #{timing.milliseconds.round(1)}ms #{timing.path}" }
+    over = slowest.first?.try { |timing| timing.milliseconds > BUDGET_MS } || false
+    puts "budget: #{BUDGET_MS}ms per warm file check #{over ? "EXCEEDED" : "met"}"
+    return 3 if over
+
     total.zero? ? 0 : 2
   end
 

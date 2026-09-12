@@ -199,6 +199,7 @@ module Heucristic
         @workspace.replace_sites(event.sites)
         @generated.try { |file| @workspace.update(file) }
         @types.invalidate
+        @methods.invalidate
         @receiver.invalidate
         @documents.each { |document| index_document(document) }
         @transport.send(Protocol::Encoder.notification(
@@ -408,9 +409,13 @@ module Heucristic
 
         path = Uri.to_path(document.uri)
         path = document.uri if path.is_a?(Uri::NotAFile)
-        @workspace.update(Index::Collector.collect(path, document.text, tree))
+        changed = @workspace.update(Index::Collector.collect(path, document.text, tree))
         @workspace.update_sites(Index::Sites.of(path, document.text, tree))
+        @receiver.forget(path)
+        return unless changed
+
         @types.invalidate
+        @methods.invalidate
         @receiver.invalidate
       end
 
