@@ -1,0 +1,5 @@
+name: checks
+version: 0.1.0
+targets:
+  checks:
+    main: src/checks.cr

@@ -13,6 +13,8 @@ require "../src/heucristic/syntax/uses"
 require "../src/heucristic/resolve/types"
 require "../src/heucristic/resolve/methods"
 require "../src/heucristic/resolve/receiver"
+require "../src/heucristic/check/calls"
+require "../src/heucristic/check/settled"
 
 module Score
   extend self
@@ -55,10 +57,13 @@ module Score
     workspace.replace_all(finished.files)
     shims = Heucristic::Index::Shims.new
     shims.replace_all(finished.shims)
-    expand_macros(root, events, workspace, shims) unless args.includes?("--no-macros")
+    compiled = args.includes?("--no-macros") ? nil : expand_macros(root, events, workspace, shims)
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
+    if args.includes?("--check")
+      return check(root, workspace, finished.sites, types, methods, receiver, shim_roots, compiled)
+    end
 
     at = args.index("--at").try { |index| args[index + 1]? }
     outcomes = Array(Outcome).new
@@ -94,6 +99,42 @@ module Score
     report(outcomes, elapsed, root)
     verify_sample(outcomes, verify, main, root) if verify > 0 && main
     0
+  end
+
+  private def check(
+    root : String,
+    workspace : Heucristic::Index::Workspace,
+    all : Array(Heucristic::Index::Sites),
+    types : Heucristic::Resolve::Types,
+    methods : Heucristic::Resolve::Methods,
+    receiver : Heucristic::Resolve::Receiver,
+    shim_roots : Array(String),
+    compiled : Set(String)?,
+  ) : Int32
+    settled = Heucristic::Check::Settled.new(
+      workspace,
+      types,
+      !compiled.nil?,
+      Set(String).new,
+      compiled || Set(String).new,
+      root,
+      shim_roots,
+    )
+    checks = Heucristic::Check::Calls.new(workspace, types, methods, receiver, settled)
+    total = 0
+    elapsed = Time.measure do
+      all.sort_by(&.path).each do |sites|
+        next if sites.path.starts_with?(File.join(root, "lib") + "/")
+
+        checks.run(sites).each do |finding|
+          total += 1
+          where = "#{sites.path.sub(root + "/", "")}:#{finding.span.start_line + 1}"
+          puts "#{where}: #{finding.rule.code}: #{finding.message}"
+        end
+      end
+    end
+    puts "#{total} findings in #{all.size} files checked in #{elapsed.total_milliseconds.round}ms"
+    total.zero? ? 0 : 2
   end
 
   private def targets_of(
@@ -200,7 +241,7 @@ module Score
     events : Channel(Heucristic::Index::Event),
     workspace : Heucristic::Index::Workspace,
     shims : Heucristic::Index::Shims,
-  ) : Nil
+  ) : Set(String)?
     Heucristic::Server::Macros.new(events).start(root, nil)
     result = loop do
       event = events.receive
@@ -219,6 +260,7 @@ module Score
       workspace.update(file)
       elapsed = result.elapsed.total_milliseconds.round
       puts "macros: #{file.defs.size} generated defs kept of #{collected.defs.size} in #{elapsed}ms"
+      return result.files.to_set
     in Heucristic::Index::MacrosFailed      then puts "macros: failed (#{result.reason})"
     in Heucristic::Index::MacrosUnavailable then puts "macros: unavailable (#{result.reason})"
     in Heucristic::Index::Started, Heucristic::Index::Advanced, Heucristic::Index::Finished,
@@ -227,6 +269,7 @@ module Score
        Heucristic::Index::CompilerUnavailable
       puts "macros: unexpected #{result.class.name}"
     end
+    nil
   end
 
   private def same_targets?(theirs : Array(String), ours : Array(String)) : Bool

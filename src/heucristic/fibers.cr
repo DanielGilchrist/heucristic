@@ -11,6 +11,7 @@ module Heucristic
       Indexer
       Macros
       Compiler
+      Sweep
     end
 
     @@parallel_contexts = Hash(Name, Fiber::ExecutionContext::Parallel).new

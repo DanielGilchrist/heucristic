@@ -170,6 +170,24 @@ class LspClient
     await_notification(:publish_diagnostics, timeout)
   end
 
+  def await_diagnostics(
+    uri : String,
+    timeout : Time::Span = DEFAULT_TIMEOUT,
+    & : Array(JSON::Any) -> Bool
+  ) : Array(JSON::Any)
+    deadline = Time.instant + timeout
+    loop do
+      remaining = deadline - Time.instant
+      raise "timed out waiting for diagnostics on #{uri}" if remaining <= Time::Span.zero
+
+      published = await_diagnostics(remaining)
+      next unless published.params.try(&.["uri"].as_s) == uri
+
+      diagnostics = published.params.try(&.["diagnostics"].as_a) || Array(JSON::Any).new
+      return diagnostics if yield diagnostics
+    end
+  end
+
   private def await_notification(
     method : String,
     timeout : Time::Span = DEFAULT_TIMEOUT,

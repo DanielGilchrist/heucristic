@@ -1,0 +1,5 @@
+#!/bin/sh
+root="$2"
+stdlib=$(crystal env CRYSTAL_PATH | tr ':' '\n' | grep -v '^lib$' | head -1)
+files=$(find "$stdlib" -name '*.cr' | sed 's/.*/"&"/' | paste -sd, -)
+printf '{"crystal":"test","elapsed_ms":1.0,"source":"","sites":[],"files":["%s/src/checks.cr",%s]}\n' "$root" "$files"

@@ -2,6 +2,7 @@ require "lsprotocol"
 require "../syntax/broken"
 require "../document/text"
 require "../check/compiler_error"
+require "../check/finding"
 
 module Heucristic
   module Server
@@ -30,6 +31,16 @@ module Heucristic
           range: compiler_range(error, text),
           severity: LSProtocol::DiagnosticSeverity::Error,
           source: COMPILER,
+        )
+      end
+
+      def warning(finding : Check::Finding) : LSProtocol::Diagnostic
+        LSProtocol::Diagnostic.new(
+          message: finding.message,
+          range: finding.span.to_range,
+          severity: LSProtocol::DiagnosticSeverity::Warning,
+          source: SOURCE,
+          code: finding.rule.code,
         )
       end
 

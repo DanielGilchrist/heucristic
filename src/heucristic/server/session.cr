@@ -34,6 +34,8 @@ require "./compiler_status"
 require "./notice"
 require "./stage"
 require "./published"
+require "../check/calls"
+require "../check/settled"
 require "../index/collector"
 require "../index/macro_site"
 require "../index/generated"
@@ -62,6 +64,9 @@ module Heucristic
         @compiler_status = CompilerPending.new.as(CompilerStatus)
         @executable = nil.as(String?)
         @published = Published.new
+        @dirty = Set(String).new
+        @compiled = Set(String).new
+        @sweep = 0
         @documents = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
         @workspace = Index::Workspace.new
@@ -150,7 +155,7 @@ module Heucristic
         in .did_open?    then did_open(notification)
         in .did_change?  then did_change(notification)
         in .did_close?   then did_close(notification)
-        in .did_save?    then did_save
+        in .did_save?    then did_save(notification)
         in .initialized? then Silence.new
         in .initialize?, .shutdown?, .hover?, .definition?, .references?, .document_symbol?,
            .completion?, .rename?, .workspace_symbol?, .publish_diagnostics?, .progress?,
@@ -219,21 +224,25 @@ module Heucristic
           @types.invalidate
           @macro_sites.clear
           event.sites.each { |site| @macro_sites[site.line] = site }
+          @compiled = event.files.to_set
           @macro_status = MacrosDone.new(file.defs.size, event.elapsed.total_milliseconds.round)
         end
         notify_macros
+        sweep
         @macros.finished(@root, @semantic)
       end
 
       def macros_failed(event : Index::MacrosFailed) : Nil
         @macro_status = MacrosStale.new(event.reason, generated_defs)
         notify_macros
+        sweep
         @macros.finished(@root, @semantic)
       end
 
       def macros_unavailable(event : Index::MacrosUnavailable) : Nil
         @macro_status = MacrosOff.new(event.reason)
         notify_macros
+        sweep
         @macros.finished(@root, @semantic)
       end
 
@@ -281,7 +290,9 @@ module Heucristic
           params.text_document.uri.to_s, params.text_document.version, params.content_changes
         )
         case document
-        in Document::Open           then analyse(document)
+        in Document::Open
+          @dirty << document_path(document)
+          analyse(document)
         in Document::Store::Missing then Silence.new
         in Document::OutOfRange
           Log.info("edit out of range at line #{document.line} in #{params.text_document.uri}")
@@ -296,14 +307,13 @@ module Heucristic
         uri = params.text_document.uri.to_s
         @documents.close(uri)
         @trees.delete(uri)
+        @dirty.delete(path_of(uri))
         @published.forget(uri)
         publish(uri, nil, @published.for(uri))
       end
 
       private def analyse(document : Document::Open) : Outcome
-        path = Uri.to_path(document.uri)
-        path = document.uri if path.is_a?(Uri::NotAFile)
-
+        path = document_path(document)
         tree = Syntax.parse(document.text.source, path)
         case tree
         in Syntax::Broken
@@ -312,8 +322,47 @@ module Heucristic
           @trees[document.uri] = tree
           index_document(document)
           @published.syntax(document.uri, Diagnostics.none)
+          @published.checks(document.uri, check(path))
         end
         publish(document.uri, document.version, @published.for(document.uri))
+      end
+
+      private def document_path(document : Document::Open) : String
+        path_of(document.uri)
+      end
+
+      private def path_of(uri : String) : String
+        path = Uri.to_path(uri)
+        path.is_a?(Uri::NotAFile) ? uri : path
+      end
+
+      private def check(path : String) : Array(LSProtocol::Diagnostic)
+        sites = @workspace.sites(path)
+        return Diagnostics.none unless sites
+        return Diagnostics.none if path.starts_with?(File.join(@root, "lib") + "/")
+
+        settled = Check::Settled.new(
+          @workspace, @types, @macro_status.is_a?(MacrosDone), @dirty, @compiled, @root, shim_roots
+        )
+        checks = Check::Calls.new(@workspace, @types, @methods, @receiver, settled)
+        checks.run(sites).map { |finding| Diagnostics.warning(finding) }
+      end
+
+      private def sweep : Nil
+        @sweep += 1
+        generation = @sweep
+        paths = Array(String).new
+        @workspace.each_sites { |sites| paths << sites.path }
+        Fibers.detach(:sweep) do
+          paths.each do |path|
+            break unless generation == @sweep
+
+            uri = Uri.from_path(path)
+            changed = @published.checks(uri, check(path))
+            publish(uri, version_of(uri), @published.for(uri)) if changed
+            Fiber.yield
+          end
+        end
       end
 
       private def index_document(document : Document::Open) : Nil
@@ -662,7 +711,11 @@ module Heucristic
         end
       end
 
-      private def did_save : Outcome
+      private def did_save(notification : Protocol::Notification) : Outcome
+        params = DecodedParams.decode(notification.params, LSProtocol::DidSaveTextDocumentParams)
+        return Silence.new if params.is_a?(DecodedParams::Invalid)
+
+        @dirty.delete(path_of(params.text_document.uri.to_s))
         @macros.start(@root, @semantic)
         @compiler.start(@root, @executable)
         Silence.new

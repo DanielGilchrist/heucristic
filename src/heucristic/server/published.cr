@@ -15,12 +15,15 @@ module Heucristic
         @syntax[uri] = diagnostics
       end
 
-      def checks(uri : String, diagnostics : Array(LSProtocol::Diagnostic)) : Nil
+      def checks(uri : String, diagnostics : Array(LSProtocol::Diagnostic)) : Bool
+        previous = @checks[uri]?
         if diagnostics.empty?
           @checks.delete(uri)
-        else
-          @checks[uri] = diagnostics
+          return !previous.nil?
         end
+
+        @checks[uri] = diagnostics
+        previous.nil? || !same?(previous, diagnostics)
       end
 
       def compiler(batch : Batch) : Array(String)
@@ -32,6 +35,17 @@ module Heucristic
       def forget(uri : String) : Nil
         @syntax.delete(uri)
         @checks.delete(uri)
+      end
+
+      private def same?(
+        previous : Array(LSProtocol::Diagnostic),
+        current : Array(LSProtocol::Diagnostic),
+      ) : Bool
+        return false unless previous.size == current.size
+
+        previous.zip(current).all? do |before, after|
+          before.message == after.message && before.range == after.range
+        end
       end
 
       def for(uri : String) : Array(LSProtocol::Diagnostic)

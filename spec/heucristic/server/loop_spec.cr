@@ -821,3 +821,70 @@ describe Heucristic::Server::Loop, "compiler diagnostics" do
     client.shutdown
   end
 end
+
+describe Heucristic::Server::Loop, "call checks" do
+  root = File.expand_path("../../fixtures/checks", __DIR__)
+  semantic = File.expand_path("../../support/checks_semantic", __DIR__)
+  compiler = File.expand_path("../../support/fake_compiler", __DIR__)
+  usage_uri = "file://#{root}/src/usage.cr"
+
+  it "warns about undefined methods, wrong arity and block mismatches once macros are settled" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic, compiler: compiler)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    client.open(usage_uri, <<-CR)
+      greeter = Greeter.new
+      greeter.greet("a")
+      greeter.gret("a")
+      greeter.greet("a", "b")
+      greeter.each_twice
+      Greeter.new.each_twice { }
+      Point.new(1, 2).copy_with(x: 3)
+      Point.new(1)
+      missing_thing
+      CR
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 5 }
+    warnings.map(&.["range"]["start"]["line"].as_i).should eq([2, 3, 4, 7, 8])
+    warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
+    warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
+    warnings.map(&.["code"].as_s).should eq([
+      "undefined-method", "wrong-arity", "block-mismatch", "wrong-arity", "undefined-method",
+    ])
+    warnings.map(&.["message"].as_s).should eq([
+      "undefined method 'gret' for Greeter",
+      "wrong number of arguments for 'Greeter#greet' (given 2, expected 1)",
+      "'Greeter#each_twice' is expected to be invoked with a block, but no block was given",
+      "wrong number of arguments for 'Point#initialize' (given 1, expected 2)",
+      "undefined local variable or method 'missing_thing' for top-level",
+    ])
+
+    frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
+    ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
+    client.save(usage_uri)
+    merged = client.await_diagnostics(usage_uri) do |found|
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 5
+    end
+    ENV.delete("HEUCRISTIC_FAKE_ERRORS")
+    on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }
+    on_line.map(&.["severity"].as_i).should eq([1])
+    client.shutdown
+  end
+
+  it "drops a warning as soon as the edited document defines the method" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    client.open(usage_uri, "Greeter.new.gret(\"a\")\n")
+    client.await_diagnostics(usage_uri) { |found| found.size == 1 }
+
+    range = {"start" => {"line" => 1, "character" => 0}, "end" => {"line" => 1, "character" => 0}}
+    addition = "class Greeter\n  def gret(name : String) : String\n    name\n  end\nend\n"
+    client.change(usage_uri, 2, [{"range" => range, "text" => addition}])
+    client.await_diagnostics(usage_uri, &.empty?)
+    client.shutdown
+  end
+end
