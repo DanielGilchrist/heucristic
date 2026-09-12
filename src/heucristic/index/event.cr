@@ -13,7 +13,11 @@ module Heucristic
       sites : Array(Sites),
       elapsed : Time::Span
     record MacrosStarted
-    record MacrosExpanded, source : String, sites : Array(MacroSite), elapsed : Time::Span
+    record MacrosExpanded,
+      source : String,
+      sites : Array(MacroSite),
+      files : Array(String),
+      elapsed : Time::Span
     record MacrosFailed, reason : String
     record MacrosUnavailable, reason : String
     record CompilerStarted

@@ -27,6 +27,7 @@ module Semantic
         elapsed_ms: elapsed.total_milliseconds.round,
         source:     @source.to_s,
         sites:      @sites,
+        files:      program.requires.to_a,
       }.to_json(io)
     rescue error : Crystal::CodeError
       {

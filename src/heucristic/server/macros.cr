@@ -82,7 +82,7 @@ module Heucristic
         source = parsed.source
         return Index::MacrosFailed.new("the helper returned no source") unless source
 
-        Index::MacrosExpanded.new(source, parsed.sites, Time.instant - started)
+        Index::MacrosExpanded.new(source, parsed.sites, parsed.files, Time.instant - started)
       rescue error : JSON::ParseException
         Index::MacrosFailed.new("the helper's output is not JSON: #{error.message}")
       rescue error : IO::Error | File::Error

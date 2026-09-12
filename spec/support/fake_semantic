@@ -1,5 +1,5 @@
 #!/bin/sh
 root="$2"
 cat <<JSON
-{"crystal":"test","elapsed_ms":1.0,"source":"class ::Command\n  def self.parse(args : Array(String)) : Command\n  end\nend\n","sites":[{"line":2,"owner":"Command","name":"parse","metaclass":true,"macro_name":"included","macro_path":"$root/src/parseable.cr","macro_line":3,"expanded_path":"$root/src/sample.cr","expanded_line":2,"expanded_column":3}]}
+{"crystal":"test","elapsed_ms":1.0,"source":"class ::Command\n  def self.parse(args : Array(String)) : Command\n  end\nend\n","files":["$root/src/sample.cr"],"sites":[{"line":2,"owner":"Command","name":"parse","metaclass":true,"macro_name":"included","macro_path":"$root/src/parseable.cr","macro_line":3,"expanded_path":"$root/src/sample.cr","expanded_line":2,"expanded_column":3}]}
 JSON
