@@ -292,13 +292,14 @@ module Heucristic
         return reply(request.id, nil) unless target
 
         answer = answer_at(uri, params.position)
-        if answer.entries.any? { |entry| entry.path == GENERATED_PATH }
+        declared = answer.entries.reject { |entry| entry.path == GENERATED_PATH }
+        if declared.empty? && !answer.entries.empty?
           reason = "a macro-generated def cannot be renamed"
           return error(request.id, Protocol::Encoder::INVALID_REQUEST, reason)
         end
 
-        locations = uses_of(target, answer, tree, uri, document.text)
-        answer.entries.each { |entry| locate(entry).try { |location| locations << location } }
+        locations = uses_of(target, Answer.of(declared), tree, uri, document.text)
+        declared.each { |entry| locate(entry).try { |location| locations << location } }
         return reply(request.id, nil) if locations.empty?
 
         edit = @rename.edits(
