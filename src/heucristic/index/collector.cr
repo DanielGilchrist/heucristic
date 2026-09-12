@@ -29,6 +29,7 @@ module Heucristic
         @aliases = Array(Alias).new
         @constants = Array(Constant).new
         @macros = Array(MacroDef).new
+        @def_depth = 0
         @owners = Array(String).new
       end
 
@@ -197,7 +198,8 @@ module Heucristic
         span = @text.span(start, start.advance(var.name.size))
         return false unless span.is_a?(Document::Span)
 
-        instance_var(var.name, Syntax::TypeReader.read(node.declared_type), span, :declared)
+        type = Syntax::TypeReader.read(node.declared_type)
+        instance_var(var.name, type, span, :declared, nil, !node.value.nil?)
         false
       end
 
@@ -227,7 +229,12 @@ module Heucristic
 
       def visit(node : Crystal::Def) : Bool
         record_def(node)
+        @def_depth += 1
         true
+      end
+
+      def end_visit(node : Crystal::Def) : Nil
+        @def_depth -= 1
       end
 
       def visit(node : Crystal::Macro) : Bool
@@ -394,11 +401,16 @@ module Heucristic
         span : Document::Span,
         origin : Origin,
         expression : Crystal::ASTNode? = nil,
+        initialized : Bool = false,
       ) : Nil
         namespace = owner
         return if namespace.is_a?(TopLevel)
 
-        @instance_vars << InstanceVar.new(name, namespace, type, @path, span, origin, expression)
+        in_def = @def_depth > 0
+        initialized ||= origin.assigned? && !in_def
+        @instance_vars << InstanceVar.new(
+          name, namespace, type, @path, span, origin, expression, initialized, in_def
+        )
       end
 
       private def parameter_assignment?(

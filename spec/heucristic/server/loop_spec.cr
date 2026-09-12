@@ -914,8 +914,23 @@ describe Heucristic::Server::Loop, "call checks" do
           1
         end
       end
+
+      class Gauge
+        @level : Int32
+        @label : String?
+        @count : Int32 = 0
+
+        def initialize(@label : String?)
+        end
+
+        def bump : Nil
+          @level = "x"
+          @missing
+          @count = 2
+        end
+      end
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 27 }
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 30 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     reported = warnings.map do |warning|
@@ -951,13 +966,19 @@ describe Heucristic::Server::Loop, "call checks" do
       {66, "return-mismatch", "method Sizes#wide must return Int32 but it is returning String"},
       {70, "return-mismatch", "method Sizes#label must return String but it is returning Nil"},
       {73, "return-mismatch", "method Sizes#either must return Int32 but it is returning String"},
+      {85, "uninitialized-instance-var",
+       "this 'initialize' doesn't explicitly initialize instance variable '@level' of Gauge, " \
+       "rendering it nilable"},
+      {89, "instance-var-mismatch",
+       "instance variable '@level' of Gauge must be Int32, not String"},
+      {90, "unknown-instance-var", "can't infer the type of instance variable '@missing' of Gauge"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 27
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 30
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }

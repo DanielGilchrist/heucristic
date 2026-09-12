@@ -20,6 +20,7 @@ require "../src/heucristic/check/generics"
 require "../src/heucristic/check/controls"
 require "../src/heucristic/check/paths"
 require "../src/heucristic/check/returns"
+require "../src/heucristic/check/instance_vars"
 require "../src/heucristic/check/settled"
 
 module Score
@@ -153,6 +154,8 @@ module Score
           Heucristic::Check::Controls.new.run(sites, findings)
           Heucristic::Check::Paths.new(workspace, types, settled).run(sites, findings)
           Heucristic::Check::Returns.new(types, methods, receiver, settled).run(sites, findings)
+          Heucristic::Check::InstanceVars.new(workspace, types, methods, receiver, settled)
+            .run(sites, findings)
         end
         timings << Timing.new(sites.path.sub(root + "/", ""), spent.total_milliseconds)
         findings.sort_by! { |finding| {finding.span.start_line, finding.span.start_character} }

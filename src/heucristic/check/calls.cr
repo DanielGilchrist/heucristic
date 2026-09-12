@@ -14,6 +14,7 @@ require "../syntax/well_known"
 require "../index/synthesized"
 require "../index/evident"
 require "./macro_arguments"
+require "./fit"
 require "../index/macro_hook"
 
 module Heucristic
@@ -395,20 +396,10 @@ module Heucristic
       ) : Bool
         case node
         in Nil                    then false
-        in Crystal::NumberLiteral then !numeric?(rejected.expected)
+        in Crystal::NumberLiteral then !Fit.new(@methods).numeric?(rejected.expected)
         in Crystal::Var
           rejected.actual.is_a?(Resolve::TypeRef) && declared_parameter?(node.name, context)
         in Crystal::ASTNode then Index::Evident.type(node).is_a?(Syntax::Type)
-        end
-      end
-
-      private def numeric?(expected : Resolve::Resolution) : Bool
-        case expected
-        in Resolve::TypeRef
-          CoreType.from_name(expected.name).try(&.numeric?) || false
-        in Resolve::UnionRef
-          expected.members.any? { |member| numeric?(member) }
-        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown then true
         end
       end
 
@@ -434,19 +425,9 @@ module Heucristic
         of = receiver.of
         return false if of.is_a?(Resolve::TypeVar)
 
-        levels = @methods.levels(of.name)
         return false if @workspace.namespaces(of.name).any?(Index::EnumNamespace)
-        return false if levels.any? { |level| generated_defs?(level) }
 
-        Index::MacroHook.values.none? do |hook|
-          next false unless hook.generates_defs?
-
-          @workspace.macros(hook.macro_name).any? { |entry| levels.includes?(entry.owner) }
-        end
-      end
-
-      private def generated_defs?(level : String) : Bool
-        @workspace.defs_of(level).any?(&.path.==(Settled::GENERATED))
+        @settled.generated_free?(of.name)
       end
 
       private def expected(arity : Index::Arity) : String

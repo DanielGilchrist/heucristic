@@ -11,6 +11,10 @@ module Heucristic
       record GenericSite, node : Crystal::Generic, context : Context
       record ControlSite, node : Crystal::ASTNode, kind : ControlKind, context : Context
       record DefSite, node : Crystal::Def, context : Context
+      record InstanceVarSite,
+        node : Crystal::InstanceVar,
+        assign : Crystal::Assign?,
+        context : Context
 
       getter calls : Array(CallSite)
       getter paths : Array(PathSite)
@@ -18,6 +22,7 @@ module Heucristic
       getter generics : Array(GenericSite)
       getter controls : Array(ControlSite)
       getter def_sites : Array(DefSite)
+      getter instance_vars : Array(InstanceVarSite)
 
       def self.in(tree : Crystal::ASTNode, path : String?) : Uses
         uses = new(path)
@@ -33,6 +38,30 @@ module Heucristic
         @generics = Array(GenericSite).new
         @controls = Array(ControlSite).new
         @def_sites = Array(DefSite).new
+        @instance_vars = Array(InstanceVarSite).new
+        @written = Set(UInt64).new
+      end
+
+      def visit(node : Crystal::Assign) : Bool
+        target = node.target
+        if target.is_a?(Crystal::InstanceVar) && target.location
+          @written << target.object_id
+          @instance_vars << InstanceVarSite.new(target, node, context)
+        end
+        super
+      end
+
+      def visit(node : Crystal::TypeDeclaration) : Bool
+        var = node.var
+        @written << var.object_id if var.is_a?(Crystal::InstanceVar)
+        super
+      end
+
+      def visit(node : Crystal::InstanceVar) : Bool
+        unless @written.includes?(node.object_id) || node.location.nil?
+          @instance_vars << InstanceVarSite.new(node, nil, context)
+        end
+        super
       end
 
       def visit(node : Crystal::Def) : Bool

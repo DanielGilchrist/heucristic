@@ -9,6 +9,7 @@ require "../syntax/type_reader"
 require "../syntax/well_known"
 require "./finding"
 require "./settled"
+require "./fit"
 
 module Heucristic
   module Check
@@ -48,10 +49,10 @@ module Heucristic
           context.owner, context.type_vars, Array(Resolve::Binding).new, context.path
         )
         expected = @types.resolve_lexically(read, scope)
-        return unless checkable?(expected)
+        return unless Fit.new(@methods).checkable?(expected)
 
         returned(node, site, sites).each do |actual|
-          next if actual.is_a?(Resolve::Unknown) || admitted?(expected, actual)
+          next if actual.is_a?(Resolve::Unknown) || Fit.new(@methods).fits?(expected, actual)
 
           start = Document::Point.from(location)
           span = sites.text.span(start, start.advance(node.name.size))
@@ -64,28 +65,6 @@ module Heucristic
           findings << Finding.new(:return_mismatch, message, span)
           return
         end
-      end
-
-      private def checkable?(expected : Resolve::Resolution) : Bool
-        case expected
-        in Resolve::TypeRef
-          !(expected.is?(:nil) || expected.is?(:no_return) || expected.name == "Void")
-        in Resolve::UnionRef
-          expected.members.all?(Resolve::TypeRef)
-        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown then false
-        end
-      end
-
-      private def admitted?(expected : Resolve::Resolution, actual : Resolve::Resolved) : Bool
-        return true if actual.is_a?(Resolve::TypeRef) && actual.is?(:no_return)
-        return true if actual.is_a?(Resolve::TypeVar) || actual.is_a?(Resolve::MetaRef)
-        if actual.is_a?(Resolve::UnionRef)
-          return actual.members.any? do |member|
-            member.is_a?(Resolve::Unknown) || admitted?(expected, member)
-          end
-        end
-
-        @methods.admits?(expected, actual)
       end
 
       private def returned(

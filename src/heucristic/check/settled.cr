@@ -4,6 +4,7 @@ require "../resolve/scope"
 require "../resolve/resolution"
 require "./macro_uses"
 require "../core_type"
+require "../index/macro_hook"
 
 module Heucristic
   module Check
@@ -35,6 +36,18 @@ module Heucristic
 
       def namespace?(name : String) : Bool
         type?(name) || declared?(name)
+      end
+
+      def generated_free?(name : String) : Bool
+        chain = @types.ancestors(name)
+        levels = chain.is_a?(Resolve::Unknown) ? [name] : [name] + chain
+        return false if levels.any? { |level| @workspace.defs_of(level).any?(&.path.==(GENERATED)) }
+
+        Index::MacroHook.values.none? do |hook|
+          next false unless hook.generates_defs?
+
+          @workspace.macros(hook.macro_name).any? { |entry| levels.includes?(entry.owner) }
+        end
       end
 
       def compiled_level?(name : String) : Bool

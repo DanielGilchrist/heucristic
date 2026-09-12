@@ -17,6 +17,9 @@ module Heucristic
       UndefinedOnMember
       UndefinedConstant
       ReturnMismatch
+      UnknownInstanceVar
+      InstanceVarMismatch
+      UninitializedInstanceVar
 
       def code : String
         to_s.underscore.gsub('_', '-')

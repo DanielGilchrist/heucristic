@@ -12,6 +12,8 @@ module Heucristic
       path : String,
       name_span : Document::Span,
       origin : Origin,
-      expression : Crystal::ASTNode? = nil
+      expression : Crystal::ASTNode? = nil,
+      initialized : Bool = false,
+      in_def : Bool = false
   end
 end
