@@ -199,6 +199,7 @@ module Heucristic
         @workspace.replace_sites(event.sites)
         @generated.try { |file| @workspace.update(file) }
         @types.invalidate
+        @receiver.invalidate
         @documents.each { |document| index_document(document) }
         @transport.send(Protocol::Encoder.notification(
           Notice::Indexed.method,
@@ -229,6 +230,7 @@ module Heucristic
           @generated = file
           @workspace.update(file)
           @types.invalidate
+          @receiver.invalidate
           @macro_sites.clear
           event.sites.each { |site| @macro_sites[site.line] = site }
           @compiled = event.files.to_set
@@ -409,6 +411,7 @@ module Heucristic
         @workspace.update(Index::Collector.collect(path, document.text, tree))
         @workspace.update_sites(Index::Sites.of(path, document.text, tree))
         @types.invalidate
+        @receiver.invalidate
       end
 
       private def rename(request : Protocol::Request) : Outcome

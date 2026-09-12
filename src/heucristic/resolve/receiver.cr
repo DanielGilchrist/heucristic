@@ -47,6 +47,7 @@ module Heucristic
         @methods : Methods,
       ) : Nil
         @depth = 0
+        @exit_answers = Hash(UInt64, Bool).new
       end
 
       def result_of(
@@ -231,8 +232,35 @@ module Heucristic
         end
       end
 
+      def invalidate : Nil
+        @exit_answers.clear
+      end
+
+      def remembered_exit(call : Crystal::Call, & : -> Bool) : Bool
+        cached = @exit_answers[call.object_id]?
+        return cached unless cached.nil?
+
+        @exit_answers[call.object_id] = yield
+      end
+
+      def no_return?(entry : Index::Def) : Bool
+        restriction = entry.return_type
+        if restriction.is_a?(Index::Unrestricted)
+          shim = @shims.find(entry)
+          restriction = shim.entry.return_type if shim
+        end
+        restriction.is_a?(Syntax::Named) && restriction.names == [CoreType::NoReturn.type_name]
+      end
+
       def narrowing_steps(name : String, context : Syntax::Context) : Array(Flow::Step)
-        Flow.steps(name, context.ancestors, CallExits.new(@methods, implicit_self(context)))
+        Flow.steps(name, context.ancestors, exits_for(context, Array(String).new))
+      end
+
+      def self.chained_comparison?(call : Crystal::Call) : Bool
+        return false unless COMPARISONS.includes?(call.name)
+
+        inner = call.obj
+        inner.is_a?(Crystal::Call) && COMPARISONS.includes?(inner.name) && inner.args.size == 1
       end
 
       def typed(node : Crystal::ASTNode, context : Syntax::Context) : Resolution
@@ -457,10 +485,11 @@ module Heucristic
       COMPARISONS = {"<", "<=", ">", ">="}
 
       private def chained_comparison?(call : Crystal::Call) : Bool
-        return false unless COMPARISONS.includes?(call.name)
+        Receiver.chained_comparison?(call)
+      end
 
-        inner = call.obj
-        inner.is_a?(Crystal::Call) && COMPARISONS.includes?(inner.name) && inner.args.size == 1
+      private def exits_for(context : Syntax::Context, visiting : Array(String)) : CallExits
+        CallExits.new(@methods, implicit_self(context), self, context, visiting)
       end
 
       private def module?(receiver : Resolved) : Bool
@@ -646,12 +675,13 @@ module Heucristic
           branches << type_of(node.then, context.inside(node, node.then), visiting, locals)
           branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
           union(branches)
-        in Crystal::Return, Crystal::Break then TypeRef.of(:no_return)
-        in Crystal::Case                   then case_value(node, context, visiting, locals)
-        in Crystal::ExceptionHandler       then rescued_value(node, context, visiting, locals)
-        in Crystal::Assign                 then type_of(node.value, context, visiting, locals)
-        in Crystal::OpAssign               then op_assigned(node, context, visiting, locals)
-        in Crystal::Yield                  then yielded_result(context)
+        in Crystal::Return, Crystal::Break, Crystal::Next
+          TypeRef.of(:no_return)
+        in Crystal::Case             then case_value(node, context, visiting, locals)
+        in Crystal::ExceptionHandler then rescued_value(node, context, visiting, locals)
+        in Crystal::Assign           then type_of(node.value, context, visiting, locals)
+        in Crystal::OpAssign         then op_assigned(node, context, visiting, locals)
+        in Crystal::Yield            then yielded_result(context)
         in Crystal::SizeOf, Crystal::InstanceSizeOf, Crystal::AlignOf, Crystal::InstanceAlignOf
           TypeRef.of(:int32)
         in Crystal::RangeLiteral
@@ -667,11 +697,6 @@ module Heucristic
           left = type_of(node.left, context.inside(node, node.left), visiting, locals)
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
           union([truthy(left, false), right] of Resolution)
-        in Crystal::Next
-          value = node.exp
-          return TypeRef.of(:nil) unless value
-
-          type_of(value, context, visiting, locals)
         in Crystal::ArrayLiteral
           elements(node.elements, context, visiting, locals) do |inner|
             TypeRef.of(:array, [inner] of Resolution)
@@ -699,15 +724,30 @@ module Heucristic
         locals : Array(Binding),
       ) : Resolution
         return implicit_self(context) if Syntax::WellKnown::SelfName.named?(name)
-        exits = CallExits.new(@methods, implicit_self(context))
+        key = variable_key(name, context)
+        exits = exits_for(context, visiting + [key])
         steps = Flow.steps(name, context.ancestors, exits)
         if (local = locals.find(&.name.==(name)))
           return narrow(local.value, name, steps, context, visiting, locals)
         end
-        return Unknown.new(:cycle, name) if visiting.includes?(variable_key(name, context))
+        return Unknown.new(:cycle, name) if visiting.includes?(key)
+
+        if (inner = shadowing_block(name, context))
+          from_block = block_parameter(name, context, locals, visiting + [key])
+          if from_block
+            inner_steps = Flow.steps(name, context.ancestors[inner..], exits)
+            return narrow(from_block, name, inner_steps, context, visiting, locals)
+          end
+        end
 
         base = declared_variable(name, context, visiting, locals, steps)
         narrow(base, name, steps, context, visiting, locals)
+      end
+
+      private def shadowing_block(name : String, context : Syntax::Context) : Int32?
+        context.ancestors.rindex do |node|
+          node.is_a?(Crystal::Block) && node.args.any?(&.name.==(name))
+        end
       end
 
       private def narrow(
@@ -776,8 +816,16 @@ module Heucristic
         targets = Array(TypeRef).new
         types.each do |type|
           resolved = declared(Syntax::TypeReader.read(type), scope(context))
-          return current unless resolved.is_a?(TypeRef)
-          targets << resolved
+          case resolved
+          in TypeRef then targets << resolved
+          in UnionRef
+            resolved.members.each do |member|
+              return current unless member.is_a?(TypeRef)
+
+              targets << member
+            end
+          in MetaRef, TypeVar, Unknown then return current
+          end
         end
 
         if current.is_a?(Unknown) || current.is_a?(TypeVar)
@@ -841,6 +889,11 @@ module Heucristic
         body = definition ? definition.body : context.ancestors.first?
         unless body
           return Unknown.new(:no_annotation, "#{name} is outside any method or script")
+        end
+
+        rescued = RescueVariables.find(body, name)
+        if rescued && context.ancestors.any?(&.same?(rescued))
+          return rescued_type(rescued, context)
         end
 
         if definition && (parameter = definition.args.find(&.name.==(name)))
@@ -920,7 +973,7 @@ module Heucristic
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
-        exits = CallExits.new(@methods, implicit_self(context))
+        exits = exits_for(context, visiting)
         results = Array(Resolution).new(step.branches.size)
         step.branches.each do |branch|
           body = branch.body

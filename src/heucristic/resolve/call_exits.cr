@@ -8,23 +8,38 @@ module Heucristic
     struct CallExits
       include Terminator
 
-      def initialize(@methods : Methods, @receiver : Resolution) : Nil
+      def initialize(
+        @methods : Methods,
+        @receiver : Resolution,
+        @typer : Receiver,
+        @context : Syntax::Context,
+        @visiting : Array(String),
+      ) : Nil
       end
 
       def terminates?(call : Crystal::Call) : Bool
-        return false unless call.obj.nil?
-        return true if KnownExits.new.terminates?(call)
+        return true if call.obj.nil? && KnownExits.new.terminates?(call)
+        return no_return_call?(call, @receiver) if call.obj.nil?
 
-        receiver = @receiver
-        return false if receiver.is_a?(Unknown)
-
-        shape = Methods::Call.new(call.name, call.args.size, !call.block.nil?)
-        defs = @methods.lookup(receiver, shape)
-        !defs.empty? && defs.all? { |entry| no_return?(entry.return_type) }
+        @typer.remembered_exit(call) do
+          no_return_call?(call, @typer.of_call(call, @context, Array(Binding).new, @visiting))
+        end
       end
 
-      private def no_return?(restriction : Index::Restriction) : Bool
-        restriction.is_a?(Syntax::Named) && restriction.names == [CoreType::NoReturn.type_name]
+      private def no_return_call?(call : Crystal::Call, receiver : Resolution) : Bool
+        return false if receiver.is_a?(Unknown)
+
+        shape = Methods::Call.new(
+          call.name,
+          call.args.size,
+          !call.block.nil?,
+          Array(Resolution).new,
+          Array(String).new,
+          Array(Binding).new,
+          call.obj.nil?,
+        )
+        defs = @methods.lookup(receiver, shape)
+        !defs.empty? && defs.all? { |entry| @typer.no_return?(entry) }
       end
     end
   end

@@ -52,7 +52,6 @@ module Heucristic
 
         entries = @workspace.namespaces(name)
         return false if entries.empty?
-        return false unless entries.all? { |entry| declared_in_project?(entry) }
         return false unless entries.any? { |entry| compiled?(entry.path) }
 
         chain = @types.ancestors(name)

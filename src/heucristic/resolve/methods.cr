@@ -153,7 +153,10 @@ module Heucristic
 
       def levels(type : String) : Array(String)
         chain = @types.ancestors(type)
-        chain.is_a?(Unknown) ? [type] : [type] + chain
+        found = chain.is_a?(Unknown) ? [type] : [type] + chain
+        object = CoreType::Object.type_name
+        found << object if module?(type) && !found.includes?(object)
+        found
       end
 
       def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
@@ -192,7 +195,7 @@ module Heucristic
               ancestor?(argument.name, restriction.name) ||
               autocast?(argument, restriction)
           in UnionRef then false
-          in MetaRef  then restriction.is?(:class)
+          in MetaRef  then restriction.is?(:class) || module?(restriction.name)
           in TypeVar  then true
           end
         end
@@ -321,7 +324,26 @@ module Heucristic
         candidates = @workspace.named(call.name).select do |entry|
           entry.owner.is_a?(Index::TopLevel) && call.accepts?(entry) && compatible?(entry, call)
         end
-        most_specific(candidates, call)
+        return most_specific(candidates, call) unless candidates.empty?
+
+        mixed_in_at_top_level(call)
+      end
+
+      private def mixed_in_at_top_level(call : Call) : Array(Index::Def)
+        found = Array(Index::Def).new
+        @workspace.mixins_of(Index::TopLevel.new).each do |mixin|
+          next unless mixin.kind.include?
+          target = mixin.target
+          next unless target.is_a?(Syntax::Type)
+
+          resolved = @types.resolve_lexically(target, Scope::TOP)
+          found.concat(instance_methods(resolved.name, call)) if resolved.is_a?(TypeRef)
+        end
+        found.uniq!
+      end
+
+      private def module?(type : String) : Bool
+        @workspace.namespaces(type).any?(Index::ModuleNamespace)
       end
 
       private def default_constructor(type : String, call : Call) : Array(Index::Def)

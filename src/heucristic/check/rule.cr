@@ -14,6 +14,7 @@ module Heucristic
       NotGeneric
       MisplacedControl
       NamedArgument
+      UndefinedOnMember
 
       def code : String
         to_s.underscore.gsub('_', '-')

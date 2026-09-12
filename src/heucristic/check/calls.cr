@@ -47,6 +47,8 @@ module Heucristic
         return false unless @workspace.macros(call.name).empty?
         return false if within_macro_arguments?(site.context.ancestors)
         return false if select_condition?(call, site.context.ancestors)
+        return false if call.obj.is_a?(Crystal::ImplicitObj)
+        return false if Resolve::Receiver.chained_comparison?(call)
 
         start = Document::Point.from(location)
         span = text.span(start, start.advance(call.name_size))
@@ -57,6 +59,11 @@ module Heucristic
 
         receiver = @receiver.of_call(call, site.context)
         return true if abstract_instantiation(known, call, receiver, span, findings)
+        if receiver.is_a?(Resolve::UnionRef)
+          return false if call.obj.nil?
+
+          return union_receiver(receiver, call, span, findings)
+        end
 
         defs = definitions(receiver, call, site.context)
         return false unless defs
@@ -136,6 +143,30 @@ module Heucristic
         kind = entry.kind.struct? ? "struct" : "class"
         message = "can't instantiate abstract #{kind} #{of.name}"
         findings << Finding.new(:abstract_instantiated, message, span)
+        true
+      end
+
+      private def union_receiver(
+        receiver : Resolve::UnionRef,
+        call : Crystal::Call,
+        span : Document::Span,
+        findings : Array(Finding),
+      ) : Bool
+        members = receiver.members.map do |member|
+          return false unless member.is_a?(Resolve::TypeRef)
+          return false unless @settled.type?(member.name)
+          return false if @settled.extended?(member.name)
+
+          member
+        end
+        missing = members.find { |member| @methods.named_on(member, call.name).empty? }
+        return true unless missing
+
+        message = String.build do |io|
+          io << "undefined method '" << call.name << "' for " << missing
+          io << " (compile-time type is (" << receiver << "))"
+        end
+        findings << Finding.new(:undefined_on_member, message, span)
         true
       end
 

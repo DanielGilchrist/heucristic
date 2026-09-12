@@ -1,6 +1,3 @@
-def loop(&) : Nil
-end
-
 def spawn(*, name : String? = nil, same_thread = false, &block) : Fiber
 end
 
