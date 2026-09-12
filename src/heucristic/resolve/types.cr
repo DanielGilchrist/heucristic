@@ -29,6 +29,10 @@ module Heucristic
         @ancestors.type_vars_of(name)
       end
 
+      def splat_index_of(name : String) : Int32?
+        @ancestors.splat_index_of(name)
+      end
+
       def resolve(restriction : Index::Restriction, scope : Scope) : Resolution
         case restriction
         in Index::Unrestricted             then Unknown.new(:no_annotation, "no type restriction")

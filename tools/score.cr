@@ -16,6 +16,8 @@ require "../src/heucristic/resolve/receiver"
 require "../src/heucristic/check/calls"
 require "../src/heucristic/check/cases"
 require "../src/heucristic/check/abstracts"
+require "../src/heucristic/check/generics"
+require "../src/heucristic/check/controls"
 require "../src/heucristic/check/settled"
 
 module Score
@@ -134,8 +136,11 @@ module Score
         outcome = checks.run(sites)
         checked += outcome.checked
         findings = outcome.findings
-        Heucristic::Check::Cases.new(workspace, receiver, settled).run(sites, findings)
+        Heucristic::Check::Cases.new(workspace, types, receiver, settled).run(sites, findings)
         Heucristic::Check::Abstracts.new(workspace, methods, settled).run(sites.path, findings)
+        Heucristic::Check::Generics.new(workspace, types, settled, root).run(sites, findings)
+        Heucristic::Check::Controls.new.run(sites, findings)
+        findings.sort_by! { |finding| {finding.span.start_line, finding.span.start_character} }
         findings.each do |finding|
           total += 1
           where = "#{sites.path.sub(root + "/", "")}:#{finding.span.start_line + 1}"

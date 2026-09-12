@@ -42,20 +42,24 @@ module Heucristic
         findings : Array(Finding),
       ) : Bool
         call = site.call
-        return false if Syntax::WellKnown.from_name(call.name).try(&.unchecked?)
-        return false unless @workspace.macros(call.name).empty?
         location = call.name_location
         return false unless location
+        return false unless @workspace.macros(call.name).empty?
         return false if within_macro_arguments?(site.context.ancestors)
         return false if select_condition?(call, site.context.ancestors)
-
-        receiver = @receiver.of_call(call, site.context)
-        defs = definitions(receiver, call, site.context)
-        return false unless defs
 
         start = Document::Point.from(location)
         span = text.span(start, start.advance(call.name_size))
         return false unless span.is_a?(Document::Span)
+
+        known = Syntax::WellKnown.from_name(call.name)
+        return orphan(known, call, site.context, span, findings) if known.try(&.unchecked?)
+
+        receiver = @receiver.of_call(call, site.context)
+        return true if abstract_instantiation(known, call, receiver, span, findings)
+
+        defs = definitions(receiver, call, site.context)
+        return false unless defs
 
         if defs.empty?
           findings << Finding.new(:undefined_method, undefined(call, receiver), span)
@@ -63,6 +67,75 @@ module Heucristic
         end
 
         shape(defs, call, receiver, site.context, span, findings)
+        true
+      end
+
+      private def orphan(
+        known : Syntax::WellKnown?,
+        call : Crystal::Call,
+        context : Syntax::Context,
+        span : Document::Span,
+        findings : Array(Finding),
+      ) : Bool
+        return false unless known && call.obj.nil?
+        definition = context.def_node
+        owner = context.owner
+        return false unless definition && owner.is_a?(String)
+        return false if Syntax::WellKnown::Initialize.named?(definition.name)
+        return false unless @settled.declared?(owner)
+
+        metaclass = !definition.receiver.nil?
+        case known
+        in .super?
+          levels = @methods.levels(owner)
+          above = levels[1..]
+          return false if above.empty?
+
+          found = @workspace.named(definition.name).any? do |entry|
+            entry.receiver.metaclass? == metaclass && above.includes?(entry.owner)
+          end
+          return true if found
+
+          top = above.reverse.find { |level| superclass_level?(level) } || above.last
+          message = "undefined method '#{definition.name}' for #{top}"
+          findings << Finding.new(:no_superclass_method, message, span)
+        in .previous_def?
+          earlier = @workspace.named(definition.name).count do |entry|
+            entry.receiver.metaclass? == metaclass && entry.owner == owner
+          end
+          return true if earlier > 1
+
+          message = "there is no previous definition of '#{definition.name}'"
+          findings << Finding.new(:no_previous_def, message, span)
+        in .allocate?, .new?, .initialize?, .self_name? then return false
+        end
+        true
+      end
+
+      private def superclass_level?(level : String) : Bool
+        @settled.compiled_level?(level) &&
+          @workspace.namespaces(level).any?(Index::ClassNamespace)
+      end
+
+      private def abstract_instantiation(
+        known : Syntax::WellKnown?,
+        call : Crystal::Call,
+        receiver : Resolve::Resolution,
+        span : Document::Span,
+        findings : Array(Finding),
+      ) : Bool
+        return false unless known.try(&.new?) && call.obj.is_a?(Crystal::Path)
+        return false unless receiver.is_a?(Resolve::MetaRef)
+        of = receiver.of
+        return false if of.is_a?(Resolve::TypeVar)
+        return false unless @settled.type?(of.name)
+
+        entry = @workspace.namespaces(of.name).select(Index::ClassNamespace).first?
+        return false unless entry && entry.abstract_type
+
+        kind = entry.kind.struct? ? "struct" : "class"
+        message = "can't instantiate abstract #{kind} #{of.name}"
+        findings << Finding.new(:abstract_instantiated, message, span)
         true
       end
 
@@ -206,7 +279,7 @@ module Heucristic
         span : Document::Span,
         findings : Array(Finding),
       ) : Nil
-        return if call.args.any?(Crystal::Splat | Crystal::DoubleSplat)
+        return if call.args.any? { |arg| splat?(arg) }
         return unless call.named_args.nil? || call.named_args.try(&.empty?)
         return if call.block_arg
         return if defs.any? { |entry| keyword_parameters?(entry) }
@@ -306,6 +379,10 @@ module Heucristic
         return false unless definition
 
         definition.args.any? { |arg| arg.name == name && !arg.restriction.nil? }
+      end
+
+      private def splat?(node : Crystal::ASTNode) : Bool
+        node.is_a?(Crystal::Splat) || node.is_a?(Crystal::DoubleSplat)
       end
 
       private def keyword_parameters?(entry : Index::Def) : Bool

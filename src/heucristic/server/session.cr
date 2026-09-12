@@ -37,6 +37,8 @@ require "./published"
 require "./immediacy"
 require "../check/calls"
 require "../check/cases"
+require "../check/generics"
+require "../check/controls"
 require "../check/abstracts"
 require "../check/settled"
 require "../index/collector"
@@ -373,8 +375,11 @@ module Heucristic
         )
         calls = Check::Calls.new(@workspace, @types, @methods, @receiver, settled)
         findings = calls.run(sites).findings
-        Check::Cases.new(@workspace, @receiver, settled).run(sites, findings)
+        Check::Cases.new(@workspace, @types, @receiver, settled).run(sites, findings)
         Check::Abstracts.new(@workspace, @methods, settled).run(path, findings)
+        Check::Generics.new(@workspace, @types, settled, @root).run(sites, findings)
+        Check::Controls.new.run(sites, findings)
+        findings.sort_by! { |finding| {finding.span.start_line, finding.span.start_character} }
         findings.map { |finding| Diagnostics.warning(finding) }
       end
 

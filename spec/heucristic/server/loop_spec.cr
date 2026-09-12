@@ -858,32 +858,70 @@ describe Heucristic::Server::Loop, "call checks" do
 
       class Circle < Shape
       end
+      Shape.new
+      Array(Int32, String).new
+      Greeter(Int32).new
+      break
+
+      class Sub < Shape
+        def area : Int32
+          1
+        end
+
+        def wave : Nil
+          super
+        end
+
+        def solo : Nil
+          previous_def
+        end
+
+        def flip(flag : Bool) : Int32
+          case flag
+          in true then 1
+          end
+        end
+
+        def pick(value : Int32 | String) : Int32
+          case value
+          in Int32 then 1
+          end
+        end
+      end
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 9 }
-    warnings.map(&.["range"]["start"]["line"].as_i).should eq([2, 3, 4, 7, 8, 9, 12, 13, 21])
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 17 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
-    warnings.map(&.["code"].as_s).should eq([
-      "undefined-method", "wrong-arity", "block-mismatch", "wrong-arity", "undefined-method",
-      "type-mismatch", "type-mismatch", "non-exhaustive-case", "abstract-not-implemented",
-    ])
-    warnings.map(&.["message"].as_s).should eq([
-      "undefined method 'gret' for Greeter",
-      "wrong number of arguments for 'Greeter#greet' (given 2, expected 1)",
-      "'Greeter#each_twice' is expected to be invoked with a block, but no block was given",
-      "wrong number of arguments for 'Point#initialize' (given 1, expected 2)",
-      "undefined local variable or method 'missing_thing' for top-level",
-      "expected argument #1 to 'Greeter#greet' to be String, not Int32",
-      "expected argument #1 to 'Greeter#shout' to be String, not Symbol",
-      "case is not exhaustive for enum Clock.\n\nMissing members:\n - Finish",
-      "abstract `def Shape#area()` must be implemented by Circle",
+    reported = warnings.map do |warning|
+      {warning["range"]["start"]["line"].as_i, warning["code"].as_s, warning["message"].as_s}
+    end
+    reported.should eq([
+      {2, "undefined-method", "undefined method 'gret' for Greeter"},
+      {3, "wrong-arity", "wrong number of arguments for 'Greeter#greet' (given 2, expected 1)"},
+      {4, "block-mismatch",
+       "'Greeter#each_twice' is expected to be invoked with a block, but no block was given"},
+      {7, "wrong-arity", "wrong number of arguments for 'Point#initialize' (given 1, expected 2)"},
+      {8, "undefined-method", "undefined local variable or method 'missing_thing' for top-level"},
+      {9, "type-mismatch", "expected argument #1 to 'Greeter#greet' to be String, not Int32"},
+      {12, "type-mismatch", "expected argument #1 to 'Greeter#shout' to be String, not Symbol"},
+      {13, "non-exhaustive-case",
+       "case is not exhaustive for enum Clock.\n\nMissing members:\n - Finish"},
+      {21, "abstract-not-implemented", "abstract `def Shape#area()` must be implemented by Circle"},
+      {23, "abstract-instantiated", "can't instantiate abstract class Shape"},
+      {24, "wrong-type-arguments", "wrong number of type vars for Array(T) (given 2, expected 1)"},
+      {25, "not-generic", "Greeter is not a generic type, it's a class"},
+      {26, "misplaced-control", "invalid break"},
+      {34, "no-superclass-method", "undefined method 'wave' for Object"},
+      {38, "no-previous-def", "there is no previous definition of 'solo'"},
+      {42, "non-exhaustive-case", "case is not exhaustive.\n\nMissing cases:\n - false"},
+      {48, "non-exhaustive-case", "case is not exhaustive.\n\nMissing cases:\n - String"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 9
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 17
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }

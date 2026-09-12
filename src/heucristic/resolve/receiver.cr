@@ -231,6 +231,10 @@ module Heucristic
         end
       end
 
+      def narrowing_steps(name : String, context : Syntax::Context) : Array(Flow::Step)
+        Flow.steps(name, context.ancestors, CallExits.new(@methods, implicit_self(context)))
+      end
+
       def typed(node : Crystal::ASTNode, context : Syntax::Context) : Resolution
         type_of(node, context, Array(String).new, Array(Binding).new)
       end

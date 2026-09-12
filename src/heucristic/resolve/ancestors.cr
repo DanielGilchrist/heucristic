@@ -44,6 +44,13 @@ module Heucristic
         Builtins.type_vars(name)
       end
 
+      def splat_index_of(name : String) : Int32?
+        @workspace.namespaces(name).each do |entry|
+          return entry.splat_index if entry.is_a?(Index::ClassNamespace) && entry.splat_index
+        end
+        Builtins.splat_index(name)
+      end
+
       private def walk(
         name : String,
         bindings : Array(Binding),
@@ -90,13 +97,6 @@ module Heucristic
           bindings << Binding.new(type_var, argument) if argument
         end
         bindings
-      end
-
-      private def splat_index_of(name : String) : Int32?
-        @workspace.namespaces(name).each do |entry|
-          return entry.splat_index if entry.is_a?(Index::ClassNamespace) && entry.splat_index
-        end
-        Builtins.splat_index(name)
       end
 
       private def compute(name : String, types : Types, visiting : Array(String)) : Chain
