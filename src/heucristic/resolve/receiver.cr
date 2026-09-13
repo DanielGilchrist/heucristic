@@ -95,7 +95,14 @@ module Heucristic
           named_arguments << Binding.new(argument.name, value)
         end
         Methods::Call.new(
-          call.name, call.args.size, blocky?(call), arguments, named, named_arguments, call.obj.nil?
+          call.name,
+          call.args.size,
+          blocky?(call),
+          arguments,
+          named,
+          named_arguments,
+          call.obj.nil?,
+          context.path,
         )
       end
 
@@ -1280,16 +1287,19 @@ module Heucristic
       ) : Resolution
         owner = name.rpartition("::")[0]
         owner_scope = owner.empty? ? Scope::TOP : Scope.of(owner)
+        expression = entry.expression
+        enclosing = owner.empty? ? Array(String).new : [owner]
+        context = Syntax::Context.new(enclosing, Array(String).new, nil, entry.path)
+        if expression.is_a?(Crystal::Path)
+          return type_of(expression, context, visiting, Array(Binding).new)
+        end
+
         type = entry.type
         return @types.resolve(type, owner_scope) if type.is_a?(Syntax::Type)
-
-        expression = entry.expression
         unless expression
           return Unknown.new(:no_annotation, "#{name} has no value to type")
         end
 
-        enclosing = owner.empty? ? Array(String).new : [owner]
-        context = Syntax::Context.new(enclosing, Array(String).new, nil)
         type_of(expression, context, visiting, Array(Binding).new)
       end
 
@@ -1316,6 +1326,8 @@ module Heucristic
             context.def_node,
             enclosing_blocks,
             outer_ancestors,
+            context.path,
+            context.instance,
           )
           receiver = of_call(call, outer, locals, visiting)
           return receiver if receiver.is_a?(Unknown)

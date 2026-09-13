@@ -262,7 +262,7 @@ module Heucristic
         return Skip::ProgramUnsettled unless @settled.program?
         return Skip::DslBlock if dsl_block?(context)
 
-        found = top_level(call.name)
+        found = top_level(call.name, context)
         found.concat(@methods.named_on(object_type, call.name))
         top_level_mixed_in(call.name, found)
       end
@@ -315,12 +315,14 @@ module Heucristic
         return Skip::ProgramUnsettled unless @settled.program?
         return Skip::DslBlock if dsl_block?(context)
 
-        defs.concat(top_level(call.name))
+        defs.concat(top_level(call.name, context))
         top_level_mixed_in(call.name, defs)
       end
 
-      private def top_level(name : String) : Array(Index::Def)
-        @workspace.named(name).select(&.owner.is_a?(Index::TopLevel))
+      private def top_level(name : String, context : Syntax::Context) : Array(Index::Def)
+        @workspace.named(name).select do |entry|
+          entry.owner.is_a?(Index::TopLevel) && entry.visible_from?(context.path)
+        end
       end
 
       private def object_type : Resolve::TypeRef

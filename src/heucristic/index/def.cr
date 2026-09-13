@@ -24,7 +24,12 @@ module Heucristic
       with_yield : Bool = false,
       macro_body : Bool = false,
       abstract_def : Bool = false,
-      visibility : Visibility = Visibility::Public do
+      visibility : Visibility = Visibility::Public,
+      private_path : String? = nil do
+      def visible_from?(path : String?) : Bool
+        path.nil? || private_path.nil? || private_path == path
+      end
+
       def qualified : String
         case (namespace = owner)
         in TopLevel then name

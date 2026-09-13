@@ -16,7 +16,8 @@ module Heucristic
         arguments : Array(Resolution),
         named : Array(String),
         named_arguments : Array(Binding) = Array(Binding).new,
-        implicit : Bool = false do
+        implicit : Bool = false,
+        caller_path : String? = nil do
         def self.new(name : String, arity : Int32, block : Bool) : Call
           new(name, arity, block, Array(Resolution).new, Array(String).new)
         end
@@ -341,7 +342,8 @@ module Heucristic
 
       private def top_level(call : Call) : Array(Index::Def)
         candidates = @workspace.named(call.name).select do |entry|
-          entry.owner.is_a?(Index::TopLevel) && call.accepts?(entry) && compatible?(entry, call)
+          entry.owner.is_a?(Index::TopLevel) && entry.visible_from?(call.caller_path) &&
+            call.accepts?(entry) && compatible?(entry, call)
         end
         return most_specific(candidates, call) unless candidates.empty?
 

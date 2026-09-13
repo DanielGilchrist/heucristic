@@ -730,6 +730,7 @@ module Heucristic
           macro_body: traits.macro_body,
           abstract_def: node.abstract?,
           visibility: visibility,
+          private_path: private_path(node),
         )
       end
     end
