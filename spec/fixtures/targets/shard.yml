@@ -1,0 +1,7 @@
+name: targets
+version: 0.1.0
+targets:
+  good:
+    main: src/good.cr
+  broken:
+    main: src/broken.cr

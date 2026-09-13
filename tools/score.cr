@@ -334,10 +334,25 @@ module Score
   ) : Set(String)?
     compiled = expand_macros(root, events, workspace, shims, :main)
     return unless compiled
-    return compiled unless Dir.exists?(File.join(root, "spec"))
+    if Dir.exists?(File.join(root, "spec"))
+      from_specs = expand_macros(root, events, workspace, shims, :spec)
+      compiled = compiled | from_specs if from_specs
+    end
 
-    from_specs = expand_macros(root, events, workspace, shims, :spec)
-    from_specs ? compiled | from_specs : compiled
+    loose = Array(String).new
+    workspace.each_file do |file|
+      path = file.path
+      next unless path.starts_with?(root + "/")
+      next if path.starts_with?(File.join(root, "lib") + "/")
+      next if path.starts_with?(File.join(root, "spec") + "/")
+      next if Heucristic::Index::MacroTarget.generated?(path) || compiled.includes?(path)
+
+      loose << path
+    end
+    return compiled if loose.empty?
+
+    from_loose = expand_macros(root, events, workspace, shims, :loose, loose)
+    from_loose ? compiled | from_loose : compiled
   end
 
   private def expand_macros(
@@ -346,8 +361,11 @@ module Score
     workspace : Heucristic::Index::Workspace,
     shims : Heucristic::Index::Shims,
     target : Heucristic::Index::MacroTarget,
+    loose : Array(String) = Array(String).new,
   ) : Set(String)?
-    Heucristic::Server::Macros.new(events).start(root, nil, target)
+    macros = Heucristic::Server::Macros.new(events)
+    macros.loose(loose)
+    macros.start(root, nil, target)
     result = loop do
       event = events.receive
       break event unless event.is_a?(Heucristic::Index::MacrosStarted)
@@ -367,6 +385,10 @@ module Score
       elapsed = result.elapsed.total_milliseconds.round
       puts "macros (#{target.wire}): #{file.defs.size} generated defs kept of " \
            "#{collected.defs.size} in #{elapsed}ms"
+      result.excluded.each do |left_out, reason|
+        relative = left_out.sub(root + "/", "")
+        puts "macros (#{target.wire}): left out #{relative}: #{reason.lines.first?}"
+      end
       return result.files.to_set
     in Heucristic::Index::MacrosFailed
       puts "macros (#{target.wire}): failed (#{result.reason})"

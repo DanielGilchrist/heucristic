@@ -72,6 +72,7 @@ module Heucristic
         @generated = Hash(Index::MacroTarget, Index::File).new
         @compiled = Hash(Index::MacroTarget, Set(String)).new
         @spec_wanted = false
+        @loose = Set(String).new
         @indexed = false
         @semantic = nil.as(String?)
         @compiler = Compiler.new(events)
@@ -233,8 +234,8 @@ module Heucristic
         in .main?
           @macro_status = MacrosPending.new
           notify_macros
-        in .spec?
-          notify_spec_macros(Stage::Pending, nil, 0)
+        in .spec?, .loose?
+          notify_target_macros(event.target, Stage::Pending, nil, 0)
         end
       end
 
@@ -257,11 +258,13 @@ module Heucristic
           elapsed = event.elapsed.total_milliseconds.round
           case event.target
           in .main?
-            @macro_status = MacrosDone.new(file.defs.size, elapsed)
+            @macro_status = MacrosDone.new(file.defs.size, elapsed, event.excluded)
             notify_macros
-          in .spec?
-            notify_spec_macros(Stage::Done, nil, file.defs.size)
+          in .spec?, .loose?
+            note = exclusion_note(event.excluded)
+            notify_target_macros(event.target, Stage::Done, note, file.defs.size)
           end
+          @documents.each { |document| want_loose_macros(document_path(document)) }
         end
         sweep
         @macros.finished(@root, @semantic, event.target)
@@ -278,8 +281,8 @@ module Heucristic
         in .main?
           @macro_status = MacrosOff.new(event.reason)
           notify_macros
-        in .spec?
-          notify_spec_macros(Stage::Unavailable, event.reason, 0)
+        in .spec?, .loose?
+          notify_target_macros(event.target, Stage::Unavailable, event.reason, 0)
         end
         sweep
         @macros.finished(@root, @semantic, event.target)
@@ -319,7 +322,19 @@ module Heucristic
           text_document.uri.to_s, text_document.version, text_document.text
         )
         want_spec_macros(document_path(document))
+        want_loose_macros(document_path(document))
         analyse(document, Immediacy::Now)
+      end
+
+      private def want_loose_macros(path : String) : Nil
+        return unless @compiled.has_key?(Index::MacroTarget::Main)
+        return unless project_file?(path)
+        return if path.starts_with?(File.join(@root, "spec") + "/")
+        return if compiled_files.includes?(path) || @loose.includes?(path)
+
+        @loose << path
+        @macros.loose(@loose.to_a)
+        @macros.start(@root, @semantic, :loose)
       end
 
       private def want_spec_macros(path : String) : Nil
@@ -834,6 +849,7 @@ module Heucristic
         @dirty.delete(path_of(params.text_document.uri.to_s))
         @macros.start(@root, @semantic, :main)
         @macros.start(@root, @semantic, :spec) if @spec_wanted
+        @macros.start(@root, @semantic, :loose) unless @loose.empty?
         @compiler.start(@root, @executable)
         Silence.new
       end
@@ -905,7 +921,7 @@ module Heucristic
                       status:     Stage::Done.wire,
                       defs:       status.defs,
                       elapsed_ms: status.elapsed_ms,
-                      reason:     nil,
+                      reason:     exclusion_note(status.excluded),
                       target:     MAIN,
                     }
                   in MacrosStale
@@ -943,28 +959,46 @@ module Heucristic
         in .main?
           @macro_status = MacrosStale.new(reason, generated_defs)
           notify_macros
-        in .spec?
-          notify_spec_macros(Stage::Stale, reason, @generated[target]?.try(&.defs.size) || 0)
+        in .spec?, .loose?
+          defs = @generated[target]?.try(&.defs.size) || 0
+          notify_target_macros(target, Stage::Stale, reason, defs)
         end
       end
 
-      private def notify_spec_macros(stage : Stage, reason : String?, defs : Int32) : Nil
+      private def notify_target_macros(
+        target : Index::MacroTarget,
+        stage : Stage,
+        reason : String?,
+        defs : Int32,
+      ) : Nil
         payload = {
           status:     stage.wire,
           defs:       defs,
           elapsed_ms: 0.0,
           reason:     reason,
-          target:     Index::MacroTarget::Spec.wire,
+          target:     target.wire,
         }
         @transport.send(Protocol::Encoder.notification(Notice::Macros.method, payload))
       end
 
       private def macro_hint : String
         case (status = @macro_status)
-        in MacrosPending         then "; macros are still expanding"
-        in MacrosStale           then "; macros could not be expanded (#{status.reason})"
-        in MacrosDone, MacrosOff then ""
+        in MacrosPending then "; macros are still expanding"
+        in MacrosStale   then "; macros could not be expanded (#{status.reason})"
+        in MacrosOff     then ""
+        in MacrosDone
+          note = exclusion_note(status.excluded)
+          note ? "; #{note}" : ""
         end
+      end
+
+      private def exclusion_note(excluded : Hash(String, String)) : String?
+        return if excluded.empty?
+
+        parts = excluded.join(", ") do |path, reason|
+          "#{path.sub(@root + "/", "")} (#{reason.lines.first? || reason})"
+        end
+        "left out of the expansion because it failed: #{parts}"
       end
 
       private def site_of(entry : Index::Entry) : Index::MacroSite?

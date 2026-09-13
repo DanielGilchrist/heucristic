@@ -1063,3 +1063,25 @@ describe Heucristic::Server::Loop, "requires" do
     client.shutdown
   end
 end
+
+describe Heucristic::Server::Loop, "shard targets" do
+  root = File.expand_path("../../fixtures/targets", __DIR__)
+  picky = File.expand_path("../../support/picky_semantic", __DIR__)
+
+  it "lists every target's main and compiles the first one for the compiler lane" do
+    mains = Heucristic::Server::EntryFile.mains(root)
+    mains.should eq([File.join(root, "src", "good.cr"), File.join(root, "src", "broken.cr")])
+    Heucristic::Server::EntryFile.find(root).should eq(File.join(root, "src", "good.cr"))
+  end
+
+  it "leaves a target whose expansion fails out of the combined entry and says so" do
+    client = LspClient.in_process
+    client.initialize!(root, semantic: picky)
+    client.await_notification(Notice::Indexed)
+    status = client.await_stage(Notice::Macros, Stage::Done)
+    reason = status.params.try(&.["reason"].as_s).to_s
+    reason.should contain("left out of the expansion because it failed: src/broken.cr")
+    reason.should contain("In ")
+    client.shutdown
+  end
+end

@@ -261,7 +261,7 @@ module Heucristic
 
           message = "there is no previous definition of '#{definition.name}'"
           findings << Finding.new(:no_previous_def, message, span)
-        in .allocate?, .new?, .initialize?, .self_name? then return false
+        in .allocate?, .new?, .initialize?, .self_name?, .dup?, .clone? then return false
         end
         true
       end

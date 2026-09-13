@@ -1,7 +1,7 @@
 module Heucristic
   module Server
     record MacrosPending
-    record MacrosDone, defs : Int32, elapsed_ms : Float64
+    record MacrosDone, defs : Int32, elapsed_ms : Float64, excluded : Hash(String, String)
     record MacrosStale, reason : String, defs : Int32
     record MacrosOff, reason : String
 

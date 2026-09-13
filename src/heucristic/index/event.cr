@@ -19,8 +19,9 @@ module Heucristic
       source : String,
       sites : Array(MacroSite),
       files : Array(String),
-      elapsed : Time::Span
-    record MacrosFailed, target : MacroTarget, reason : String
+      elapsed : Time::Span,
+      excluded : Hash(String, String)
+    record MacrosFailed, target : MacroTarget, reason : String, trace : String
     record MacrosUnavailable, target : MacroTarget, reason : String
     record CompilerStarted
     record CompilerFinished, errors : Array(Check::CompilerError), elapsed : Time::Span

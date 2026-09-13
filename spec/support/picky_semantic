@@ -1,0 +1,9 @@
+#!/bin/sh
+entry="$1"
+root="$2"
+if grep -q broken "$entry"; then
+  required=$(grep broken "$entry" | sed 's/^require "\(.*\)"$/\1/')
+  printf '{"error":"In %s:3:1","trace":"In %s:3:1\\nError: while requiring \\"%s\\"\\n\\nIn src/broken.cr:3:5\\nError: undefined local variable or method '"'"'undefined_thing'"'"'"}\n' "$entry" "$entry" "$required"
+  exit 0
+fi
+printf '{"crystal":"test","elapsed_ms":1.0,"source":"","files":["%s/src/good.cr"],"sites":[]}\n' "$root"

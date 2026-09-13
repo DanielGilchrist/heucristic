@@ -206,6 +206,10 @@ module Heucristic
         in Index::Unrestricted
           shim = @shims.find(entry)
           return return_type(shim.entry, receiver, arguments, site) if shim
+          if receiver.is_a?(TypeRef) && arguments.empty? && !site.block
+            known = Syntax::WellKnown.from_name(entry.name)
+            return receiver if known && known.copies?
+          end
           if (target = entry.forwards_to)
             return forwarded(entry, target, arguments, site)
           end

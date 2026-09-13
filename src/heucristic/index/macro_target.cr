@@ -3,6 +3,7 @@ module Heucristic
     enum MacroTarget
       Main
       Spec
+      Loose
 
       def self.prefix : String
         "<macros"
@@ -14,15 +15,17 @@ module Heucristic
 
       def generated_path : String
         case self
-        in .main? then "#{MacroTarget.prefix}>"
-        in .spec? then "#{MacroTarget.prefix}:spec>"
+        in .main?  then "#{MacroTarget.prefix}>"
+        in .spec?  then "#{MacroTarget.prefix}:spec>"
+        in .loose? then "#{MacroTarget.prefix}:loose>"
         end
       end
 
       def title : String
         case self
-        in .main? then "Expanding macros"
-        in .spec? then "Expanding spec macros"
+        in .main?  then "Expanding macros"
+        in .spec?  then "Expanding spec macros"
+        in .loose? then "Expanding macros of files outside the targets"
         end
       end
 

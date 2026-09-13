@@ -4,16 +4,29 @@ require "../fibers"
 require "../index/event"
 require "../index/macro_output"
 require "./entry_file"
+require "./cache_entry"
 require "./spec_entry"
+require "./loose_entry"
 require "../index/macro_target"
 require "./semantic_helper"
 
 module Heucristic
   module Server
     class Macros
+      alias Missing = EntryFile::Missing |
+                      SpecEntry::Missing |
+                      LooseEntry::Missing |
+                      CacheEntry::Missing
+
       def initialize(@events : Channel(Index::Event)) : Nil
         @running = Hash(Index::MacroTarget, Bool).new(false)
         @again = Hash(Index::MacroTarget, Bool).new(false)
+        @loose = Array(String).new
+        @excluded = Hash(Index::MacroTarget, Hash(String, String)).new
+      end
+
+      def loose(files : Array(String)) : Nil
+        @loose = files
       end
 
       def start(root : String, configured : String?, target : Index::MacroTarget) : Nil
@@ -48,25 +61,70 @@ module Heucristic
           return Index::MacrosUnavailable.new(target, helper.reason)
         end
 
-        entry = entry_for(root, target)
-        return Index::MacrosUnavailable.new(target, entry.reason) unless entry.is_a?(String)
-
         crystal_path = CrystalEnv.crystal_path
         if crystal_path.is_a?(CrystalEnv::Unavailable)
           return Index::MacrosUnavailable.new(target, crystal_path.reason)
         end
 
-        run(helper, entry, root, crystal_path, target)
+        loop do
+          entry = entry_for(root, target)
+          return Index::MacrosUnavailable.new(target, entry.reason) unless entry.is_a?(String)
+
+          event = run(helper, entry, root, crystal_path, target)
+          return event unless event.is_a?(Index::MacrosFailed)
+
+          culprit = culprit(entry, event.trace, candidates(root, target))
+          return event unless culprit
+
+          excluded(target)[culprit] = event.reason
+        end
       end
 
       private def entry_for(
         root : String,
         target : Index::MacroTarget,
-      ) : String | EntryFile::Missing | SpecEntry::Missing
+      ) : String | Missing
         case target
-        in .main? then EntryFile.find(root)
         in .spec? then SpecEntry.find(root)
+        in .main?
+          mains = EntryFile.mains(root)
+          return mains if mains.is_a?(EntryFile::Missing)
+
+          remaining = remaining(target, mains)
+          remaining.size == 1 ? remaining.first : CacheEntry.write("main", root, "", remaining)
+        in .loose?
+          LooseEntry.find(root, remaining(target, @loose))
         end
+      end
+
+      private def remaining(target : Index::MacroTarget, files : Array(String)) : Array(String)
+        left = excluded(target)
+        files.reject { |file| left.has_key?(file) }
+      end
+
+      private def excluded(target : Index::MacroTarget) : Hash(String, String)
+        @excluded[target] ||= Hash(String, String).new
+      end
+
+      private def candidates(root : String, target : Index::MacroTarget) : Array(String)
+        listed = case target
+                 in .spec? then Array(String).new
+                 in .main?
+                   mains = EntryFile.mains(root)
+                   mains.is_a?(EntryFile::Missing) ? Array(String).new : mains
+                 in .loose? then @loose
+                 end
+        remaining(target, listed)
+      end
+
+      private def culprit(entry : String, trace : String, files : Array(String)) : String?
+        return if files.size < 2
+
+        match = trace.match(/while requiring "([^"]+)"/)
+        return unless match
+
+        required = File.expand_path(match[1], File.dirname(entry))
+        files.find { |file| file.rchop(".cr") == required }
       end
 
       private def run(
@@ -88,27 +146,27 @@ module Heucristic
           error: errors,
         )
         unless status.success?
-          return Index::MacrosFailed.new(
-            target,
-            "#{SemanticHelper::NAME} exited #{status.exit_code}: #{errors.to_s.lines.first?}",
-          )
+          reason = "#{SemanticHelper::NAME} exited #{status.exit_code}: #{errors.to_s.lines.first?}"
+          return Index::MacrosFailed.new(target, reason, errors.to_s)
         end
 
         parsed = Index::MacroOutput.from_json(output.to_s)
         if (error = parsed.error)
-          return Index::MacrosFailed.new(target, error)
+          return Index::MacrosFailed.new(target, error, parsed.trace || error)
         end
 
         source = parsed.source
-        return Index::MacrosFailed.new(target, "the helper returned no source") unless source
+        unless source
+          return Index::MacrosFailed.new(target, "the helper returned no source", "")
+        end
 
         Index::MacrosExpanded.new(
-          target, source, parsed.sites, parsed.files, Time.instant - started
+          target, source, parsed.sites, parsed.files, Time.instant - started, excluded(target).dup
         )
       rescue error : JSON::ParseException
-        Index::MacrosFailed.new(target, "the helper's output is not JSON: #{error.message}")
+        Index::MacrosFailed.new(target, "the helper's output is not JSON: #{error.message}", "")
       rescue error : IO::Error | File::Error
-        Index::MacrosFailed.new(target, error.message || error.class.name)
+        Index::MacrosFailed.new(target, error.message || error.class.name, "")
       end
     end
   end
