@@ -31,6 +31,7 @@ module Heucristic
         @constants = Array(Constant).new
         @macros = Array(MacroDef).new
         @def_depth = 0
+        @opaque_blocks = 0
         @definitions = Array(Crystal::Def).new
         @visibilities = Array(Visibility).new
         @owners = Array(String).new
@@ -240,6 +241,13 @@ module Heucristic
         true
       end
 
+      def end_visit(node : Crystal::Call) : Nil
+        return if node.obj.nil? && Accessor.from_name(node.name)
+        return if node.obj.nil? && Synthesized.from_name(node.name)
+
+        @opaque_blocks -= 1 if opaque_block?(node)
+      end
+
       def end_visit(node : Crystal::Def) : Nil
         @def_depth -= 1
         @definitions.pop
@@ -270,7 +278,10 @@ module Heucristic
           return accessors(node, accessor)
         end
         synthesized = node.obj.nil? ? Synthesized.from_name(node.name) : nil
-        return true unless synthesized
+        unless synthesized
+          @opaque_blocks += 1 if opaque_block?(node)
+          return true
+        end
 
         case synthesized
         in .delegate?           then return delegates(node)
@@ -290,6 +301,7 @@ module Heucristic
             abstract_type: false,
             type_vars: Array(String).new,
             superclass: Unrestricted.new,
+            private_path: private_path(node),
           )
         end
         fields = node.args.skip(1)
@@ -731,7 +743,13 @@ module Heucristic
         )
       end
 
+      private def opaque_block?(node : Crystal::Call) : Bool
+        !node.block.nil? && node.obj.nil? && owner.is_a?(String) && @def_depth == 0
+      end
+
       private def record_def(node : Crystal::Def) : Nil
+        return if @opaque_blocks > 0
+
         record_ivar_parameters(node)
         name_location = node.name_location
         return unless name_location
@@ -752,7 +770,7 @@ module Heucristic
           return_type: Restrictions.of(node.return_type),
           free_vars: node.free_vars || Array(String).new,
           yields: !node.block_arity.nil? || !node.block_arg.nil?,
-          node: yielding_without_restriction?(node) ? node : nil,
+          node: yielding_without_restriction?(node) || traits.with_yield ? node : nil,
           with_yield: traits.with_yield,
           macro_body: traits.macro_body,
           abstract_def: node.abstract?,

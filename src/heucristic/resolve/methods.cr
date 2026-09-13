@@ -103,10 +103,12 @@ module Heucristic
       def initialize(@workspace : Index::Workspace, @types : Types) : Nil
         @including = Array(String).new
         @includers = Hash(String, Array(String)).new
+        @private_paths = Hash(String, Array(String)).new
       end
 
       def invalidate : Nil
         @includers.clear
+        @private_paths.clear
       end
 
       def compatible?(entry : Index::Def, call : Call) : Bool
@@ -156,14 +158,30 @@ module Heucristic
         end
       end
 
-      def named_on(receiver : Resolved, name : String) : Array(Index::Def)
-        case receiver
-        in TypeRef then instance_named(receiver.name, name)
-        in MetaRef
-          of = receiver.of
-          of.is_a?(TypeVar) ? Array(Index::Def).new : metaclass_named(of.name, name)
-        in UnionRef, TypeVar then Array(Index::Def).new
-        end
+      def named_on(
+        receiver : Resolved,
+        name : String,
+        caller_path : String? = nil,
+      ) : Array(Index::Def)
+        found = case receiver
+                in TypeRef then instance_named(receiver.name, name)
+                in MetaRef
+                  of = receiver.of
+                  of.is_a?(TypeVar) ? Array(Index::Def).new : metaclass_named(of.name, name)
+                in UnionRef, TypeVar then Array(Index::Def).new
+                end
+        found.select { |entry| own?(entry, caller_path) }
+      end
+
+      def own?(entry : Index::Def, caller_path : String?) : Bool
+        return true unless caller_path
+        owner = entry.owner
+        return true unless owner.is_a?(String)
+
+        privately = private_paths(owner)
+        return true unless privately.includes?(caller_path)
+
+        entry.path == caller_path
       end
 
       def levels(type : String) : Array(String)
@@ -220,6 +238,10 @@ module Heucristic
         argument.members.any? do |member|
           member.is_a?(Unknown) || admits?(expected, member)
         end
+      end
+
+      private def private_paths(owner : String) : Array(String)
+        @private_paths[owner] ||= @workspace.namespaces(owner).compact_map(&.private_path)
       end
 
       private def autocast?(argument : TypeRef, restriction : TypeRef) : Bool
@@ -439,7 +461,9 @@ module Heucristic
           searched = searched[(start + 1)..]
         end
         searched.each do |level|
-          found = candidates.select { |entry| entry.owner == level && yield entry }
+          found = candidates.select do |entry|
+            entry.owner == level && own?(entry, call.caller_path) && yield entry
+          end
           return most_specific(found, call) unless found.empty?
         end
         Array(Index::Def).new

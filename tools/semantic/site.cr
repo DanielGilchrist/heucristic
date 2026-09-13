@@ -18,7 +18,7 @@ module Semantic
 
     def self.of(line : Int32, owner : String, item : Generated) : Site
       macro_location = item.file.macro.location
-      expanded = real_location(item.file.expanded_location)
+      expanded = item.origin || real_location(item.file.expanded_location)
       new(
         line,
         owner,

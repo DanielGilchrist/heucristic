@@ -2,6 +2,7 @@ require "compiler/crystal/syntax"
 require "../index/workspace"
 require "../index/shims"
 require "../index/evident"
+require "../index/macro_call"
 require "../syntax/target"
 require "../syntax/type_reader"
 require "./types"
@@ -16,6 +17,7 @@ require "./variable_references"
 require "./rescue_variables"
 require "./flow"
 require "./call_exits"
+require "./breaks"
 require "../syntax/yield_sites"
 
 require "../syntax/well_known"
@@ -24,6 +26,8 @@ module Heucristic
   module Resolve
     class Receiver
       DEPTH_LIMIT = 48
+
+      record Unscoped
 
       record Site,
         block : Crystal::Block?,
@@ -53,6 +57,7 @@ module Heucristic
         @facts = Hash(UInt64, BodyFacts).new
         @typed_values = Hash(UInt64, Resolution).new
         @block_inputs = Hash({UInt64, Int32}, Resolution).new
+        @yield_scopes = Hash(UInt64, Resolution | Unscoped).new
       end
 
       def result_of(
@@ -157,9 +162,25 @@ module Heucristic
         visiting : Array(String) = Array(String).new,
       ) : Resolution
         receiver = call.obj
-        return implicit_self(context) unless receiver
+        return implicit_receiver(call, context, locals, visiting) unless receiver
 
         type_of(receiver, context, visiting, locals)
+      end
+
+      def yield_scope(context : Syntax::Context) : Resolution | Unscoped
+        context.blocks.reverse_each do |block_call|
+          next if opaque_block?(block_call)
+
+          scope = @yield_scopes[block_call.object_id]? || begin
+            computed = block_scope(block_call, context)
+            if computed.is_a?(Unscoped) || !unsettled?(computed)
+              @yield_scopes[block_call.object_id] = computed
+            end
+            computed
+          end
+          return scope unless scope.is_a?(Unscoped)
+        end
+        Unscoped.new
       end
 
       def variable(name : String, context : Syntax::Context) : Resolution
@@ -208,6 +229,9 @@ module Heucristic
         in Index::Unrestricted
           shim = @shims.find(entry)
           return return_type(shim.entry, receiver, arguments, site) if shim
+          if entry.name == "loop" && entry.owner.is_a?(Index::TopLevel) && (looped = site.block)
+            return loop_result(looped, site)
+          end
           if receiver.is_a?(TypeRef) && arguments.empty? && !site.block
             known = Syntax::WellKnown.from_name(entry.name)
             return receiver if known && known.copies?
@@ -254,6 +278,7 @@ module Heucristic
         @facts.clear
         @typed_values.clear
         @block_inputs.clear
+        @yield_scopes.clear
       end
 
       def forget(path : String) : Nil
@@ -261,6 +286,7 @@ module Heucristic
         @facts.clear
         @typed_values.clear
         @block_inputs.clear
+        @yield_scopes.clear
       end
 
       def remembered_exit(call : Crystal::Call, & : -> Bool) : Bool
@@ -1170,6 +1196,106 @@ module Heucristic
         end
       end
 
+      private def outside(call : Crystal::Call, context : Syntax::Context) : Syntax::Context
+        enclosing_blocks = context.blocks[0...context.blocks.index!(call)]
+        upto = context.ancestors.index(&.same?(call))
+        outer_ancestors = upto ? context.ancestors[0..upto] : Array(Crystal::ASTNode).new
+        Syntax::Context.new(
+          context.enclosing,
+          context.type_vars,
+          context.def_node,
+          enclosing_blocks,
+          outer_ancestors,
+          context.path,
+          context.instance,
+        )
+      end
+
+      private def implicit_receiver(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        locals : Array(Binding),
+        visiting : Array(String),
+      ) : Resolution
+        scope = yield_scope(context)
+        return implicit_self(context) if scope.is_a?(Unscoped)
+        return scope if scope.is_a?(Unknown)
+
+        defs = @methods.named_on(scope, call.name, context.path)
+        defs.empty? ? implicit_self(context) : scope
+      end
+
+      private def opaque_block?(block_call : Crystal::Call) : Bool
+        Index::MacroCall.like?(block_call, @workspace)
+      end
+
+      private def block_scope(
+        block_call : Crystal::Call,
+        context : Syntax::Context,
+      ) : Resolution | Unscoped
+        outer = outside(block_call, context)
+        target = of_call(block_call, outer)
+        return target if target.is_a?(Unknown)
+
+        shape = shape_of(block_call, outer)
+        defs = @methods.lookup(target, shape)
+        if defs.empty?
+          return Unknown.new(:unresolved_name, "no `#{block_call.name}` on #{target}")
+        end
+
+        scoped = defs.select(&.with_yield)
+        return Unscoped.new if scoped.empty?
+
+        union(scoped.map { |entry| with_scope(entry, target, shape.arguments) })
+      end
+
+      private def with_scope(
+        entry : Index::Def,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+      ) : Resolution
+        definition = entry.node
+        unless definition
+          return Unknown.new(:no_annotation, "#{entry.qualified} yields with an unknown scope")
+        end
+
+        owner = entry.owner
+        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
+        sites = Syntax::YieldSites.in(definition, enclosing, entry.free_vars, entry.path)
+        scopes = Array(Resolution).new
+        sites.each do |site|
+          expression = site.node.scope
+          next unless expression
+
+          if expression.is_a?(Crystal::Var) && Syntax::WellKnown::SelfName.named?(expression.name)
+            scopes << owning(entry, receiver)
+          else
+            scopes << type_of(expression, site.context, [entry.qualified], Array(Binding).new)
+          end
+        end
+        if scopes.empty?
+          return Unknown.new(:no_annotation, "#{entry.qualified} yields without a scope")
+        end
+
+        scope = return_scope(entry, receiver, arguments, Site::NONE)
+        scope.is_a?(Unknown) ? union(scopes) : rebind(union(scopes), scope)
+      end
+
+      private def loop_result(block : Crystal::Block, site : Site) : Resolution
+        breaks = Breaks.in(block)
+        return TypeRef.of(:no_return) if breaks.empty?
+
+        values = breaks.map do |found|
+          exp = found.node.exp
+          next TypeRef.of(:nil).as(Resolution) unless exp
+
+          context = site.context.inside(block)
+          found.ancestors.each { |ancestor| context = context.inside(ancestor) }
+          type_of(exp, context.inside(found.node, exp), site.visiting, site.locals)
+        end
+        union(values)
+      end
+
       private def implicit_self(context : Syntax::Context) : Resolution
         owner = context.owner
         return TypeRef.program if owner.is_a?(Index::TopLevel)
@@ -1323,18 +1449,7 @@ module Heucristic
           index ||= unpacked.try(&.[0])
           next unless index
 
-          enclosing_blocks = context.blocks[0...context.blocks.index!(call)]
-          upto = context.ancestors.index(&.same?(call))
-          outer_ancestors = upto ? context.ancestors[0..upto] : Array(Crystal::ASTNode).new
-          outer = Syntax::Context.new(
-            context.enclosing,
-            context.type_vars,
-            context.def_node,
-            enclosing_blocks,
-            outer_ancestors,
-            context.path,
-            context.instance,
-          )
+          outer = outside(call, context)
           receiver = of_call(call, outer, locals, visiting)
           return receiver if receiver.is_a?(Unknown)
 

@@ -948,8 +948,18 @@ describe Heucristic::Server::Loop, "call checks" do
           Greeter.new.optional
         end
       end
+      build do
+        add("x")
+        add(1)
+        adx("x")
+        puts "ok"
+        greeter.configure_with do
+          greet("a")
+          greet(1)
+        end
+      end
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 36 }
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 39 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     reported = warnings.map do |warning|
@@ -1000,13 +1010,16 @@ describe Heucristic::Server::Loop, "call checks" do
        "method Gauge#name must return String but it is returning String | Nil"},
       {106, "type-mismatch",
        "expected argument #1 to 'Greeter#greet' to be String, not String | Nil"},
+      {115, "type-mismatch", "expected argument #1 to 'Builder#add' to be String, not Int32"},
+      {116, "undefined-method", "undefined local variable or method 'adx' for top-level"},
+      {120, "type-mismatch", "expected argument #1 to 'Greeter#greet' to be String, not Int32"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 36
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 39
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }

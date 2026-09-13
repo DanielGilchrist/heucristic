@@ -48,7 +48,9 @@ module Semantic
         in Crystal::AliasType
           emit("alias ::#{type} = #{type.aliased_type}") if declared_by_macro
         in Crystal::ModuleType
-          generated = generated_defs(type, false) + generated_defs(type.metaclass, true)
+          declaring = declared_by_macro ? declaring_file(type) : nil
+          generated = generated_defs(type, false, declaring) +
+                      generated_defs(type.metaclass, true, declaring)
           parents = project?(type) ? module_parents(type) : Array(String).new
           next if generated.empty? && parents.empty? && !declared_by_macro
 
@@ -68,7 +70,9 @@ module Semantic
     private def constant_value(value : Crystal::ASTNode) : String
       case value
       in Crystal::NumberLiteral, Crystal::StringLiteral, Crystal::SymbolLiteral,
-         Crystal::BoolLiteral, Crystal::NilLiteral, Crystal::CharLiteral
+         Crystal::BoolLiteral, Crystal::NilLiteral, Crystal::CharLiteral,
+         Crystal::ArrayLiteral, Crystal::TupleLiteral, Crystal::HashLiteral,
+         Crystal::NamedTupleLiteral
         value.to_s
       in Crystal::ASTNode then "uninitialized ::Nil"
       end
@@ -109,7 +113,19 @@ module Semantic
       found
     end
 
-    private def generated_defs(type : Crystal::Type, metaclass : Bool) : Array(Generated)
+    private def declaring_file(type : Crystal::Type) : Crystal::VirtualFile?
+      type.locations.try &.each do |location|
+        filename = location.filename
+        return filename if filename.is_a?(Crystal::VirtualFile)
+      end
+      nil
+    end
+
+    private def generated_defs(
+      type : Crystal::Type,
+      metaclass : Bool,
+      declaring : Crystal::VirtualFile?,
+    ) : Array(Generated)
       found = Array(Generated).new
       return found unless type.is_a?(Crystal::ModuleType)
 
@@ -120,9 +136,11 @@ module Semantic
 
           location = definition.location
           filename = location.try(&.filename)
-          next unless filename.is_a?(Crystal::VirtualFile)
-
-          found << Generated.new(definition, metaclass, filename)
+          if filename.is_a?(Crystal::VirtualFile)
+            found << Generated.new(definition, metaclass, filename, nil)
+          elsif declaring && location
+            found << Generated.new(definition, metaclass, declaring, location)
+          end
         end
       end
       found

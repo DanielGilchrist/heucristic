@@ -14,7 +14,7 @@ module Heucristic
       TypeUnsettled
       TypeHasSubclasses
       ProgramUnsettled
-      DslBlock
+      YieldScopeUnknown
 
       def label : String
         to_s.underscore.gsub('_', ' ')

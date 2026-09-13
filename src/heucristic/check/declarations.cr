@@ -15,24 +15,12 @@ module Heucristic
         @found = false
       end
 
-      alias Declaring = Crystal::Def |
-                        Crystal::FunDef |
-                        Crystal::Macro |
-                        Crystal::ClassDef |
-                        Crystal::ModuleDef |
-                        Crystal::EnumDef |
-                        Crystal::LibDef |
-                        Crystal::AnnotationDef |
-                        Crystal::Alias |
-                        Crystal::Include |
-                        Crystal::Extend |
-                        Crystal::InstanceVar |
-                        Crystal::ClassVar |
-                        Crystal::MacroExpression |
-                        Crystal::MacroIf |
-                        Crystal::MacroFor
-
-      def visit(node : Declaring) : Bool
+      def visit(
+        node : Crystal::Def | Crystal::FunDef | Crystal::Macro | Crystal::ClassDef |
+               Crystal::ModuleDef | Crystal::EnumDef | Crystal::LibDef | Crystal::AnnotationDef |
+               Crystal::Alias | Crystal::Include | Crystal::Extend | Crystal::InstanceVar |
+               Crystal::ClassVar | Crystal::MacroExpression | Crystal::MacroIf | Crystal::MacroFor,
+      ) : Bool
         @found = true
         false
       end

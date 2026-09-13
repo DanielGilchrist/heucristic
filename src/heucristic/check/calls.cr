@@ -31,7 +31,6 @@ module Heucristic
         @receiver : Resolve::Receiver,
         @settled : Settled,
       ) : Nil
-        @dsl_blocks = Hash(UInt64, Bool).new
         @mixed_in = Hash(String, Array(Index::Def)).new
       end
 
@@ -91,6 +90,10 @@ module Heucristic
         end
         return if abstract_instantiation(known, call, receiver, span, findings)
         if receiver.is_a?(Resolve::Unknown)
+          if call.obj.nil? && @receiver.yield_scope(site.context).is_a?(Resolve::Unknown)
+            return Skip::YieldScopeUnknown
+          end
+
           unknown[receiver.to_s] += 1
           return Skip::ReceiverUnknown
         end
@@ -344,10 +347,10 @@ module Heucristic
         context : Syntax::Context,
       ) : Array(Index::Def) | Skip
         return Skip::ProgramUnsettled unless @settled.program?
-        return Skip::DslBlock if dsl_block?(context)
+        return Skip::YieldScopeUnknown if @receiver.yield_scope(context).is_a?(Resolve::Unknown)
 
         found = top_level(call.name, context)
-        found.concat(@methods.named_on(object_type, call.name))
+        found.concat(@methods.named_on(object_type, call.name, context.path))
         top_level_mixed_in(call.name, found)
       end
 
@@ -394,10 +397,10 @@ module Heucristic
         return Skip::TypeUnsettled unless @settled.type?(type)
         return virtual_definitions(receiver, type, call) if @settled.extended?(type)
 
-        defs = @methods.named_on(receiver, call.name)
+        defs = @methods.named_on(receiver, call.name, context.path)
         return defs unless call.obj.nil?
         return Skip::ProgramUnsettled unless @settled.program?
-        return Skip::DslBlock if dsl_block?(context)
+        return Skip::YieldScopeUnknown if @receiver.yield_scope(context).is_a?(Resolve::Unknown)
 
         defs.concat(top_level(call.name, context))
         top_level_mixed_in(call.name, defs)
@@ -491,20 +494,6 @@ module Heucristic
 
       private def object_type : Resolve::TypeRef
         Resolve::TypeRef.of(:object)
-      end
-
-      private def dsl_block?(context : Syntax::Context) : Bool
-        context.blocks.any? do |block_call|
-          @dsl_blocks[block_call.object_id] ||= yields_with_scope?(block_call, context)
-        end
-      end
-
-      private def yields_with_scope?(block_call : Crystal::Call, context : Syntax::Context) : Bool
-        target = @receiver.of_call(block_call, context)
-        return true if target.is_a?(Resolve::Unknown)
-
-        defs = @methods.lookup(target, @receiver.shape_of(block_call, context))
-        defs.empty? || defs.any?(&.with_yield)
       end
 
       private def undefined(call : Crystal::Call, receiver : Resolve::Resolution) : String

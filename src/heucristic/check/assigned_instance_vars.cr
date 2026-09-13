@@ -1,6 +1,7 @@
 require "compiler/crystal/syntax"
 require "../index/workspace"
 require "./macro_arguments"
+require "../index/macro_call"
 require "../syntax/well_known"
 
 module Heucristic
@@ -36,7 +37,7 @@ module Heucristic
       def visit(node : Crystal::Call) : Bool
         return true unless node.obj.nil?
 
-        macro_like = MacroArguments.macro_like?(node.name, @workspace)
+        macro_like = Index::MacroCall.like?(node, @workspace)
         @undecidable = true if macro_like || super_like?(node.name)
         true
       end

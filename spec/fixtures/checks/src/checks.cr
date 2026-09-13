@@ -20,6 +20,10 @@ class Greeter
     nil
   end
 
+  def configure_with(& : ->) : Nil
+    with self yield
+  end
+
   def each_twice(& : -> Nil) : Nil
     yield
     yield
@@ -53,4 +57,14 @@ class Square < Shape
   def area : Int32
     4
   end
+end
+
+class Builder
+  def add(item : String) : Nil
+  end
+end
+
+def build(& : ->) : Nil
+  builder = Builder.new
+  with builder yield
 end

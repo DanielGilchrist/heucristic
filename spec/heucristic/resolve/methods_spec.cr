@@ -82,6 +82,29 @@ describe Heucristic::Resolve::Methods, "top-level defs" do
   end
 end
 
+describe Heucristic::Resolve::Methods, "file-private types" do
+  it "answers a file-private type's methods only from the calling file" do
+    workspace = Heucristic::Index::Workspace.new
+    {
+      {"a.cr", "private record Ends, local : Int32\n"},
+      {"b.cr", "private record Ends, local : String\n"},
+    }.each do |path, source|
+      tree = Heucristic::Syntax.parse(source, path)
+      raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+      workspace.update(
+        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+      )
+    end
+    types = Heucristic::Resolve::Types.new(workspace)
+    methods = Heucristic::Resolve::Methods.new(workspace, types)
+    ends = Heucristic::Resolve::TypeRef.new("Ends", Array(Heucristic::Resolve::Resolution).new)
+    methods.named_on(ends, "local", "a.cr").map(&.path).should eq(["a.cr"])
+    methods.named_on(ends, "local", "b.cr").map(&.path).should eq(["b.cr"])
+    methods.named_on(ends, "local").map(&.path).should eq(["a.cr", "b.cr"])
+  end
+end
+
 describe Heucristic::Resolve::Methods do
   source = <<-CR
     module Greets

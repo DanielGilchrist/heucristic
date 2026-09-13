@@ -2042,3 +2042,52 @@ describe Heucristic::Resolve::Receiver, "branch joins" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "loop and with-yield blocks" do
+  it "types loop by its break values and as NoReturn without one" do
+    source = <<-CR
+      def loop(&)
+      end
+
+      first = loop do
+        break 1
+      end
+      first
+      second = loop do
+        break
+      end
+      second
+      third = loop do
+        puts "x"
+      end
+      third
+      CR
+    receiver_at(source, 7, 1).should eq("Int32")
+    receiver_at(source, 11, 1).should eq("Nil")
+    receiver_at(source, 15, 1).should eq("NoReturn")
+  end
+
+  it "resolves receiverless calls inside a with-yield block against the yielded scope" do
+    source = <<-CR
+      class Builder
+        def add(item : String) : Nil
+        end
+      end
+
+      def build(& : ->) : Nil
+        builder = Builder.new
+        with builder yield
+      end
+
+      def outside : Nil
+      end
+
+      build do
+        add("x")
+        outside
+      end
+      CR
+    receiver_at(source, 15, 3).should eq("Builder")
+    receiver_at(source, 16, 3).should eq("Program")
+  end
+end
