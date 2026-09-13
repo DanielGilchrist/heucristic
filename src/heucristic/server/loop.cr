@@ -93,8 +93,8 @@ module Heucristic
           @session.indexed(event)
         in Index::MacrosStarted
           @next_request_id += 1
-          @session.progress.begin_macros(@next_request_id)
-          @session.macros_started
+          @session.progress.begin_macros(@next_request_id, event.target.title)
+          @session.macros_started(event)
         in Index::MacrosExpanded
           @session.progress.finish_macros(
             "#{event.sites.size} generated defs in #{event.elapsed.total_milliseconds.round}ms"

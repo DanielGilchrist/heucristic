@@ -9,7 +9,6 @@ module Heucristic
       TOKEN          = "heucristic/indexing"
       MACROS_TOKEN   = "heucristic/macros"
       TITLE          = "Indexing"
-      MACROS_TITLE   = "Expanding macros"
       COMPILER_TOKEN = "heucristic/compiler"
       COMPILER_TITLE = "Checking with the compiler"
 
@@ -59,8 +58,8 @@ module Heucristic
         ))
       end
 
-      def begin_macros(request_id : Protocol::Id) : Nil
-        begin_task(MACROS_TOKEN, MACROS_TITLE, request_id)
+      def begin_macros(request_id : Protocol::Id, title : String) : Nil
+        begin_task(MACROS_TOKEN, title, request_id)
       end
 
       def finish_macros(message : String) : Nil

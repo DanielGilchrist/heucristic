@@ -2,6 +2,7 @@ require "./file"
 require "./macro_site"
 require "./sites"
 require "../check/compiler_error"
+require "./macro_target"
 
 module Heucristic
   module Index
@@ -12,14 +13,15 @@ module Heucristic
       shims : Array(File),
       sites : Array(Sites),
       elapsed : Time::Span
-    record MacrosStarted
+    record MacrosStarted, target : MacroTarget
     record MacrosExpanded,
+      target : MacroTarget,
       source : String,
       sites : Array(MacroSite),
       files : Array(String),
       elapsed : Time::Span
-    record MacrosFailed, reason : String
-    record MacrosUnavailable, reason : String
+    record MacrosFailed, target : MacroTarget, reason : String
+    record MacrosUnavailable, target : MacroTarget, reason : String
     record CompilerStarted
     record CompilerFinished, errors : Array(Check::CompilerError), elapsed : Time::Span
     record CompilerFailed, reason : String

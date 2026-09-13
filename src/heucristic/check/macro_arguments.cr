@@ -14,7 +14,9 @@ module Heucristic
           next false unless macro_like?(node.name, workspace)
 
           block = node.block
-          block.nil? || !ancestors[index + 1]?.try(&.same?(block))
+          next true if block.nil? || !ancestors[index + 1]?.try(&.same?(block))
+
+          !Index::Synthesized.from_name(node.name).try(&.record?)
         end
       end
 

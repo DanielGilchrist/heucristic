@@ -994,6 +994,19 @@ describe Heucristic::Server::Loop, "call checks" do
     client.shutdown
   end
 
+  it "expands the spec tree's macros once a file under spec is opened" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    spec_path = File.join(root, "spec", "checks_spec.cr")
+    client.open("file://#{spec_path}", File.read(spec_path))
+    status = client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+    status.params.try(&.["target"].as_s).should eq("spec")
+    client.shutdown
+  end
+
   it "drops a warning as soon as the edited document defines the method" do
     client = LspClient.in_process
     client.initialize!(root, stdlib: true, semantic: semantic)

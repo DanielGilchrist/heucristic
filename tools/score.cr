@@ -69,7 +69,7 @@ module Score
     workspace.replace_all(finished.files)
     shims = Heucristic::Index::Shims.new
     shims.replace_all(finished.shims)
-    compiled = args.includes?("--no-macros") ? nil : expand_macros(root, events, workspace, shims)
+    compiled = args.includes?("--no-macros") ? nil : expand_all(root, events, workspace, shims)
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
@@ -322,33 +322,52 @@ module Score
     DECLARATIONS.includes?(name) || !Heucristic::Index::Accessor.from_name(name).nil?
   end
 
-  private def expand_macros(
+  private def expand_all(
     root : String,
     events : Channel(Heucristic::Index::Event),
     workspace : Heucristic::Index::Workspace,
     shims : Heucristic::Index::Shims,
   ) : Set(String)?
-    Heucristic::Server::Macros.new(events).start(root, nil)
+    compiled = expand_macros(root, events, workspace, shims, :main)
+    return unless compiled
+    return compiled unless Dir.exists?(File.join(root, "spec"))
+
+    from_specs = expand_macros(root, events, workspace, shims, :spec)
+    from_specs ? compiled | from_specs : compiled
+  end
+
+  private def expand_macros(
+    root : String,
+    events : Channel(Heucristic::Index::Event),
+    workspace : Heucristic::Index::Workspace,
+    shims : Heucristic::Index::Shims,
+    target : Heucristic::Index::MacroTarget,
+  ) : Set(String)?
+    Heucristic::Server::Macros.new(events).start(root, nil, target)
     result = loop do
       event = events.receive
       break event unless event.is_a?(Heucristic::Index::MacrosStarted)
     end
     case result
     in Heucristic::Index::MacrosExpanded
-      tree = Heucristic::Syntax.parse(result.source, "<macros>")
+      path = target.generated_path
+      tree = Heucristic::Syntax.parse(result.source, path)
       if tree.is_a?(Heucristic::Syntax::Broken)
-        puts "macros: generated source does not parse: #{tree.message}"
+        puts "macros (#{target.wire}): generated source does not parse: #{tree.message}"
         return
       end
       text = Heucristic::Document::Text.new(result.source)
-      collected = Heucristic::Index::Collector.collect("<macros>", text, tree)
+      collected = Heucristic::Index::Collector.collect(path, text, tree)
       file = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims)
       workspace.update(file)
       elapsed = result.elapsed.total_milliseconds.round
-      puts "macros: #{file.defs.size} generated defs kept of #{collected.defs.size} in #{elapsed}ms"
+      puts "macros (#{target.wire}): #{file.defs.size} generated defs kept of " \
+           "#{collected.defs.size} in #{elapsed}ms"
       return result.files.to_set
-    in Heucristic::Index::MacrosFailed      then puts "macros: failed (#{result.reason})"
-    in Heucristic::Index::MacrosUnavailable then puts "macros: unavailable (#{result.reason})"
+    in Heucristic::Index::MacrosFailed
+      puts "macros (#{target.wire}): failed (#{result.reason})"
+    in Heucristic::Index::MacrosUnavailable
+      puts "macros (#{target.wire}): unavailable (#{result.reason})"
     in Heucristic::Index::Started, Heucristic::Index::Advanced, Heucristic::Index::Finished,
        Heucristic::Index::MacrosStarted, Heucristic::Index::CompilerStarted,
        Heucristic::Index::CompilerFinished, Heucristic::Index::CompilerFailed,

@@ -46,6 +46,7 @@ require "../check/abstracts"
 require "../check/settled"
 require "../index/collector"
 require "../index/macro_site"
+require "../index/macro_target"
 require "../index/generated"
 require "../crystal_env"
 require "../resolve/local_declarations"
@@ -53,8 +54,8 @@ require "../resolve/local_declarations"
 module Heucristic
   module Server
     class Session
-      GENERATED_PATH = "<macros>"
-      CHECK_DELAY    = 300.milliseconds
+      CHECK_DELAY = 300.milliseconds
+      MAIN        = Index::MacroTarget::Main.wire
 
       getter root : String
 
@@ -66,8 +67,11 @@ module Heucristic
         @root = Dir.current
         @macros = Macros.new(events)
         @macro_status = MacrosPending.new.as(MacroStatus)
-        @macro_sites = Hash(Int32, Index::MacroSite).new
-        @generated = nil.as(Index::File?)
+        @macro_sites = Hash(String, Hash(Int32, Index::MacroSite)).new
+        @generated = Hash(Index::MacroTarget, Index::File).new
+        @compiled = Hash(Index::MacroTarget, Set(String)).new
+        @spec_wanted = false
+        @indexed = false
         @semantic = nil.as(String?)
         @compiler = Compiler.new(events)
         @compiler_status = CompilerPending.new.as(CompilerStatus)
@@ -75,7 +79,6 @@ module Heucristic
         @published = Published.new
         @dirty = Set(String).new
         @check_generations = Hash(String, Int32).new
-        @compiled = Set(String).new
         @sweep = 0
         @documents = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
@@ -200,10 +203,11 @@ module Heucristic
         @shims.replace_all(event.shims)
         @workspace.replace_all(event.files)
         @workspace.replace_sites(event.sites)
-        @generated.try { |file| @workspace.update(file) }
+        @generated.each_value { |file| @workspace.update(file) }
         @types.invalidate
         @methods.invalidate
         @receiver.invalidate
+        @indexed = true
         @documents.each { |document| index_document(document) }
         @transport.send(Protocol::Encoder.notification(
           Notice::Indexed.method,
@@ -213,50 +217,66 @@ module Heucristic
             elapsed_ms: event.elapsed.total_milliseconds.round,
           },
         ))
-        @macros.start(@root, @semantic)
+        @macros.start(@root, @semantic, :main)
+        @macros.start(@root, @semantic, :spec) if @spec_wanted
         @compiler.start(@root, @executable)
       end
 
-      def macros_started : Nil
-        @macro_status = MacrosPending.new
-        notify_macros
+      def macros_started(event : Index::MacrosStarted) : Nil
+        case event.target
+        in .main?
+          @macro_status = MacrosPending.new
+          notify_macros
+        in .spec?
+          notify_spec_macros(Stage::Pending, nil, 0)
+        end
       end
 
       def macros_expanded(event : Index::MacrosExpanded) : Nil
-        tree = Syntax.parse(event.source, GENERATED_PATH)
+        path = event.target.generated_path
+        tree = Syntax.parse(event.source, path)
         if tree.is_a?(Syntax::Broken)
-          reason = "generated source does not parse: #{tree.message}"
-          @macro_status = MacrosStale.new(reason, generated_defs)
+          macros_broken(event.target, "generated source does not parse: #{tree.message}")
         else
           text = Document::Text.new(event.source)
-          collected = Index::Collector.collect(GENERATED_PATH, text, tree)
+          collected = Index::Collector.collect(path, text, tree)
           file = Index::Generated.merge(collected, event.sites, @workspace, @shims)
-          @generated = file
+          @generated[event.target] = file
           @workspace.update(file)
           @types.invalidate
           @receiver.invalidate
-          @macro_sites.clear
-          event.sites.each { |site| @macro_sites[site.line] = site }
-          @compiled = event.files.to_set
-          @macro_status = MacrosDone.new(file.defs.size, event.elapsed.total_milliseconds.round)
+          sites = @macro_sites[path] = Hash(Int32, Index::MacroSite).new
+          event.sites.each { |site| sites[site.line] = site }
+          @compiled[event.target] = event.files.to_set
+          elapsed = event.elapsed.total_milliseconds.round
+          case event.target
+          in .main?
+            @macro_status = MacrosDone.new(file.defs.size, elapsed)
+            notify_macros
+          in .spec?
+            notify_spec_macros(Stage::Done, nil, file.defs.size)
+          end
         end
-        notify_macros
         sweep
-        @macros.finished(@root, @semantic)
+        @macros.finished(@root, @semantic, event.target)
       end
 
       def macros_failed(event : Index::MacrosFailed) : Nil
-        @macro_status = MacrosStale.new(event.reason, generated_defs)
-        notify_macros
+        macros_broken(event.target, event.reason)
         sweep
-        @macros.finished(@root, @semantic)
+        @macros.finished(@root, @semantic, event.target)
       end
 
       def macros_unavailable(event : Index::MacrosUnavailable) : Nil
-        @macro_status = MacrosOff.new(event.reason)
-        notify_macros
+        case event.target
+        in .main?
+          @macro_status = MacrosOff.new(event.reason)
+          notify_macros
+        in .spec?
+          notify_spec_macros(Stage::Unavailable, event.reason, 0)
+        end
         sweep
-        @macros.finished(@root, @semantic)
+        @macros.finished(@root, @semantic, event.target)
       end
 
       def compiler_started : Nil
@@ -292,7 +312,15 @@ module Heucristic
         document = @documents.open(
           text_document.uri.to_s, text_document.version, text_document.text
         )
+        want_spec_macros(document_path(document))
         analyse(document, Immediacy::Now)
+      end
+
+      private def want_spec_macros(path : String) : Nil
+        return if @spec_wanted || !path.starts_with?(File.join(@root, "spec") + "/")
+
+        @spec_wanted = true
+        @macros.start(@root, @semantic, :spec) if @indexed
       end
 
       private def did_change(notification : Protocol::Notification) : Outcome
@@ -378,7 +406,13 @@ module Heucristic
         return Diagnostics.none if shimmed?(path)
 
         settled = Check::Settled.new(
-          @workspace, @types, @macro_status.is_a?(MacrosDone), @dirty, @compiled, @root, shim_roots
+          @workspace,
+          @types,
+          @macro_status.is_a?(MacrosDone),
+          @dirty,
+          compiled_files,
+          @root,
+          shim_roots,
         )
         calls = Check::Calls.new(@workspace, @types, @methods, @receiver, settled)
         findings = calls.run(sites).findings
@@ -449,7 +483,7 @@ module Heucristic
         return reply(request.id, nil) unless target
 
         answer = answer_at(uri, params.position)
-        declared = answer.entries.reject { |entry| entry.path == GENERATED_PATH }
+        declared = answer.entries.reject { |entry| Index::MacroTarget.generated?(entry.path) }
         if declared.empty? && !answer.entries.empty?
           reason = "a macro-generated def cannot be renamed"
           return error(request.id, Protocol::Encoder::INVALID_REQUEST, reason)
@@ -771,7 +805,8 @@ module Heucristic
         return Silence.new if params.is_a?(DecodedParams::Invalid)
 
         @dirty.delete(path_of(params.text_document.uri.to_s))
-        @macros.start(@root, @semantic)
+        @macros.start(@root, @semantic, :main)
+        @macros.start(@root, @semantic, :spec) if @spec_wanted
         @compiler.start(@root, @executable)
         Silence.new
       end
@@ -831,13 +866,20 @@ module Heucristic
       private def notify_macros : Nil
         payload = case (status = @macro_status)
                   in MacrosPending
-                    {status: Stage::Pending.wire, defs: 0, elapsed_ms: 0.0, reason: nil}
+                    {
+                      status:     Stage::Pending.wire,
+                      defs:       0,
+                      elapsed_ms: 0.0,
+                      reason:     nil,
+                      target:     MAIN,
+                    }
                   in MacrosDone
                     {
                       status:     Stage::Done.wire,
                       defs:       status.defs,
                       elapsed_ms: status.elapsed_ms,
                       reason:     nil,
+                      target:     MAIN,
                     }
                   in MacrosStale
                     {
@@ -845,6 +887,7 @@ module Heucristic
                       defs:       status.defs,
                       elapsed_ms: 0.0,
                       reason:     status.reason,
+                      target:     MAIN,
                     }
                   in MacrosOff
                     {
@@ -852,13 +895,41 @@ module Heucristic
                       defs:       0,
                       elapsed_ms: 0.0,
                       reason:     status.reason,
+                      target:     MAIN,
                     }
                   end
         @transport.send(Protocol::Encoder.notification(Notice::Macros.method, payload))
       end
 
       private def generated_defs : Int32
-        @generated.try(&.defs.size) || 0
+        @generated[Index::MacroTarget::Main]?.try(&.defs.size) || 0
+      end
+
+      private def compiled_files : Set(String)
+        all = Set(String).new
+        @compiled.each_value { |files| all.concat(files) }
+        all
+      end
+
+      private def macros_broken(target : Index::MacroTarget, reason : String) : Nil
+        case target
+        in .main?
+          @macro_status = MacrosStale.new(reason, generated_defs)
+          notify_macros
+        in .spec?
+          notify_spec_macros(Stage::Stale, reason, @generated[target]?.try(&.defs.size) || 0)
+        end
+      end
+
+      private def notify_spec_macros(stage : Stage, reason : String?, defs : Int32) : Nil
+        payload = {
+          status:     stage.wire,
+          defs:       defs,
+          elapsed_ms: 0.0,
+          reason:     reason,
+          target:     Index::MacroTarget::Spec.wire,
+        }
+        @transport.send(Protocol::Encoder.notification(Notice::Macros.method, payload))
       end
 
       private def macro_hint : String
@@ -870,9 +941,10 @@ module Heucristic
       end
 
       private def site_of(entry : Index::Entry) : Index::MacroSite?
-        return unless entry.path == GENERATED_PATH
+        sites = @macro_sites[entry.path]?
+        return unless sites
 
-        @macro_sites[entry.name_span.start_line.to_i + 1]?
+        sites[entry.name_span.start_line.to_i + 1]?
       end
 
       private def provenance(entry : Index::Entry) : String?
@@ -882,7 +954,7 @@ module Heucristic
       private def locate(entry : Index::Entry) : LSProtocol::Location?
         site = site_of(entry)
         unless site
-          return if entry.path == GENERATED_PATH
+          return if Index::MacroTarget.generated?(entry.path)
 
           return LSProtocol::Location.new(
             range: entry.name_span.to_range, uri: URI.parse(Uri.from_path(entry.path))

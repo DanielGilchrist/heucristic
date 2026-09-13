@@ -5,12 +5,11 @@ require "../resolve/resolution"
 require "./macro_uses"
 require "../core_type"
 require "../index/macro_hook"
+require "../index/macro_target"
 
 module Heucristic
   module Check
     class Settled
-      GENERATED = "<macros>"
-
       def initialize(
         @workspace : Index::Workspace,
         @types : Resolve::Types,
@@ -41,7 +40,10 @@ module Heucristic
       def generated_free?(name : String) : Bool
         chain = @types.ancestors(name)
         levels = chain.is_a?(Resolve::Unknown) ? [name] : [name] + chain
-        return false if levels.any? { |level| @workspace.defs_of(level).any?(&.path.==(GENERATED)) }
+        generated = levels.any? do |level|
+          @workspace.defs_of(level).any? { |entry| Index::MacroTarget.generated?(entry.path) }
+        end
+        return false if generated
 
         Index::MacroHook.values.none? do |hook|
           next false unless hook.generates_defs?
@@ -126,12 +128,12 @@ module Heucristic
       end
 
       private def compiled?(path : String) : Bool
-        path == GENERATED || @compiled.includes?(path)
+        Index::MacroTarget.generated?(path) || @compiled.includes?(path)
       end
 
       private def declared_in_project?(entry : Index::Namespace) : Bool
         path = entry.path
-        return true if path == GENERATED
+        return true if Index::MacroTarget.generated?(path)
         return false unless path.starts_with?(@root + "/")
         return false if path.starts_with?(File.join(@root, "lib") + "/")
 
