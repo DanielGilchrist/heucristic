@@ -296,9 +296,16 @@ module Heucristic
       end
 
       def compiler_finished(event : Index::CompilerFinished) : Nil
-        batch = compiler_batch(event.errors)
+        frame = placed_frame(event.errors)
+        batch = compiler_batch(frame)
         @published.compiler(batch).each { |uri| publish(uri, version_of(uri), @published.for(uri)) }
-        @compiler_status = CompilerDone.new(batch.size, event.elapsed.total_milliseconds.round)
+        @compiler_status = CompilerDone.new(
+          batch.size,
+          event.elapsed.total_milliseconds.round,
+          frame.try { |found| File.expand_path(found.file, @root) },
+          frame.try(&.line),
+          frame.try(&.message),
+        )
         notify_compiler
         @compiler.finished(@root, @executable)
       end
@@ -914,30 +921,61 @@ module Heucristic
       private def notify_compiler : Nil
         payload = case (status = @compiler_status)
                   in CompilerPending
-                    {status: Stage::Pending.wire, errors: 0, elapsed_ms: 0.0, reason: nil}
+                    {
+                      status:     Stage::Pending.wire,
+                      errors:     0,
+                      elapsed_ms: 0.0,
+                      reason:     nil,
+                      file:       nil,
+                      line:       nil,
+                      message:    nil,
+                    }
                   in CompilerDone
                     {
                       status:     Stage::Done.wire,
                       errors:     status.errors,
                       elapsed_ms: status.elapsed_ms,
                       reason:     nil,
+                      file:       status.file,
+                      line:       status.line,
+                      message:    status.message,
                     }
                   in CompilerBroken
-                    {status: Stage::Failed.wire, errors: 0, elapsed_ms: 0.0, reason: status.reason}
+                    {
+                      status:     Stage::Failed.wire,
+                      errors:     0,
+                      elapsed_ms: 0.0,
+                      reason:     status.reason,
+                      file:       nil,
+                      line:       nil,
+                      message:    nil,
+                    }
                   in CompilerOff
                     {
                       status:     Stage::Unavailable.wire,
                       errors:     0,
                       elapsed_ms: 0.0,
                       reason:     status.reason,
+                      file:       nil,
+                      line:       nil,
+                      message:    nil,
                     }
                   end
         @transport.send(Protocol::Encoder.notification(Notice::Compiler.method, payload))
       end
 
-      private def compiler_batch(errors : Array(Check::CompilerError)) : Published::Batch
+      private def placed_frame(errors : Array(Check::CompilerError)) : Check::CompilerError?
+        last = errors.last?
+        return unless last
+
+        failing = errors.select do |error|
+          project_file?(error.file) && error.message == last.message
+        end
+        failing.first? || errors.reverse.find { |error| project_file?(error.file) } || last
+      end
+
+      private def compiler_batch(frame : Check::CompilerError?) : Published::Batch
         batch = Published::Batch.new
-        frame = errors.reverse.find { |error| project_file?(error.file) } || errors.first?
         return batch unless frame
 
         path = File.expand_path(frame.file, @root)

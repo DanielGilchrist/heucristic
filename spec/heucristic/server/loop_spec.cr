@@ -788,12 +788,38 @@ describe Heucristic::Server::Loop, "compiler diagnostics" do
     diagnostics[0]["range"]["start"]["line"].as_i.should eq(6)
     diagnostics[0]["range"]["start"]["character"].as_i.should eq(12)
     diagnostics[0]["range"]["end"]["character"].as_i.should eq(16)
-    client.await_stage(Notice::Compiler, Stage::Done).params.try(&.["errors"].as_i).should eq(1)
+    status = client.await_stage(Notice::Compiler, Stage::Done).params
+    status.try(&.["errors"].as_i).should eq(1)
+    status.try(&.["file"].as_s).should eq("#{root}/src/broken.cr")
+    status.try(&.["line"].as_i).should eq(7)
+    status.try(&.["message"].as_s).should eq("instantiating 'Counter#bump(String)'")
 
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     client.save(broken_uri)
     cleared = client.await_diagnostics
     cleared.params.try(&.["diagnostics"].as_a.size).should eq(0)
+    client.shutdown
+  end
+
+  it "places a macro raise on the frame that carries the message rather than the entry" do
+    client = LspClient.in_process
+    client.initialize!(root, compiler: fake)
+    client.await_notification(Notice::Indexed)
+    client.await_stage(Notice::Compiler, Stage::Done)
+
+    client.open(broken_uri, File.read(File.join(root, "src", "broken.cr")))
+    client.await_diagnostics
+
+    frames = [
+      {file: "#{root}/src/broken.cr", line: 2, column: 5, size: 0, message: "unknown platform"},
+      {file: "#{root}/src/broken.cr", line: 7, column: 1, size: 0, message: "unknown platform"},
+    ]
+    ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
+    client.save(broken_uri)
+    published = client.await_diagnostics
+    diagnostics = published.params.try(&.["diagnostics"].as_a) || Array(JSON::Any).new
+    diagnostics.map(&.["range"]["start"]["line"].as_i).should eq([1])
+    ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     client.shutdown
   end
 
