@@ -80,6 +80,12 @@ module Heucristic
         @target.nil?
       end
 
+      protected def expansion_of(
+        node : Crystal::MacroIf,
+      ) : Index::MacroText::Expansion | Index::MacroText::Undecidable
+        Index::MacroText.expand_at(node, @point)
+      end
+
       private def segment_at(node : Crystal::Path, location : Crystal::Location) : Int32
         offset = @point.column - location.column_number - (node.global? ? 2 : 0)
         node.names.each_with_index do |name, index|

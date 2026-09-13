@@ -23,6 +23,24 @@ describe Heucristic::Syntax::Cursor do
     target.should be_a(Heucristic::Syntax::OnDef)
   end
 
+  it "finds a call inside a macro if whose flag it cannot decide" do
+    flagged = <<-CR
+      def run
+        {% if flag?(:custom) %}
+          greet("a")
+        {% else %}
+          shout("b")
+        {% end %}
+      end
+      CR
+    taken = target_at(flagged, 3, 6)
+    taken.should be_a(Heucristic::Syntax::OnCall)
+    taken.as(Heucristic::Syntax::OnCall).node.name.should eq("greet")
+    skipped = target_at(flagged, 5, 6)
+    skipped.should be_a(Heucristic::Syntax::OnCall)
+    skipped.as(Heucristic::Syntax::OnCall).node.name.should eq("shout")
+  end
+
   it "finds a call by its name" do
     target = target_at(source, 5, 3)
     target.should be_a(Heucristic::Syntax::OnCall)

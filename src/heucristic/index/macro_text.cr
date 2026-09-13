@@ -1,6 +1,7 @@
 require "compiler/crystal/syntax"
 require "./version_comparison"
 require "semantic_version"
+require "../document/point"
 
 module Heucristic
   module Index
@@ -29,8 +30,27 @@ module Heucristic
         taken = evaluate(node.cond)
         return taken if taken.is_a?(Undecidable)
 
-        branch = taken ? node.then : node.else
-        expanded = text(branch)
+        expansion(node, taken ? node.then : node.else, nil)
+      end
+
+      def expand_at(node : Crystal::MacroIf, point : Document::Point) : Expansion | Undecidable
+        return expansion(node, node.then, point) if holds?(node.then, point)
+        return expansion(node, node.else, point) if holds?(node.else, point)
+
+        expand(node)
+      end
+
+      def flag?(name : String) : Bool
+        found = HOST_FLAGS.find { |entry| entry[0] == name }
+        found ? found[1] : false
+      end
+
+      private def expansion(
+        node : Crystal::MacroIf,
+        branch : Crystal::ASTNode,
+        point : Document::Point?,
+      ) : Expansion | Undecidable
+        expanded = text(branch, point)
         return expanded if expanded.is_a?(Undecidable)
 
         at = start_of(branch) || node.location
@@ -39,9 +59,12 @@ module Heucristic
         Expansion.new(expanded, at)
       end
 
-      def flag?(name : String) : Bool
-        found = HOST_FLAGS.find { |entry| entry[0] == name }
-        found ? found[1] : false
+      private def holds?(branch : Crystal::ASTNode, point : Document::Point) : Bool
+        from = branch.location
+        to = branch.end_location
+        return false unless from && to
+
+        point >= Document::Point.from(from) && point < Document::Point.from(to)
       end
 
       private def start_of(node : Crystal::ASTNode) : Crystal::Location?
@@ -49,17 +72,17 @@ module Heucristic
         first.try(&.location)
       end
 
-      private def text(node : Crystal::ASTNode) : String | Undecidable
+      private def text(node : Crystal::ASTNode, point : Document::Point?) : String | Undecidable
         case node
         in Crystal::MacroLiteral then node.value
         in Crystal::Nop          then ""
         in Crystal::MacroIf
-          inner = expand(node)
+          inner = point ? expand_at(node, point) : expand(node)
           inner.is_a?(Undecidable) ? inner : inner.text
         in Crystal::Expressions
           String.build do |io|
             node.expressions.each do |piece|
-              part = text(piece)
+              part = text(piece, point)
               return part if part.is_a?(Undecidable)
               io << part
             end

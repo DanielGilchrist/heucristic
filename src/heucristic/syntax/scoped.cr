@@ -75,7 +75,7 @@ module Heucristic
       end
 
       def visit(node : Crystal::MacroIf) : Bool
-        expanded = Index::MacroText.expand(node)
+        expanded = expansion_of(node)
         return false if expanded.is_a?(Index::MacroText::Undecidable)
 
         definition = @defs.last?
@@ -87,6 +87,12 @@ module Heucristic
 
       def visit(node : Crystal::ASTNode) : Bool
         true
+      end
+
+      protected def expansion_of(
+        node : Crystal::MacroIf,
+      ) : Index::MacroText::Expansion | Index::MacroText::Undecidable
+        Index::MacroText.expand(node)
       end
 
       def end_visit(
