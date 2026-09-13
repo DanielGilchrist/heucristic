@@ -16,6 +16,10 @@ class Greeter
   protected def guarded : Nil
   end
 
+  def optional : String?
+    nil
+  end
+
   def each_twice(& : -> Nil) : Nil
     yield
     yield

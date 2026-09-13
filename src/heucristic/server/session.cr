@@ -547,7 +547,8 @@ module Heucristic
 
         path = Uri.to_path(document.uri)
         path = document.uri if path.is_a?(Uri::NotAFile)
-        items = @completion.complete(Completion::Request.new(document.text, offset, path))
+        request_at = Completion::Request.new(document.text, offset, path, source_paths)
+        items = @completion.complete(request_at)
         reply(request.id, LSProtocol::CompletionList.new(is_incomplete: false, items: items))
       end
 

@@ -6,6 +6,7 @@ require "../syntax/target"
 require "../syntax/type_reader"
 require "./types"
 require "./methods"
+require "./precision"
 require "./unify"
 require "./render"
 require "./local_declarations"
@@ -103,6 +104,7 @@ module Heucristic
           named_arguments,
           call.obj.nil?,
           context.path,
+          call.args.map { |argument| Precision.of(argument) },
         )
       end
 

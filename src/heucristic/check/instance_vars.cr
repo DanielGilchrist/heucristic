@@ -68,7 +68,8 @@ module Heucristic
         return if assign.value.is_a?(Crystal::NumberLiteral) && fit.numeric?(expected)
 
         actual = @receiver.typed(assign.value, site.context.inside(assign.value))
-        return if actual.is_a?(Resolve::Unknown) || fit.fits?(expected, actual)
+        return if actual.is_a?(Resolve::Unknown)
+        return if fit.fits?(expected, actual, Resolve::Precision.of(assign.value))
 
         message = String.build do |io|
           io << "instance variable '" << site.node.name << "' of " << declared[0].owner

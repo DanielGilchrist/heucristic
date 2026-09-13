@@ -52,6 +52,36 @@ private def lookup_meta(
   Heucristic::Resolve::Methods.new(workspace, types).lookup(meta, call)
 end
 
+describe Heucristic::Resolve::Methods, "top-level defs" do
+  it "prefers the calling file's private def over a public one of the same name elsewhere" do
+    workspace = Heucristic::Index::Workspace.new
+    {
+      {"a.cr", "private def with_roots(& : Int32 ->) : Nil\nend\n"},
+      {"b.cr", "def with_roots(& : String ->) : Nil\nend\n"},
+    }.each do |path, source|
+      tree = Heucristic::Syntax.parse(source, path)
+      raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+      workspace.update(
+        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+      )
+    end
+    types = Heucristic::Resolve::Types.new(workspace)
+    methods = Heucristic::Resolve::Methods.new(workspace, types)
+    object = Heucristic::Resolve::TypeRef.of(:object)
+    none = Array(Heucristic::Resolve::Resolution).new
+    bindings = Array(Heucristic::Resolve::Binding).new
+    from_a = Heucristic::Resolve::Methods::Call.new(
+      "with_roots", 0, true, none, Array(String).new, bindings, true, "a.cr"
+    )
+    methods.lookup(object, from_a).map(&.path).should eq(["a.cr"])
+    from_c = Heucristic::Resolve::Methods::Call.new(
+      "with_roots", 0, true, none, Array(String).new, bindings, true, "c.cr"
+    )
+    methods.lookup(object, from_c).map(&.path).should eq(["b.cr"])
+  end
+end
+
 describe Heucristic::Resolve::Methods do
   source = <<-CR
     module Greets

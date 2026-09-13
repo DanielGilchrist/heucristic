@@ -1,6 +1,7 @@
 require "../resolve/methods"
 require "../resolve/resolution"
 require "../core_type"
+require "../resolve/precision"
 
 module Heucristic
   module Check
@@ -19,16 +20,25 @@ module Heucristic
         end
       end
 
-      def fits?(expected : Resolve::Resolution, actual : Resolve::Resolved) : Bool
+      def fits?(
+        expected : Resolve::Resolution,
+        actual : Resolve::Resolved,
+        precision : Resolve::Precision,
+      ) : Bool
         return true if actual.is_a?(Resolve::TypeRef) && actual.is?(:no_return)
         return true if actual.is_a?(Resolve::TypeVar) || actual.is_a?(Resolve::MetaRef)
         if actual.is_a?(Resolve::UnionRef)
-          return actual.members.any? do |member|
-            member.is_a?(Resolve::Unknown) || fits?(expected, member)
-          end
+          members = actual.members
+          return members.all? { |member| member_fits?(expected, member) } if precision.exact?
+
+          return members.any? { |member| member_fits?(expected, member) }
         end
 
         @methods.admits?(expected, actual)
+      end
+
+      def member_fits?(expected : Resolve::Resolution, member : Resolve::Resolution) : Bool
+        member.is_a?(Resolve::Unknown) || fits?(expected, member, :exact)
       end
 
       def numeric?(expected : Resolve::Resolution) : Bool

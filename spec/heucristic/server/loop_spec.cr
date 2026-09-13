@@ -935,8 +935,21 @@ describe Heucristic::Server::Loop, "call checks" do
       greeter.greet(numbers)
       twice("a", "b")
       twice("a")
+      class Gauge
+        def name : String
+          @label
+        end
+
+        def announce : Nil
+          Greeter.new.greet(@label)
+        end
+
+        def maybe : String
+          Greeter.new.optional
+        end
+      end
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 34 }
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 36 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     reported = warnings.map do |warning|
@@ -983,13 +996,17 @@ describe Heucristic::Server::Loop, "call checks" do
       {97, "type-mismatch",
        "expected argument #1 to 'Greeter#greet' to be String, not Array(Int32)"},
       {98, "macro-argument", "wrong number of arguments for macro 'twice' (given 2, expected 1)"},
+      {102, "return-mismatch",
+       "method Gauge#name must return String but it is returning String | Nil"},
+      {106, "type-mismatch",
+       "expected argument #1 to 'Greeter#greet' to be String, not String | Nil"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 34
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 36
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }
@@ -1060,6 +1077,23 @@ describe Heucristic::Server::Loop, "requires" do
 
     globbed = client.definition(usage_uri, 3, 0).result.try(&.as_a.map(&.["uri"].as_s))
     globbed.should eq(["file://#{checks}"])
+    client.shutdown
+  end
+
+  it "completes require strings from the requiring file's directory and the crystal path" do
+    client = LspClient.in_process
+    client.initialize!(root)
+    client.await_notification(Notice::Indexed)
+
+    client.open(usage_uri, "require \"./ch\"\nrequire \"js\"\nrequire \"./\"\n")
+    client.await_diagnostics
+
+    completion_labels(client.completion(usage_uri, 0, 13)).should eq(["checks"])
+    edit = client.completion(usage_uri, 0, 13).result.try(&.["items"][0]["textEdit"])
+    edit.try(&.["range"]["start"]["character"].as_i).should eq(11)
+    edit.try(&.["newText"].as_s).should eq("checks")
+    completion_labels(client.completion(usage_uri, 1, 11)).try(&.includes?("json")).should be_true
+    completion_labels(client.completion(usage_uri, 2, 11)).should eq(["checks"])
     client.shutdown
   end
 end

@@ -1,3 +1,4 @@
+require "./precision"
 require "../index/def"
 require "../index/workspace"
 require "../syntax/type"
@@ -17,9 +18,15 @@ module Heucristic
         named : Array(String),
         named_arguments : Array(Binding) = Array(Binding).new,
         implicit : Bool = false,
-        caller_path : String? = nil do
+        caller_path : String? = nil,
+        precisions : Array(Precision) = Array(Precision).new do
         def self.new(name : String, arity : Int32, block : Bool) : Call
           new(name, arity, block, Array(Resolution).new, Array(String).new)
+        end
+
+        def bound?(index : Int32) : Bool
+          precision = precisions[index]?
+          precision.nil? || precision.bound?
         end
 
         def self.new(
@@ -120,7 +127,8 @@ module Heucristic
 
           expected = @types.resolve_lexically(restriction, scope)
           next if admits?(expected, argument)
-          next if any_member && argument.is_a?(UnionRef) && admits_any?(expected, argument)
+          next if any_member && argument.is_a?(UnionRef) && call.bound?(index) &&
+                  admits_any?(expected, argument)
 
           return Rejected.new(index, expected, argument)
         end
@@ -345,6 +353,8 @@ module Heucristic
           entry.owner.is_a?(Index::TopLevel) && entry.visible_from?(call.caller_path) &&
             call.accepts?(entry) && compatible?(entry, call)
         end
+        own = candidates.reject(&.private_path.nil?)
+        candidates = own unless own.empty?
         return most_specific(candidates, call) unless candidates.empty?
 
         mixed_in_at_top_level(call)

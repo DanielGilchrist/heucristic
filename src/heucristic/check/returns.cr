@@ -55,7 +55,8 @@ module Heucristic
 
         returned(node, site, sites).each do |value|
           actual = value.type
-          next if actual.is_a?(Resolve::Unknown) || Fit.new(@methods).fits?(expected, actual)
+          next if actual.is_a?(Resolve::Unknown)
+          next if Fit.new(@methods).fits?(expected, actual, Resolve::Precision.of(value.node))
 
           span = span_for(value.node, node, sites.text)
           return unless span

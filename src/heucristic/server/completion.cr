@@ -8,6 +8,7 @@ require "../resolve/types"
 require "../syntax"
 require "../syntax/cursor"
 require "../syntax/defined_variables"
+require "../requires"
 
 module Heucristic
   module Server
@@ -15,7 +16,13 @@ module Heucristic
       PLACEHOLDER      = "zzheucristic"
       PATH_PLACEHOLDER = "Zzheucristic"
 
-      record Request, text : Document::Text, offset : Int32, path : String
+      record Request,
+        text : Document::Text,
+        offset : Int32,
+        path : String,
+        source_paths : Array(String)
+
+      REQUIRE_PREFIX = /\A\s*require\s+"([^"]*)\z/
 
       def initialize(
         @workspace : Index::Workspace,
@@ -27,6 +34,9 @@ module Heucristic
 
       def complete(request : Request) : Array(LSProtocol::CompletionItem)
         source = request.text.source
+        required = require_string(source, request.offset)
+        return requires(request, required) if required
+
         start = word_start(source, request.offset)
         prefix = source.byte_slice(start, request.offset - start)
         before = start > 0 ? source.to_slice[start - 1].chr : ' '
@@ -63,10 +73,47 @@ module Heucristic
             detail: item.detail,
             insert_text: item.insert_text,
             insert_text_format: item.insert_text_format,
+            text_edit: item.text_edit,
             sort_text: "#{item.label[0].alphanumeric? ? 0 : 1}#{index.to_s.rjust(5, '0')}",
           )
         end
         ranked
+      end
+
+      private def require_string(source : String, offset : Int32) : String?
+        bytes = source.to_slice
+        line_start = offset
+        while line_start > 0 && bytes[line_start - 1] != '\n'.ord
+          line_start -= 1
+        end
+        before = source.byte_slice(line_start, offset - line_start)
+        before.match(REQUIRE_PREFIX).try(&.[1])
+      end
+
+      private def requires(request : Request, partial : String) : Array(LSProtocol::CompletionItem)
+        tail = partial[(partial.rindex('/').try(&.+(1)) || 0)..]
+        start = request.text.point_at(request.offset - tail.bytesize)
+        finish = request.text.point_at(request.offset)
+        items = Array(LSProtocol::CompletionItem).new
+        return items if start.is_a?(Document::OutOfRange) || finish.is_a?(Document::OutOfRange)
+
+        span = request.text.span(start, finish)
+        return items unless span.is_a?(Document::Span)
+
+        Requires.new(request.source_paths).candidates(partial, request.path).each do |candidate|
+          text = candidate.directory ? "#{candidate.label}/" : candidate.label
+          kind = if candidate.directory
+                   LSProtocol::CompletionItemKind::Folder
+                 else
+                   LSProtocol::CompletionItemKind::File
+                 end
+          items << LSProtocol::CompletionItem.new(
+            label: candidate.label,
+            kind: kind,
+            text_edit: LSProtocol::TextEdit.new(range: span.to_range, new_text: text),
+          )
+        end
+        items
       end
 
       private def word_start(source : String, offset : Int32) : Int32

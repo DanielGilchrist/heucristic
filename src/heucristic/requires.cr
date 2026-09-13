@@ -1,6 +1,7 @@
 module Heucristic
   struct Requires
     record Unresolved, tried : Array(String)
+    record Candidate, label : String, directory : Bool
 
     def initialize(@source_paths : Array(String)) : Nil
     end
@@ -18,6 +19,39 @@ module Heucristic
         end
       end
       Unresolved.new(tried)
+    end
+
+    def candidates(partial : String, relative_to : String) : Array(Candidate)
+      slash = partial.rindex('/')
+      head = slash ? partial[0..slash] : ""
+      tail = slash ? partial[(slash + 1)..] : partial
+      found = Array(Candidate).new
+      bases(partial, head, relative_to).each do |base|
+        next unless Dir.exists?(base)
+
+        Dir.each_child(base) do |name|
+          full = File.join(base, name)
+          if File.directory?(full)
+            found << Candidate.new(name, true) if name.starts_with?(tail)
+          elsif name.ends_with?(".cr") && full != relative_to
+            stem = name.rchop(".cr")
+            found << Candidate.new(stem, false) if stem.starts_with?(tail)
+          end
+        end
+      end
+      found.uniq!.sort_by!(&.label)
+    end
+
+    private def bases(partial : String, head : String, relative_to : String) : Array(String)
+      return [File.expand_path(head, File.dirname(relative_to))] if partial.starts_with?('.')
+
+      bases = Array(String).new
+      shard, _, rest = head.partition('/')
+      @source_paths.each do |entry|
+        bases << File.join(entry, head)
+        bases << File.join(entry, shard, "src", rest) if !rest.empty? || head.ends_with?('/')
+      end
+      bases
     end
 
     private def within(string : String, directory : String, tried : Array(String)) : Array(String)?
