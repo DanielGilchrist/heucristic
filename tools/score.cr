@@ -140,6 +140,7 @@ module Score
     examples = Hash(Heucristic::Check::Skip, String).new
     unknown = Hash(String, Int32).new(0)
     unsettled = Hash(String, Int32).new(0)
+    macro_calls = Hash(String, Int32).new(0)
     timings = Array(Timing).new
     elapsed = Time.measure do
       all.sort_by(&.path).each do |sites|
@@ -155,6 +156,7 @@ module Score
           outcome.examples.each { |skip, where| examples[skip] ||= where }
           outcome.unknown_receivers.each { |detail, count| unknown[detail] += count }
           outcome.unsettled_types.each { |type, count| unsettled[type] += count }
+          outcome.macro_calls.each { |name, count| macro_calls[name] += count }
           findings = outcome.findings
           Heucristic::Check::Cases.new(workspace, types, receiver, settled).run(sites, findings)
           Heucristic::Check::Abstracts.new(workspace, methods, settled).run(sites.path, findings)
@@ -176,7 +178,7 @@ module Score
     end
     puts "#{total} findings; #{checked} of #{calls} calls in #{all.size} files were checkable " \
          "(#{elapsed.total_milliseconds.round}ms cold sweep)"
-    explain_skips(skips, examples, unknown, unsettled, root) if ARGV.includes?("--why")
+    explain_skips(skips, examples, unknown, unsettled, macro_calls, root) if ARGV.includes?("--why")
     timings.clear
     only = ARGV.index("--only").try { |index| ARGV[index + 1]? }
     all.each do |sites|
@@ -201,6 +203,7 @@ module Score
     examples : Hash(Heucristic::Check::Skip, String),
     unknown : Hash(String, Int32),
     unsettled : Hash(String, Int32),
+    macro_calls : Hash(String, Int32),
     root : String,
   ) : Nil
     puts
@@ -211,6 +214,7 @@ module Score
     end
     top("receivers the resolver could not type:", unknown)
     top("receiver types that are not settled:", unsettled)
+    top("macro invocations skipped:", macro_calls)
   end
 
   private def top(title : String, counts : Hash(String, Int32)) : Nil

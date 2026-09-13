@@ -12,7 +12,7 @@ module Heucristic
         )
       end
 
-      def parameters(node : Crystal::Def) : Array(Parameter)
+      def parameters(node : Crystal::Def | Crystal::Macro) : Array(Parameter)
         parameters = Array(Parameter).new(node.args.size + 2)
         splat_index = node.splat_index
         node.args.each_with_index do |arg, index|

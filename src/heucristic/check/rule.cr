@@ -22,6 +22,7 @@ module Heucristic
       UninitializedInstanceVar
       PrivateCall
       ProtectedCall
+      MacroArgument
 
       def code : String
         to_s.underscore.gsub('_', '-')

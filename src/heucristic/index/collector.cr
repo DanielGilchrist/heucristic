@@ -8,6 +8,7 @@ require "./body_traits"
 require "./signature"
 require "./evident"
 require "./macro_text"
+require "./macro_body"
 require "../syntax"
 require "../syntax/well_known"
 
@@ -245,7 +246,13 @@ module Heucristic
       end
 
       def visit(node : Crystal::Macro) : Bool
-        record_macro(node.name, node)
+        record_macro(
+          node.name,
+          node,
+          Signature.parameters(node),
+          Arity.of(node),
+          MacroBody.effect(node),
+        )
         false
       end
 
@@ -267,7 +274,7 @@ module Heucristic
 
         case synthesized
         in .delegate?           then return delegates(node)
-        in .forward_missing_to? then return record_macro(MacroHook::MethodMissing.macro_name, node)
+        in .forward_missing_to? then return record_missing_handler(node)
         in .record?             then nil
         end
         name = node.args[0]?
@@ -298,7 +305,27 @@ module Heucristic
         true
       end
 
-      private def record_macro(name : String, node : Crystal::ASTNode) : Bool
+      private def record_missing_handler(node : Crystal::Call) : Bool
+        anything = [
+          Parameter.new("args", "args", Unrestricted.new, nil, :splat),
+          Parameter.new("options", "options", Unrestricted.new, nil, :double_splat),
+        ]
+        record_macro(
+          MacroHook::MethodMissing.macro_name,
+          node,
+          anything,
+          Arity.anything,
+          :declaring,
+        )
+      end
+
+      private def record_macro(
+        name : String,
+        node : Crystal::ASTNode,
+        parameters : Array(Parameter),
+        arity : Arity,
+        effect : MacroEffect,
+      ) : Bool
         location = node.name_location || node.location
         return false unless location
 
@@ -306,7 +333,7 @@ module Heucristic
         span = @text.span(start, start.advance(name.size))
         return false unless span.is_a?(Document::Span)
 
-        @macros << MacroDef.new(name, owner, @path, span)
+        @macros << MacroDef.new(name, owner, @path, span, parameters, arity, effect)
         false
       end
 

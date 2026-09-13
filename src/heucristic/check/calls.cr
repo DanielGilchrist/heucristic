@@ -42,16 +42,18 @@ module Heucristic
         examples = Hash(Skip, String).new
         unknown = Hash(String, Int32).new(0)
         unsettled = Hash(String, Int32).new(0)
+        macro_calls = Hash(String, Int32).new(0)
         sites.calls.each do |site|
           skip = check(site, sites.text, findings, unknown, unsettled)
           if skip
             skips[skip] += 1
+            macro_calls[site.call.name] += 1 if skip.macro_invocation?
             examples[skip] ||= "#{sites.path}:#{site.call.name_location.try(&.line_number)}"
           else
             checked += 1
           end
         end
-        Outcome.new(findings, checked, skips, examples, unknown, unsettled)
+        Outcome.new(findings, checked, skips, examples, unknown, unsettled, macro_calls)
       end
 
       private def check(
@@ -64,14 +66,19 @@ module Heucristic
         call = site.call
         location = call.name_location
         return Skip::NoLocation unless location
-        return Skip::MacroInvocation unless @workspace.macros(call.name).empty?
-        return Skip::MacroArguments if MacroArguments.within?(site.context.ancestors, @workspace)
+        enclosing = site.context.ancestors[0...-1]
+        return Skip::MacroArguments if MacroArguments.within?(enclosing, @workspace)
         return Skip::SelectCondition if select_condition?(call, site.context.ancestors)
         return Skip::ChainedComparison if Resolve::Receiver.chained_comparison?(call)
 
         start = Document::Point.from(location)
         span = text.span(start, start.advance(call.name_size))
         return Skip::NoLocation unless span.is_a?(Document::Span)
+
+        macros = @workspace.macros(call.name)
+        if !macros.empty? && call.obj.nil? && !method_named?(call.name, site.context)
+          return macro_call(call, macros, site.context, span, findings)
+        end
 
         known = Syntax::WellKnown.from_name(call.name)
         if known.try(&.unchecked?)
@@ -100,12 +107,15 @@ module Heucristic
         end
         if defs.is_a?(Virtual)
           return unless defs.defs.empty?
+          return Skip::MacroInvocation unless macros.empty?
 
           findings << Finding.new(:undefined_method, undefined(call, receiver), span)
           return
         end
 
         if defs.empty?
+          return Skip::MacroInvocation unless macros.empty?
+
           findings << Finding.new(:undefined_method, undefined(call, receiver), span)
           return
         end
@@ -150,6 +160,68 @@ module Heucristic
         receiver_root = receiver.partition("::")[0]
         caller_root = caller.partition("::")[0]
         receiver_root != caller_root
+      end
+
+      private def macro_call(
+        call : Crystal::Call,
+        macros : Array(Index::MacroDef),
+        context : Syntax::Context,
+        span : Document::Span,
+        findings : Array(Finding),
+      ) : Skip?
+        return Skip::MacroInvocation unless macros.size == 1
+        return Skip::MacroInvocation if call.args.any? { |arg| splat?(arg) } || call.block_arg
+
+        complaint = macro_complaint(call, macros[0])
+        findings << Finding.new(:macro_argument, complaint, span) if complaint
+        nil
+      end
+
+      private def macro_complaint(call : Crystal::Call, definition : Index::MacroDef) : String?
+        positional = definition.parameters.select(&.kind.positional?)
+        named = call.named_args.try(&.map(&.name)) || Array(String).new
+        accepts_any = definition.parameters.any?(&.kind.double_splat?)
+        given = call.args.size
+        overflow = given > positional.size && !definition.arity.splat
+        return wrong_macro_arity(call, definition) if overflow
+
+        named.each do |name|
+          index = positional.index(&.external_name.==(name))
+          return "argument for parameter '#{name}' already specified" if index && index < given
+          next if index || definition.parameters.any? { |parameter| keyword?(parameter, name) }
+          return "no parameter named '#{name}'" unless accepts_any
+        end
+        definition.parameters.each do |parameter|
+          next unless parameter.kind.keyword? && parameter.default.nil?
+          next if named.includes?(parameter.external_name)
+
+          return "missing argument: #{parameter.external_name}"
+        end
+        positional.each_with_index do |parameter, index|
+          next if index < given || parameter.default || named.includes?(parameter.external_name)
+
+          return wrong_macro_arity(call, definition)
+        end
+        nil
+      end
+
+      private def method_named?(name : String, context : Syntax::Context) : Bool
+        return true unless top_level(name, context).empty?
+
+        receiver = @receiver.of_call(Crystal::Call.new(nil, name), context)
+        return true if receiver.is_a?(Resolve::Unknown)
+        return true if receiver.is_a?(Resolve::UnionRef) || receiver.is_a?(Resolve::TypeVar)
+
+        !@methods.named_on(receiver, name).empty?
+      end
+
+      private def wrong_macro_arity(call : Crystal::Call, definition : Index::MacroDef) : String
+        "wrong number of arguments for macro '#{call.name}' " \
+        "(given #{call.args.size}, expected #{expected(definition.arity)})"
+      end
+
+      private def keyword?(parameter : Index::Parameter, name : String) : Bool
+        parameter.kind.keyword? && parameter.external_name == name
       end
 
       private def orphan(
@@ -236,6 +308,7 @@ module Heucristic
         end
         missing = members.find { |member| @methods.named_on(member, call.name).empty? }
         return unless missing
+        return Skip::MacroInvocation unless @workspace.macros(call.name).empty?
 
         message = String.build do |io|
           io << "undefined method '" << call.name << "' for " << missing

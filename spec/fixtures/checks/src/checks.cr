@@ -24,6 +24,11 @@ end
 
 record Point, x : Int32, y : Int32
 
+macro twice(text)
+  puts {{ text }}
+  puts {{ text }}
+end
+
 enum Clock
   Start
   Finish

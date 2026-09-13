@@ -3,6 +3,7 @@ require "../index/sites"
 require "../index/workspace"
 require "../index/accessor"
 require "../index/synthesized"
+require "./declarations"
 
 module Heucristic
   module Check
@@ -14,7 +15,13 @@ module Heucristic
           next false if Index::Accessor.from_name(call.name)
           next false if Index::Synthesized.from_name(call.name)
 
-          !workspace.macros(call.name).empty?
+          macros = workspace.macros(call.name)
+          next false if macros.empty?
+          next true if macros.any?(&.effect.declaring?)
+          next true if call.block || call.block_arg
+
+          call.args.any? { |arg| Declarations.within?(arg) } ||
+            call.named_args.try(&.any? { |arg| Declarations.within?(arg.value) }) || false
         end
         return true if invoked
 

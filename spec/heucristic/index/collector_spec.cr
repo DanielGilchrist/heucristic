@@ -422,6 +422,34 @@ describe Heucristic::Index::Collector, "macros and mixins" do
     file.defs.should be_empty
   end
 
+  it "tells declaring macro bodies from expression-only ones" do
+    file = index(<<-CR)
+      macro shout(text)
+        puts {{text}}.upcase
+      end
+
+      macro getter_for(name)
+        def {{name}}; end
+      end
+
+      macro stamp
+        @stamped = true
+      end
+
+      macro derive(type)
+        {{ type.id }}
+      end
+      CR
+    effects = file.macros.map { |entry| {entry.name, entry.effect} }
+    effects.should eq([
+      {"shout", Heucristic::Index::MacroEffect::Expression},
+      {"getter_for", Heucristic::Index::MacroEffect::Declaring},
+      {"stamp", Heucristic::Index::MacroEffect::Declaring},
+      {"derive", Heucristic::Index::MacroEffect::Declaring},
+    ])
+    file.macros.map(&.arity.accepts?(1)).should eq([true, true, false, true])
+  end
+
   it "records a top-level include with a top-level owner" do
     file = index("include Spec::Methods\n")
     file.mixins.size.should eq(1)

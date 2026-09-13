@@ -9,6 +9,7 @@ module Heucristic
       skips : Hash(Skip, Int32),
       examples : Hash(Skip, String),
       unknown_receivers : Hash(String, Int32),
-      unsettled_types : Hash(String, Int32)
+      unsettled_types : Hash(String, Int32),
+      macro_calls : Hash(String, Int32)
   end
 end
