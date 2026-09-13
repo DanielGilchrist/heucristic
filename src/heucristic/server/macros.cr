@@ -76,7 +76,7 @@ module Heucristic
           culprit = culprit(entry, event.trace, candidates(root, target))
           return event unless culprit
 
-          excluded(target)[culprit] = event.reason
+          excluded(target)[culprit] = failure_line(event.trace, event.reason)
         end
       end
 
@@ -115,6 +115,11 @@ module Heucristic
                  in .loose? then @loose
                  end
         remaining(target, listed)
+      end
+
+      private def failure_line(trace : String, reason : String) : String
+        errors = trace.lines.select(&.starts_with?("Error: "))
+        errors.last?.try(&.lchop("Error: ").strip) || reason
       end
 
       private def culprit(entry : String, trace : String, files : Array(String)) : String?

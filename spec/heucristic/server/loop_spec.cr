@@ -1040,6 +1040,25 @@ describe Heucristic::Server::Loop, "call checks" do
     client.shutdown
   end
 
+  it "explains calls inside macro arguments and describes a macro on hover" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    client.open(usage_uri, "twice(noise)\n")
+    client.await_diagnostics
+
+    hover_text(client.hover(usage_uri, 0, 7)).to_s.should eq(
+      "`noise` is inside the `twice` macro call (defined at src/checks.cr:35); " \
+      "the compiler expands it, so it is not resolved here"
+    )
+    hover_text(client.hover(usage_uri, 0, 1)).to_s.should eq("```crystal\nmacro twice(text)\n```")
+    definition = client.definition(usage_uri, 0, 1).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([34])
+    client.shutdown
+  end
+
   it "drops a warning as soon as the edited document defines the method" do
     client = LspClient.in_process
     client.initialize!(root, stdlib: true, semantic: semantic)
@@ -1128,7 +1147,7 @@ describe Heucristic::Server::Loop, "shard targets" do
     status = client.await_stage(Notice::Macros, Stage::Done)
     reason = status.params.try(&.["reason"].as_s).to_s
     reason.should contain("left out of the expansion because it failed: src/broken.cr")
-    reason.should contain("In ")
+    reason.should contain("(undefined local variable or method 'undefined_thing')")
     client.shutdown
   end
 end

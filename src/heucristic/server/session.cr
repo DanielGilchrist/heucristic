@@ -2,6 +2,8 @@ require "lsprotocol"
 require "../version"
 require "../log"
 require "../requires"
+require "../index/macro_call"
+require "../index/synthesized"
 require "../protocol/message"
 require "../protocol/encoder"
 require "../protocol/transport"
@@ -649,6 +651,10 @@ module Heucristic
         answer.spans.each do |span|
           locations << LSProtocol::Location.new(range: span.to_range, uri: URI.parse(uri))
         end
+        answer.macros.each do |definition|
+          uri_of = URI.parse(Uri.from_path(definition.path))
+          locations << LSProtocol::Location.new(range: definition.name_span.to_range, uri: uri_of)
+        end
         answer.files.each do |file|
           origin = LSProtocol::Position.new(line: 0, character: 0)
           range = LSProtocol::Range.new(start: origin, end: origin)
@@ -750,6 +756,18 @@ module Heucristic
 
       private def answer_call(target : Syntax::OnCall) : Answer
         call = target.node
+        enclosing = target.context.ancestors[0...-1]
+        if (macro_call = enclosing_macro_call(enclosing))
+          where = "inside the `#{macro_call.name}` macro call#{defined_at(macro_call)}"
+          return Answer.note(
+            "`#{call.name}` is #{where}; the compiler expands it, so it is not resolved here"
+          )
+        end
+        macros = Index::MacroCall.like?(call, @workspace) ? @workspace.macros(call.name) : nil
+        if macros && !macros.empty?
+          return Answer.macros(macros, macros.map { |definition| describe_macro(definition) })
+        end
+
         receiver = @receiver.of_call(call, target.context)
         if receiver.is_a?(Resolve::Unknown)
           return Answer.note("receiver of `#{call.name}`: #{receiver}")
@@ -768,6 +786,33 @@ module Heucristic
         entries = Array(Index::Entry).new(found.size)
         found.each { |entry| entries << entry }
         Answer.new(entries, Array(Document::Span).new, sections, Array(String).new)
+      end
+
+      private def enclosing_macro_call(ancestors : Array(Crystal::ASTNode)) : Crystal::Call?
+        ancestors.reverse_each do |node|
+          next unless node.is_a?(Crystal::Call) && Index::MacroCall.like?(node, @workspace)
+          next if node.obj.nil? && Index::Synthesized.from_name(node.name).try(&.record?)
+
+          return node
+        end
+        nil
+      end
+
+      private def defined_at(macro_call : Crystal::Call) : String
+        places = @workspace.macros(macro_call.name).map do |definition|
+          "#{definition.path.sub(@root + "/", "")}:#{definition.name_span.start_line + 1}"
+        end
+        places.empty? ? "" : " (defined at #{places.join(", ")})"
+      end
+
+      private def describe_macro(definition : Index::MacroDef) : String
+        owner = definition.owner
+        parameters = definition.parameters.join(", ")
+        String.build do |io|
+          io << "```crystal\n"
+          io << "# " << owner << '\n' if owner.is_a?(String)
+          io << "macro " << definition.name << '(' << parameters << ")\n```"
+        end
       end
 
       private def answer_path(target : Syntax::OnPath) : Answer
@@ -984,12 +1029,9 @@ module Heucristic
 
       private def macro_hint : String
         case (status = @macro_status)
-        in MacrosPending then "; macros are still expanding"
-        in MacrosStale   then "; macros could not be expanded (#{status.reason})"
-        in MacrosOff     then ""
-        in MacrosDone
-          note = exclusion_note(status.excluded)
-          note ? "; #{note}" : ""
+        in MacrosPending         then "; macros are still expanding"
+        in MacrosStale           then "; macros could not be expanded (#{status.reason})"
+        in MacrosOff, MacrosDone then ""
         end
       end
 

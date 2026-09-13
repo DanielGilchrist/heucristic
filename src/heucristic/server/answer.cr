@@ -1,4 +1,5 @@
 require "../index/entry"
+require "../index/macro_def"
 require "../document/span"
 
 module Heucristic
@@ -8,13 +9,25 @@ module Heucristic
       spans : Array(Document::Span),
       descriptions : Array(String),
       notes : Array(String),
-      files : Array(String) = Array(String).new do
+      files : Array(String) = Array(String).new,
+      macros : Array(Index::MacroDef) = Array(Index::MacroDef).new do
       def self.of(entries : Array(Index::Entry)) : Answer
         new(entries, Array(Document::Span).new, Array(String).new, Array(String).new)
       end
 
       def self.note(note : String) : Answer
         new(Array(Index::Entry).new, Array(Document::Span).new, Array(String).new, [note])
+      end
+
+      def self.macros(macros : Array(Index::MacroDef), descriptions : Array(String)) : Answer
+        new(
+          Array(Index::Entry).new,
+          Array(Document::Span).new,
+          descriptions,
+          Array(String).new,
+          Array(String).new,
+          macros,
+        )
       end
 
       def self.files(files : Array(String), description : String) : Answer
