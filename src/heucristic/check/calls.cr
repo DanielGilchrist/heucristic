@@ -103,7 +103,7 @@ module Heucristic
         if receiver.is_a?(Resolve::UnionRef)
           return Skip::ImplicitObject if call.obj.nil?
 
-          return union_receiver(receiver, call, span, findings)
+          return union_receiver(receiver, call, site.context, span, findings)
         end
 
         defs = definitions(receiver, call, site.context)
@@ -299,17 +299,20 @@ module Heucristic
       private def union_receiver(
         receiver : Resolve::UnionRef,
         call : Crystal::Call,
+        context : Syntax::Context,
         span : Document::Span,
         findings : Array(Finding),
       ) : Skip?
-        members = receiver.members.map do |member|
+        missing = nil.as(Resolve::TypeRef?)
+        receiver.members.each do |member|
           return Skip::UnionMemberNotType unless member.is_a?(Resolve::TypeRef)
           return Skip::TypeUnsettled unless @settled.type?(member.name)
-          return Skip::TypeHasSubclasses if @settled.extended?(member.name)
 
-          member
+          defined = member_defined?(member, call, context)
+          return defined if defined.is_a?(Skip)
+
+          missing ||= member unless defined
         end
-        missing = members.find { |member| @methods.named_on(member, call.name).empty? }
         return unless missing
         return Skip::MacroInvocation unless @workspace.macros(call.name).empty?
 
@@ -319,6 +322,18 @@ module Heucristic
         end
         findings << Finding.new(:undefined_on_member, message, span)
         nil
+      end
+
+      private def member_defined?(
+        member : Resolve::TypeRef,
+        call : Crystal::Call,
+        context : Syntax::Context,
+      ) : Bool | Skip
+        return true unless @methods.named_on(member, call.name, context.path).empty?
+        return false unless @settled.extended?(member.name)
+
+        found = virtual_definitions(member, member.name, call, context)
+        found.is_a?(Skip) ? found : !found.defs.empty?
       end
 
       private def definitions(

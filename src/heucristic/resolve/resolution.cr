@@ -2,7 +2,10 @@ require "../core_type"
 
 module Heucristic
   module Resolve
-    record TypeRef, name : String, arguments : Array(Resolution) do
+    record TypeRef,
+      name : String,
+      arguments : Array(Resolution),
+      labels : Array(String) = Array(String).new do
       PROGRAM = "Program"
 
       def self.program : TypeRef
@@ -25,12 +28,23 @@ module Heucristic
         name == core.type_name
       end
 
+      def labelled? : Bool
+        !labels.empty?
+      end
+
       def to_s(io : IO) : Nil
         io << name
         return if arguments.empty?
 
         io << '('
-        arguments.join(io, ", ")
+        if labelled?
+          labels.each_with_index do |label, index|
+            io << ", " if index > 0
+            io << label << ": " << arguments[index]
+          end
+        else
+          arguments.join(io, ", ")
+        end
         io << ')'
       end
     end

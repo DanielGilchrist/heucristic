@@ -998,8 +998,14 @@ describe Heucristic::Server::Loop, "call checks" do
         raise "late"
       end
       picked.gret
+      spawn do
+        Greeter.new.gret("d")
+      end
+      def maybe_shape(shape : Shape?) : Nil
+        shape.gret
+      end
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 42 }
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 44 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     reported = warnings.map do |warning|
@@ -1056,13 +1062,16 @@ describe Heucristic::Server::Loop, "call checks" do
       {124, "wrong-arity", "wrong number of arguments for 'Shape#area' (given 1, expected 0)"},
       {127, "undefined-method", "undefined method 'gret' for Greeter"},
       {136, "undefined-method", "undefined method 'gret' for Int32"},
+      {138, "undefined-method", "undefined method 'gret' for Greeter"},
+      {141, "undefined-on-member",
+       "undefined method 'gret' for Shape (compile-time type is (Shape | Nil))"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 42
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 44
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }

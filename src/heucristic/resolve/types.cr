@@ -280,12 +280,19 @@ module Heucristic
         scope : Scope,
         with_ancestors : Bool,
       ) : Resolution
-        unless type.named_arguments.empty?
-          return Unknown.new(:unsupported, "named type arguments in #{type}")
-        end
-
         base = resolve_named(type.base, scope, Array(String).new, with_ancestors)
         return base unless base.is_a?(TypeRef)
+        unless type.named_arguments.empty?
+          unless type.arguments.empty? && base.is?(:named_tuple)
+            return Unknown.new(:unsupported, "named type arguments in #{type}")
+          end
+
+          labelled = Array(Resolution).new(type.named_arguments.size)
+          type.named_arguments.each do |argument|
+            labelled << resolve(argument.type, scope, with_ancestors)
+          end
+          return TypeRef.new(base.name, labelled, type.named_arguments.map(&.name))
+        end
 
         arguments = Array(Resolution).new(type.arguments.size)
         type.arguments.each do |argument|

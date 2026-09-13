@@ -2113,3 +2113,50 @@ describe Heucristic::Resolve::Receiver, "select" do
     receiver_at(source, 13, 1).should eq("Int32 | String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "named tuples" do
+  it "types a named tuple literal, an annotation with labels and access by symbol" do
+    source = <<-CR
+      struct NamedTuple
+        def [](key : Symbol)
+        end
+
+        def []?(key : Symbol)
+        end
+      end
+
+      person = {name: "Ann", age: 3}
+      person
+      n = person[:name]
+      n
+      a = person[:age]?
+      a
+      def describe(who : NamedTuple(name: String, age: Int32)) : Nil
+        who
+      end
+      CR
+    receiver_at(source, 10, 1).should eq("NamedTuple(name: String, age: Int32)")
+    receiver_at(source, 12, 1).should eq("String")
+    receiver_at(source, 14, 1).should eq("Int32 | Nil")
+    receiver_at(source, 16, 3).should eq("NamedTuple(name: String, age: Int32)")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "type variables" do
+  it "narrows a type variable by is_a? and case and keeps it across a non-assigning branch" do
+    source = <<-CR
+      def f(value : T) : Nil forall T
+        if value.is_a?(String)
+          value
+        end
+        case value
+        in Int32 then value
+        end
+        value
+      end
+      CR
+    receiver_at(source, 3, 5).should eq("String")
+    receiver_at(source, 6, 18).should eq("Int32")
+    receiver_at(source, 8, 3).should eq("T")
+  end
+end

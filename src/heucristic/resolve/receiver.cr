@@ -74,6 +74,10 @@ module Heucristic
           element = tuple_element_at(receiver, call)
           return element if element
         end
+        if receiver.is_a?(TypeRef) && receiver.labelled?
+          element = labelled_element_at(receiver, call)
+          return element if element
+        end
 
         shape = shape_of(call, context, locals, visiting)
         site = Site.new(
@@ -603,6 +607,22 @@ module Heucristic
         TypeRef.new(owner, Array(Resolution).new)
       end
 
+      private def labelled_element_at(receiver : TypeRef, call : Crystal::Call) : Resolution?
+        return unless call.name.in?("[]", "[]?") && call.args.size == 1
+
+        key = call.args[0]
+        return unless key.is_a?(Crystal::SymbolLiteral)
+
+        index = receiver.labels.index(key.value)
+        member = index ? receiver.arguments[index]? : nil
+        if call.name == "[]?"
+          nil_type = TypeRef.of(:nil)
+          return member ? union([member, nil_type] of Resolution) : nil_type
+        end
+
+        member || Unknown.new(:unresolved_name, "no key #{key.value.inspect} in #{receiver}")
+      end
+
       private def tuple_element_at(receiver : TypeRef, call : Crystal::Call) : Resolution?
         return unless call.name.in?("[]", "[]?") && call.args.size == 1
 
@@ -804,6 +824,11 @@ module Heucristic
           members = Array(Resolution).new(node.elements.size)
           node.elements.each { |element| members << type_of(element, context, visiting, locals) }
           members.find(&.is_a?(Unknown)) || TypeRef.of(:tuple, members)
+        in Crystal::NamedTupleLiteral
+          members = Array(Resolution).new(node.entries.size)
+          node.entries.each { |entry| members << type_of(entry.value, context, visiting, locals) }
+          unknown = members.find(&.is_a?(Unknown))
+          unknown || TypeRef.new(CoreType::NamedTuple.type_name, members, node.entries.map(&.key))
         in Crystal::Nop then TypeRef.of(:nil)
         in Crystal::Expressions
           last = node.expressions.last?
@@ -1096,6 +1121,8 @@ module Heucristic
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
+        return current if !step.assigns && (current.is_a?(TypeVar) || current.is_a?(Unknown))
+
         exits = exits_for(context, visiting)
         results = Array(Resolution).new(step.branches.size)
         step.branches.each do |branch|
@@ -1242,8 +1269,7 @@ module Heucristic
         visiting : Array(String),
       ) : Resolution
         scope = yield_scope(context)
-        return implicit_self(context) if scope.is_a?(Unscoped)
-        return scope if scope.is_a?(Unknown)
+        return implicit_self(context) if scope.is_a?(Unscoped) || scope.is_a?(Unknown)
 
         defs = @methods.named_on(scope, call.name, context.path)
         defs.empty? ? implicit_self(context) : scope

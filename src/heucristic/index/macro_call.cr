@@ -21,15 +21,19 @@ module Heucristic
         if receiver.nil?
           return true if Accessor.from_name(name) || Synthesized.from_name(name)
 
-          return !workspace.macros(name).empty?
+          return !fitting(call, workspace).empty?
         end
         return false unless receiver.is_a?(Crystal::Path)
 
         target = receiver.names.join("::")
-        workspace.macros(name).any? do |entry|
+        fitting(call, workspace).any? do |entry|
           owner = entry.owner
           owner.is_a?(String) && (owner == target || owner.ends_with?("::#{target}"))
         end
+      end
+
+      def fitting(call : Crystal::Call, workspace : Workspace) : Array(MacroDef)
+        workspace.macros(call.name).select(&.arity.accepts?(call.args.size))
       end
     end
   end

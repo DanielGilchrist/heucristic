@@ -450,6 +450,23 @@ describe Heucristic::Index::Collector, "macros and mixins" do
     file.macros.map(&.arity.accepts?(1)).should eq([true, true, false, true])
   end
 
+  it "treats a call as a macro only when a macro of that name accepts its argument count" do
+    file = index(<<-CR)
+      macro launch(call, *, name = nil)
+        {{ call }}
+      end
+
+      def launch(&block)
+      end
+      CR
+    workspace = Heucristic::Index::Workspace.new
+    workspace.update(file)
+    block_form = Crystal::Call.new(nil, "launch", block: Crystal::Block.new)
+    call_form = Crystal::Call.new(nil, "launch", [Crystal::Var.new("x")] of Crystal::ASTNode)
+    Heucristic::Index::MacroCall.like?(block_form, workspace).should be_false
+    Heucristic::Index::MacroCall.like?(call_form, workspace).should be_true
+  end
+
   it "tells macros that splice their block back from ones that rewrite it" do
     file = index(<<-CR)
       macro wrap(&block)

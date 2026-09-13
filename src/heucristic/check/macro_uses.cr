@@ -16,7 +16,7 @@ module Heucristic
           next false if Index::Accessor.from_name(call.name)
           next false if Index::Synthesized.from_name(call.name)
 
-          macros = workspace.macros(call.name)
+          macros = Index::MacroCall.fitting(call, workspace)
           next false if macros.empty?
           next true if macros.any?(&.effect.declaring?)
           next false if call.args.empty? && Index::MacroCall.splices_block?(call, workspace)
