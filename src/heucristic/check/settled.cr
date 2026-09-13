@@ -37,6 +37,11 @@ module Heucristic
         type?(name) || declared?(name)
       end
 
+      def project_type?(name : String) : Bool
+        entries = @workspace.namespaces(name)
+        !entries.empty? && entries.all? { |entry| declared_in_project?(entry) }
+      end
+
       def generated_free?(name : String) : Bool
         chain = @types.ancestors(name)
         levels = chain.is_a?(Resolve::Unknown) ? [name] : [name] + chain

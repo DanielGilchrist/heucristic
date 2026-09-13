@@ -8,6 +8,13 @@ module Heucristic
     module MacroCall
       extend self
 
+      def splices_block?(call : Crystal::Call, workspace : Workspace) : Bool
+        return false unless call.block
+
+        macros = workspace.macros(call.name)
+        !macros.empty? && macros.all?(&.splices_block)
+      end
+
       def like?(call : Crystal::Call, workspace : Workspace) : Bool
         name = call.name
         receiver = call.obj

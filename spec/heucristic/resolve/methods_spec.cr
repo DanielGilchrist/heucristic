@@ -82,6 +82,34 @@ describe Heucristic::Resolve::Methods, "top-level defs" do
   end
 end
 
+describe Heucristic::Resolve::Methods, "compiled targets" do
+  it "answers a project def only to callers compiled in a shared target" do
+    workspace = Heucristic::Index::Workspace.new
+    {
+      {"/p/src/a.cr", "class Foo\n  def bar : Int32\n    1\n  end\nend\n"},
+      {"/p/bench/b.cr", "class Foo\n  def bar : String\n    \"x\"\n  end\nend\n"},
+    }.each do |path, source|
+      tree = Heucristic::Syntax.parse(source, path)
+      raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+      workspace.update(
+        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+      )
+    end
+    types = Heucristic::Resolve::Types.new(workspace)
+    methods = Heucristic::Resolve::Methods.new(workspace, types)
+    targets = {
+      Heucristic::Index::MacroTarget::Main  => Set{"/p/src/a.cr", "/p/src/main.cr"},
+      Heucristic::Index::MacroTarget::Loose => Set{"/p/bench/b.cr"},
+    }
+    methods.compiled(Heucristic::Resolve::Compiled.new(targets, "/p", Array(String).new))
+    foo = Heucristic::Resolve::TypeRef.new("Foo", Array(Heucristic::Resolve::Resolution).new)
+    methods.named_on(foo, "bar", "/p/src/main.cr").map(&.path).should eq(["/p/src/a.cr"])
+    methods.named_on(foo, "bar", "/p/bench/b.cr").map(&.path).should eq(["/p/bench/b.cr"])
+    methods.named_on(foo, "bar", "/p/script/other.cr").map(&.path).size.should eq(2)
+  end
+end
+
 describe Heucristic::Resolve::Methods, "file-private types" do
   it "answers a file-private type's methods only from the calling file" do
     workspace = Heucristic::Index::Workspace.new

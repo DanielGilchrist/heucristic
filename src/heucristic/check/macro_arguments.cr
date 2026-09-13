@@ -15,6 +15,7 @@ module Heucristic
 
           block = node.block
           next true if block.nil? || !ancestors[index + 1]?.try(&.same?(block))
+          next false if Index::MacroCall.splices_block?(node, workspace)
 
           !Index::Synthesized.from_name(node.name).try(&.record?)
         end

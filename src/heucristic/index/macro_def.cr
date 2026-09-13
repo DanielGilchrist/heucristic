@@ -13,6 +13,7 @@ module Heucristic
       name_span : Document::Span,
       parameters : Array(Parameter),
       arity : Arity,
-      effect : MacroEffect
+      effect : MacroEffect,
+      splices_block : Bool
   end
 end

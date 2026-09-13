@@ -2091,3 +2091,25 @@ describe Heucristic::Resolve::Receiver, "loop and with-yield blocks" do
     receiver_at(source, 16, 3).should eq("Program")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "select" do
+  it "types a select by its branch bodies and the received value by the channel" do
+    source = <<-CR
+      class Channel(T)
+        def receive : T
+        end
+      end
+
+      channel = Channel(Int32).new
+      picked = select
+      when number = channel.receive
+        number
+      when timeout(1.second)
+        "late"
+      end
+      picked
+      CR
+    receiver_at(source, 9, 3).should eq("Int32")
+    receiver_at(source, 13, 1).should eq("Int32 | String")
+  end
+end

@@ -11,16 +11,28 @@ module Heucristic
       ]
       DECLARING_WORDS = /(?<![\w@.])(?:#{KEYWORDS.join('|')})(?![\w?!])|@\w+\s*[:=]/
 
-      def self.effect(node : Crystal::Macro) : MacroEffect
-        visitor = new
+      record Traits, effect : MacroEffect, splices_block : Bool
+
+      def self.of(node : Crystal::Macro) : Traits
+        visitor = new(node.block_arg.try(&.name))
         node.body.accept(visitor)
-        visitor.effect
+        visitor.traits
+      end
+
+      def self.effect(node : Crystal::Macro) : MacroEffect
+        of(node).effect
       end
 
       getter effect : MacroEffect
 
-      def initialize : Nil
+      def initialize(@block_name : String?) : Nil
         @effect = MacroEffect::Expression
+        @splices = 0
+        @other_block_uses = 0
+      end
+
+      def traits : Traits
+        Traits.new(@effect, @effect.expression? && @splices > 0 && @other_block_uses == 0)
       end
 
       def visit(node : Crystal::MacroLiteral) : Bool
@@ -29,8 +41,18 @@ module Heucristic
       end
 
       def visit(node : Crystal::MacroExpression) : Bool
-        @effect = MacroEffect::Declaring unless node.exp.is_a?(Crystal::Var)
+        exp = node.exp
+        if splice?(exp)
+          @splices += 1
+        else
+          @effect = MacroEffect::Declaring unless exp.is_a?(Crystal::Var)
+          exp.accept(BlockUses.new(@block_name, self))
+        end
         false
+      end
+
+      def block_used : Nil
+        @other_block_uses += 1
       end
 
       def visit(node : Crystal::MacroVar) : Bool
@@ -39,7 +61,29 @@ module Heucristic
       end
 
       def visit(node : Crystal::ASTNode) : Bool
-        !@effect.declaring?
+        true
+      end
+
+      private def splice?(exp : Crystal::ASTNode) : Bool
+        return true if exp.is_a?(Crystal::Yield) && exp.exps.empty?
+        return false unless exp.is_a?(Crystal::Call) && exp.name == "body" && exp.args.empty?
+
+        receiver = exp.obj
+        receiver.is_a?(Crystal::Var) && receiver.name == @block_name
+      end
+
+      class BlockUses < Crystal::Visitor
+        def initialize(@block_name : String?, @owner : MacroBody) : Nil
+        end
+
+        def visit(node : Crystal::Var) : Bool
+          @owner.block_used if node.name == @block_name
+          false
+        end
+
+        def visit(node : Crystal::ASTNode) : Bool
+          true
+        end
       end
     end
   end

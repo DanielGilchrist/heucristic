@@ -984,8 +984,22 @@ describe Heucristic::Server::Loop, "call checks" do
           greet(1)
         end
       end
+      def use(shape : Shape) : Int32
+        shape.area(1)
+      end
+      wrap do
+        Greeter.new.gret("b")
+      end
+      channel = Channel(Int32).new
+      picked = select
+      when number = channel.receive
+        number
+      when timeout(1.second)
+        raise "late"
+      end
+      picked.gret
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 39 }
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 42 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     reported = warnings.map do |warning|
@@ -1039,13 +1053,16 @@ describe Heucristic::Server::Loop, "call checks" do
       {115, "type-mismatch", "expected argument #1 to 'Builder#add' to be String, not Int32"},
       {116, "undefined-method", "undefined local variable or method 'adx' for top-level"},
       {120, "type-mismatch", "expected argument #1 to 'Greeter#greet' to be String, not Int32"},
+      {124, "wrong-arity", "wrong number of arguments for 'Shape#area' (given 1, expected 0)"},
+      {127, "undefined-method", "undefined method 'gret' for Greeter"},
+      {136, "undefined-method", "undefined method 'gret' for Int32"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 39
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 42
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }
@@ -1072,16 +1089,16 @@ describe Heucristic::Server::Loop, "call checks" do
     client.await_notification(Notice::Indexed, 60.seconds)
     client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
 
-    client.open(usage_uri, "wrap do\n  inner { Greeter.new.greet(\"a\") }\nend\ntwice(1)\n")
+    client.open(usage_uri, "pick do\n  inner { Greeter.new.greet(\"a\") }\nend\ntwice(1)\n")
     client.await_diagnostics
 
     hover_text(client.hover(usage_uri, 1, 3)).to_s.should eq(
-      "`inner` is syntax of the `wrap` macro at src/checks.cr:35, not a method call"
+      "`inner` is syntax of the `pick` macro at src/checks.cr:39, not a method call"
     )
     hover_text(client.hover(usage_uri, 1, 23)).to_s.should contain("def greet(name : String)")
     hover_text(client.hover(usage_uri, 3, 1)).to_s.should eq("```crystal\nmacro twice(text)\n```")
     definition = client.definition(usage_uri, 3, 1).result.try(&.as_a?)
-    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([38])
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([42])
     client.shutdown
   end
 

@@ -257,6 +257,7 @@ module Heucristic
           sites = @macro_sites[path] = Hash(Int32, Index::MacroSite).new
           event.sites.each { |site| sites[site.line] = site }
           @compiled[event.target] = event.files.to_set
+          @methods.compiled(Resolve::Compiled.new(@compiled, @root, shim_roots))
           elapsed = event.elapsed.total_milliseconds.round
           case event.target
           in .main?
@@ -798,6 +799,7 @@ module Heucristic
         ancestors.reverse_each do |node|
           next unless node.is_a?(Crystal::Call) && Index::MacroCall.like?(node, @workspace)
           next if node.obj.nil? && Index::Synthesized.from_name(node.name).try(&.record?)
+          next if Index::MacroCall.splices_block?(node, @workspace)
 
           return node
         end

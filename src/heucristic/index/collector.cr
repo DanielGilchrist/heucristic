@@ -254,12 +254,14 @@ module Heucristic
       end
 
       def visit(node : Crystal::Macro) : Bool
+        traits = MacroBody.of(node)
         record_macro(
           node.name,
           node,
           Signature.parameters(node),
           Arity.of(node),
-          MacroBody.effect(node),
+          traits.effect,
+          traits.splices_block,
         )
         false
       end
@@ -328,6 +330,7 @@ module Heucristic
           anything,
           Arity.anything,
           :declaring,
+          false,
         )
       end
 
@@ -337,6 +340,7 @@ module Heucristic
         parameters : Array(Parameter),
         arity : Arity,
         effect : MacroEffect,
+        splices_block : Bool,
       ) : Bool
         location = node.name_location || node.location
         return false unless location
@@ -345,7 +349,7 @@ module Heucristic
         span = @text.span(start, start.advance(name.size))
         return false unless span.is_a?(Document::Span)
 
-        @macros << MacroDef.new(name, owner, @path, span, parameters, arity, effect)
+        @macros << MacroDef.new(name, owner, @path, span, parameters, arity, effect, splices_block)
         false
       end
 

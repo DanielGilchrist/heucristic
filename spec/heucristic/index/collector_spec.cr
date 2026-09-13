@@ -450,6 +450,31 @@ describe Heucristic::Index::Collector, "macros and mixins" do
     file.macros.map(&.arity.accepts?(1)).should eq([true, true, false, true])
   end
 
+  it "tells macros that splice their block back from ones that rewrite it" do
+    file = index(<<-CR)
+      macro wrap(&block)
+        {{ block.body }}
+      end
+
+      macro yielding
+        {{ yield }}
+      end
+
+      macro pick(&block)
+        {{ block.body.expressions[0] }}
+      end
+
+      macro wrap_in_class(&block)
+        class Wrapped
+          {{ block.body }}
+        end
+      end
+      CR
+    file.macros.map { |entry| {entry.name, entry.splices_block} }.should eq([
+      {"wrap", true}, {"yielding", true}, {"pick", false}, {"wrap_in_class", false},
+    ])
+  end
+
   it "records a top-level include with a top-level owner" do
     file = index("include Spec::Methods\n")
     file.mixins.size.should eq(1)

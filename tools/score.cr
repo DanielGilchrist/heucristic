@@ -69,9 +69,13 @@ module Score
     workspace.replace_all(finished.files)
     shims = Heucristic::Index::Shims.new
     shims.replace_all(finished.shims)
-    compiled = args.includes?("--no-macros") ? nil : expand_all(root, events, workspace, shims)
+    targets = args.includes?("--no-macros") ? nil : expand_all(root, events, workspace, shims)
+    compiled = targets.try do |found|
+      found.each_value.reduce(Set(String).new) { |all, files| all | files }
+    end
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
+    methods.compiled(Heucristic::Resolve::Compiled.new(targets, root, shim_roots)) if targets
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
     if args.includes?("--check")
       return check(root, workspace, finished.sites, types, methods, receiver, shim_roots, compiled)
@@ -331,12 +335,14 @@ module Score
     events : Channel(Heucristic::Index::Event),
     workspace : Heucristic::Index::Workspace,
     shims : Heucristic::Index::Shims,
-  ) : Set(String)?
+  ) : Hash(Heucristic::Index::MacroTarget, Set(String))?
+    targets = Hash(Heucristic::Index::MacroTarget, Set(String)).new
     compiled = expand_macros(root, events, workspace, shims, :main)
     return unless compiled
+    targets[Heucristic::Index::MacroTarget::Main] = compiled
     if Dir.exists?(File.join(root, "spec"))
       from_specs = expand_macros(root, events, workspace, shims, :spec)
-      compiled = compiled | from_specs if from_specs
+      targets[Heucristic::Index::MacroTarget::Spec] = from_specs if from_specs
     end
 
     loose = Array(String).new
@@ -345,14 +351,16 @@ module Score
       next unless path.starts_with?(root + "/")
       next if path.starts_with?(File.join(root, "lib") + "/")
       next if path.starts_with?(File.join(root, "spec") + "/")
-      next if Heucristic::Index::MacroTarget.generated?(path) || compiled.includes?(path)
+      next if Heucristic::Index::MacroTarget.generated?(path)
+      next if targets.each_value.any?(&.includes?(path))
 
       loose << path
     end
-    return compiled if loose.empty?
+    return targets if loose.empty?
 
     from_loose = expand_macros(root, events, workspace, shims, :loose, loose)
-    from_loose ? compiled | from_loose : compiled
+    targets[Heucristic::Index::MacroTarget::Loose] = from_loose if from_loose
+    targets
   end
 
   private def expand_macros(

@@ -150,6 +150,12 @@ module Heucristic
         defs.each { |entry| results << return_type(entry, receiver, call.arguments, site) }
         distinct = results.uniq
         return distinct[0] if distinct.size == 1
+        if call.arguments.empty? && !call.block
+          annotated = distinct.reject do |result|
+            result.is_a?(Unknown) && result.reason.no_annotation?
+          end
+          return annotated[0] if annotated.size == 1
+        end
         return union(results) if module?(receiver)
 
         Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
@@ -479,6 +485,23 @@ module Heucristic
         union(branches)
       end
 
+      private def select_value(
+        node : Crystal::Select,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
+        branches = Array(Resolution).new(node.whens.size + 1)
+        node.whens.each do |branch|
+          inner = context.inside(node, branch).inside(branch.body)
+          branches << type_of(branch.body, inner, visiting, locals)
+        end
+        if (otherwise = node.else)
+          branches << type_of(otherwise, context.inside(node, otherwise), visiting, locals)
+        end
+        union(branches)
+      end
+
       private def rescued_value(
         node : Crystal::ExceptionHandler,
         context : Syntax::Context,
@@ -751,6 +774,7 @@ module Heucristic
         in Crystal::Return, Crystal::Break, Crystal::Next
           TypeRef.of(:no_return)
         in Crystal::Case             then case_value(node, context, visiting, locals)
+        in Crystal::Select           then select_value(node, context, visiting, locals)
         in Crystal::ExceptionHandler then rescued_value(node, context, visiting, locals)
         in Crystal::Assign           then type_of(node.value, context, visiting, locals)
         in Crystal::OpAssign         then op_assigned(node, context, visiting, locals)

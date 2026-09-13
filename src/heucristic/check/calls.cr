@@ -22,7 +22,7 @@ require "../index/macro_hook"
 module Heucristic
   module Check
     class Calls
-      record Virtual, defs : Array(Index::Def)
+      record Virtual, defs : Array(Index::Def), complete : Bool
 
       def initialize(
         @workspace : Index::Workspace,
@@ -67,7 +67,10 @@ module Heucristic
         return Skip::NoLocation unless location
         enclosing = site.context.ancestors[0...-1]
         return Skip::MacroArguments if MacroArguments.within?(enclosing, @workspace)
-        return Skip::SelectCondition if select_condition?(call, site.context.ancestors)
+        if select_condition?(call, site.context.ancestors)
+          timeout = call.obj.nil? && Syntax::WellKnown::Timeout.named?(call.name)
+          return Skip::SelectCondition if timeout
+        end
         return Skip::ChainedComparison if Resolve::Receiver.chained_comparison?(call)
 
         start = Document::Point.from(location)
@@ -109,13 +112,10 @@ module Heucristic
           return defs
         end
         if defs.is_a?(Virtual)
-          return unless defs.defs.empty?
-          return Skip::MacroInvocation unless macros.empty?
+          return if !defs.complete && !defs.defs.empty?
 
-          findings << Finding.new(:undefined_method, undefined(call, receiver), span)
-          return
+          defs = defs.defs
         end
-
         if defs.empty?
           return Skip::MacroInvocation unless macros.empty?
 
@@ -264,7 +264,7 @@ module Heucristic
 
           message = "there is no previous definition of '#{definition.name}'"
           findings << Finding.new(:no_previous_def, message, span)
-        in .allocate?, .new?, .initialize?, .self_name?, .dup?, .clone? then return false
+        in .allocate?, .new?, .initialize?, .self_name?, .dup?, .clone?, .timeout? then return false
         end
         true
       end
@@ -395,7 +395,7 @@ module Heucristic
         context : Syntax::Context,
       ) : Array(Index::Def) | Skip | Virtual
         return Skip::TypeUnsettled unless @settled.type?(type)
-        return virtual_definitions(receiver, type, call) if @settled.extended?(type)
+        return virtual_definitions(receiver, type, call, context) if @settled.extended?(type)
 
         defs = @methods.named_on(receiver, call.name, context.path)
         return defs unless call.obj.nil?
@@ -410,19 +410,24 @@ module Heucristic
         receiver : Resolve::Resolved,
         type : String,
         call : Crystal::Call,
+        context : Syntax::Context,
       ) : Skip | Virtual
         return Skip::TypeHasSubclasses if call.obj.nil?
 
-        defs = @methods.named_on(receiver, call.name)
-        return Virtual.new(defs) unless defs.empty?
-
+        defs = @methods.named_on(receiver, call.name, context.path)
+        complete = true
         @settled.descendants(type).each do |descendant|
-          return Skip::TypeUnsettled unless @settled.type?(descendant)
+          unless @settled.type?(descendant) || @settled.declared?(descendant)
+            return Skip::TypeUnsettled if defs.empty?
 
-          found = @methods.named_on(as_descendant(receiver, descendant), call.name)
-          return Virtual.new(found) unless found.empty?
+            complete = false
+            next
+          end
+
+          below = as_descendant(receiver, descendant)
+          defs.concat(@methods.named_on(below, call.name, context.path))
         end
-        Virtual.new(defs)
+        Virtual.new(defs.uniq!, complete && @settled.project_type?(type))
       end
 
       private def as_descendant(

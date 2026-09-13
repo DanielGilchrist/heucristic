@@ -36,6 +36,10 @@ macro wrap(&block)
   {{ block.body }}
 end
 
+macro pick(&block)
+  {{ block.body.expressions[0] }}
+end
+
 macro twice(text)
   puts {{ text }}
   puts {{ text }}

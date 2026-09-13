@@ -1,4 +1,5 @@
 require "./precision"
+require "./compiled"
 require "../index/def"
 require "../index/workspace"
 require "../syntax/type"
@@ -104,6 +105,11 @@ module Heucristic
         @including = Array(String).new
         @includers = Hash(String, Array(String)).new
         @private_paths = Hash(String, Array(String)).new
+        @compiled = Compiled::NONE
+      end
+
+      def compiled(map : Compiled) : Nil
+        @compiled = map
       end
 
       def invalidate : Nil
@@ -175,6 +181,8 @@ module Heucristic
 
       def own?(entry : Index::Def, caller_path : String?) : Bool
         return true unless caller_path
+        return false unless reachable?(entry, caller_path)
+
         owner = entry.owner
         return true unless owner.is_a?(String)
 
@@ -238,6 +246,12 @@ module Heucristic
         argument.members.any? do |member|
           member.is_a?(Unknown) || admits?(expected, member)
         end
+      end
+
+      private def reachable?(entry : Index::Def, caller_path : String) : Bool
+        return true unless @compiled.project?(entry.path) && @compiled.known?(caller_path)
+
+        @compiled.shared?(caller_path, entry.path)
       end
 
       private def private_paths(owner : String) : Array(String)
@@ -373,7 +387,7 @@ module Heucristic
       private def top_level(call : Call) : Array(Index::Def)
         candidates = @workspace.named(call.name).select do |entry|
           entry.owner.is_a?(Index::TopLevel) && entry.visible_from?(call.caller_path) &&
-            call.accepts?(entry) && compatible?(entry, call)
+            own?(entry, call.caller_path) && call.accepts?(entry) && compatible?(entry, call)
         end
         own = candidates.reject(&.private_path.nil?)
         candidates = own unless own.empty?
