@@ -1046,16 +1046,16 @@ describe Heucristic::Server::Loop, "call checks" do
     client.await_notification(Notice::Indexed, 60.seconds)
     client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
 
-    client.open(usage_uri, "twice(noise)\n")
+    client.open(usage_uri, "wrap do\n  inner { Greeter.new.greet(\"a\") }\nend\ntwice(1)\n")
     client.await_diagnostics
 
-    hover_text(client.hover(usage_uri, 0, 7)).to_s.should eq(
-      "`noise` is inside the `twice` macro call (defined at src/checks.cr:35); " \
-      "the compiler expands it, so it is not resolved here"
+    hover_text(client.hover(usage_uri, 1, 3)).to_s.should eq(
+      "`inner` is syntax of the `wrap` macro at src/checks.cr:35, not a method call"
     )
-    hover_text(client.hover(usage_uri, 0, 1)).to_s.should eq("```crystal\nmacro twice(text)\n```")
-    definition = client.definition(usage_uri, 0, 1).result.try(&.as_a?)
-    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([34])
+    hover_text(client.hover(usage_uri, 1, 23)).to_s.should contain("def greet(name : String)")
+    hover_text(client.hover(usage_uri, 3, 1)).to_s.should eq("```crystal\nmacro twice(text)\n```")
+    definition = client.definition(usage_uri, 3, 1).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([38])
     client.shutdown
   end
 

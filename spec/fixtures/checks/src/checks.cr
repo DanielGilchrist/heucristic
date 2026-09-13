@@ -32,6 +32,10 @@ end
 
 record Point, x : Int32, y : Int32
 
+macro wrap(&block)
+  {{ block.body }}
+end
+
 macro twice(text)
   puts {{ text }}
   puts {{ text }}

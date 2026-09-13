@@ -757,11 +757,10 @@ module Heucristic
       private def answer_call(target : Syntax::OnCall) : Answer
         call = target.node
         enclosing = target.context.ancestors[0...-1]
-        if (macro_call = enclosing_macro_call(enclosing))
-          where = "inside the `#{macro_call.name}` macro call#{defined_at(macro_call)}"
-          return Answer.note(
-            "`#{call.name}` is #{where}; the compiler expands it, so it is not resolved here"
-          )
+        macro_call = enclosing_macro_call(enclosing)
+        if macro_call && call.obj.nil? && statement_of?(macro_call, enclosing)
+          owner = "the `#{macro_call.name}` macro#{defined_at(macro_call)}"
+          return Answer.note("`#{call.name}` is syntax of #{owner}, not a method call")
         end
         macros = Index::MacroCall.like?(call, @workspace) ? @workspace.macros(call.name) : nil
         if macros && !macros.empty?
@@ -798,11 +797,23 @@ module Heucristic
         nil
       end
 
+      private def statement_of?(
+        macro_call : Crystal::Call,
+        ancestors : Array(Crystal::ASTNode),
+      ) : Bool
+        from = ancestors.index(&.same?(macro_call))
+        return false unless from
+
+        ancestors[(from + 1)..].all? do |node|
+          node.is_a?(Crystal::Block) || node.is_a?(Crystal::Expressions)
+        end
+      end
+
       private def defined_at(macro_call : Crystal::Call) : String
         places = @workspace.macros(macro_call.name).map do |definition|
           "#{definition.path.sub(@root + "/", "")}:#{definition.name_span.start_line + 1}"
         end
-        places.empty? ? "" : " (defined at #{places.join(", ")})"
+        places.empty? ? "" : " at #{places.join(" and ")}"
       end
 
       private def describe_macro(definition : Index::MacroDef) : String
