@@ -23,7 +23,7 @@ module Heucristic
         @unsettled_files = Hash(String, Bool).new
         @settled_types = Hash(String, Bool).new
         @declared_types = Hash(String, Bool).new
-        @extended = nil.as(Set(String)?)
+        @children = nil.as(Hash(String, Array(String))?)
       end
 
       def type?(name : String) : Bool
@@ -61,7 +61,19 @@ module Heucristic
       end
 
       def extended?(name : String) : Bool
-        (@extended ||= compute_extended).includes?(name)
+        children.has_key?(name)
+      end
+
+      def descendants(name : String) : Array(String)
+        found = Array(String).new
+        pending = children[name]?.try(&.dup) || Array(String).new
+        while (next_one = pending.pop?)
+          next if found.includes?(next_one)
+
+          found << next_one
+          children[next_one]?.try { |more| pending.concat(more) }
+        end
+        found
       end
 
       private def settled_type?(name : String) : Bool
@@ -135,17 +147,24 @@ module Heucristic
         end
       end
 
-      private def compute_extended : Set(String)
-        extended = Set(String).new
+      private def children : Hash(String, Array(String))
+        @children ||= compute_children
+      end
+
+      private def compute_children : Hash(String, Array(String))
+        by_parent = Hash(String, Array(String)).new
         @workspace.each_file do |file|
           file.namespaces.each do |entry|
             next unless entry.is_a?(Index::ClassNamespace)
 
             parent = superclass_of(entry)
-            extended << parent if parent
+            next unless parent
+
+            siblings = by_parent[parent] ||= Array(String).new
+            siblings << entry.name unless siblings.includes?(entry.name)
           end
         end
-        extended
+        by_parent
       end
 
       private def superclass_of(entry : Index::ClassNamespace) : String?

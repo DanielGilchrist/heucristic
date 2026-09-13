@@ -4,6 +4,7 @@ require "../index/workspace"
 require "../index/accessor"
 require "../resolve/methods"
 require "../resolve/types"
+require "../syntax/type_reader"
 require "../resolve/scope"
 require "../resolve/receiver"
 require "./finding"
@@ -21,6 +22,8 @@ require "../index/macro_hook"
 module Heucristic
   module Check
     class Calls
+      record Virtual, defs : Array(Index::Def)
+
       def initialize(
         @workspace : Index::Workspace,
         @types : Resolve::Types,
@@ -64,7 +67,6 @@ module Heucristic
         return Skip::MacroInvocation unless @workspace.macros(call.name).empty?
         return Skip::MacroArguments if MacroArguments.within?(site.context.ancestors, @workspace)
         return Skip::SelectCondition if select_condition?(call, site.context.ancestors)
-        return Skip::ImplicitObject if call.obj.is_a?(Crystal::ImplicitObj)
         return Skip::ChainedComparison if Resolve::Receiver.chained_comparison?(call)
 
         start = Document::Point.from(location)
@@ -77,6 +79,9 @@ module Heucristic
         end
 
         receiver = @receiver.of_call(call, site.context)
+        if call.obj.is_a?(Crystal::ImplicitObj)
+          receiver = narrowed_subject(receiver, call, site.context)
+        end
         return if abstract_instantiation(known, call, receiver, span, findings)
         if receiver.is_a?(Resolve::Unknown)
           unknown[receiver.to_s] += 1
@@ -92,6 +97,12 @@ module Heucristic
         if defs.is_a?(Skip)
           unsettled[described(receiver)] += 1 if defs.type_unsettled?
           return defs
+        end
+        if defs.is_a?(Virtual)
+          return unless defs.defs.empty?
+
+          findings << Finding.new(:undefined_method, undefined(call, receiver), span)
+          return
         end
 
         if defs.empty?
@@ -238,7 +249,7 @@ module Heucristic
         receiver : Resolve::Resolution,
         call : Crystal::Call,
         context : Syntax::Context,
-      ) : Array(Index::Def) | Skip
+      ) : Array(Index::Def) | Skip | Virtual
         case receiver
         in Resolve::Unknown  then Skip::ReceiverUnknown
         in Resolve::UnionRef then Skip::UnionMemberNotType
@@ -306,9 +317,9 @@ module Heucristic
         type : String,
         call : Crystal::Call,
         context : Syntax::Context,
-      ) : Array(Index::Def) | Skip
+      ) : Array(Index::Def) | Skip | Virtual
         return Skip::TypeUnsettled unless @settled.type?(type)
-        return Skip::TypeHasSubclasses if @settled.extended?(type)
+        return virtual_definitions(receiver, type, call) if @settled.extended?(type)
 
         defs = @methods.named_on(receiver, call.name)
         return defs unless call.obj.nil?
@@ -317,6 +328,86 @@ module Heucristic
 
         defs.concat(top_level(call.name, context))
         top_level_mixed_in(call.name, defs)
+      end
+
+      private def virtual_definitions(
+        receiver : Resolve::Resolved,
+        type : String,
+        call : Crystal::Call,
+      ) : Skip | Virtual
+        return Skip::TypeHasSubclasses if call.obj.nil?
+
+        defs = @methods.named_on(receiver, call.name)
+        return Virtual.new(defs) unless defs.empty?
+
+        @settled.descendants(type).each do |descendant|
+          return Skip::TypeUnsettled unless @settled.type?(descendant)
+
+          found = @methods.named_on(as_descendant(receiver, descendant), call.name)
+          return Virtual.new(found) unless found.empty?
+        end
+        Virtual.new(defs)
+      end
+
+      private def as_descendant(
+        receiver : Resolve::Resolved,
+        descendant : String,
+      ) : Resolve::Resolved
+        typed = Resolve::TypeRef.new(descendant, Array(Resolve::Resolution).new)
+        receiver.is_a?(Resolve::MetaRef) ? Resolve::MetaRef.new(typed) : typed
+      end
+
+      private def narrowed_subject(
+        receiver : Resolve::Resolution,
+        call : Crystal::Call,
+        context : Syntax::Context,
+      ) : Resolve::Resolution
+        return receiver unless receiver.is_a?(Resolve::UnionRef)
+        ancestors = context.ancestors
+        index = ancestors.rindex(&.is_a?(Crystal::Case))
+        return receiver unless index
+        enclosing = ancestors[index]
+        branch = ancestors[index + 1]?
+        return receiver unless enclosing.is_a?(Crystal::Case) && branch.is_a?(Crystal::When)
+        return receiver unless enclosing.exhaustive?
+
+        scope = Resolve::Scope.new(
+          context.owner, context.type_vars, Array(Resolve::Binding).new, context.path
+        )
+        remaining = receiver.members.dup
+        enclosing.whens.each do |earlier|
+          break if earlier.same?(branch)
+
+          earlier.conds.each do |cond|
+            covering = covering_type(cond, scope)
+            next unless covering
+
+            remaining.reject! do |member|
+              member.is_a?(Resolve::TypeRef) && covers?(covering, member.name)
+            end
+          end
+        end
+        return receiver if remaining.empty?
+
+        remaining.size == 1 ? remaining[0] : Resolve::UnionRef.new(remaining)
+      end
+
+      private def covering_type(cond : Crystal::ASTNode, scope : Resolve::Scope) : String?
+        return CoreType::Nil.type_name if cond.is_a?(Crystal::NilLiteral)
+        return unless cond.is_a?(Crystal::Path) || cond.is_a?(Crystal::Generic)
+
+        read = Syntax::TypeReader.read(cond)
+        return unless read.is_a?(Syntax::Type)
+
+        resolved = @types.resolve_lexically(read, scope)
+        resolved.is_a?(Resolve::TypeRef) ? resolved.name : nil
+      end
+
+      private def covers?(covering : String, member : String) : Bool
+        return true if covering == member
+
+        chain = @types.ancestors(member)
+        !chain.is_a?(Resolve::Unknown) && chain.includes?(covering)
       end
 
       private def top_level(name : String, context : Syntax::Context) : Array(Index::Def)
@@ -352,6 +443,8 @@ module Heucristic
       private def described(receiver : Resolve::Resolution) : String
         return "#{receiver.of}.class" if receiver.is_a?(Resolve::MetaRef)
         return "top-level" if receiver.is_a?(Resolve::TypeRef) && receiver.program?
+        virtual = receiver.is_a?(Resolve::TypeRef) && @settled.extended?(receiver.name)
+        return "#{receiver}+" if virtual
 
         receiver.to_s
       end
