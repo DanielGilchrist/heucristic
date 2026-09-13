@@ -1,6 +1,7 @@
 require "lsprotocol"
 require "../version"
 require "../log"
+require "../requires"
 require "../protocol/message"
 require "../protocol/encoder"
 require "../protocol/transport"
@@ -93,6 +94,7 @@ module Heucristic
         @rename = Rename.new
         @stopping = false
         @index_stdlib = true
+        @source_paths = nil
         @progress = Progress.new(@transport, false)
       end
 
@@ -186,13 +188,17 @@ module Heucristic
         roots = [@root]
         return roots unless @index_stdlib
 
-        case (paths = CrystalEnv.source_paths(@root))
-        in CrystalEnv::Unavailable
-          Log.info("stdlib not indexed: #{paths.reason}")
-        in Array(String)
-          roots.concat(paths)
-        end
-        roots
+        roots.concat(source_paths)
+      end
+
+      def source_paths : Array(String)
+        @source_paths ||= case (paths = CrystalEnv.source_paths(@root))
+                          in CrystalEnv::Unavailable
+                            Log.info("crystal source paths unavailable: #{paths.reason}")
+                            Array(String).new
+                          in Array(String)
+                            paths
+                          end
       end
 
       def shim_roots : Array(String)
@@ -592,6 +598,8 @@ module Heucristic
           return Array(LSProtocol::Location).new unless owner.is_a?(String)
 
           @references.of_instance_var(target.name, owner)
+        in Syntax::OnRequire
+          Array(LSProtocol::Location).new
         end
       end
 
@@ -625,6 +633,11 @@ module Heucristic
         answer.spans.each do |span|
           locations << LSProtocol::Location.new(range: span.to_range, uri: URI.parse(uri))
         end
+        answer.files.each do |file|
+          origin = LSProtocol::Position.new(line: 0, character: 0)
+          range = LSProtocol::Range.new(start: origin, end: origin)
+          locations << LSProtocol::Location.new(range: range, uri: URI.parse(Uri.from_path(file)))
+        end
         reply(request.id, locations.empty? ? nil : locations)
       end
 
@@ -654,6 +667,20 @@ module Heucristic
           return Answer.of(anchored) unless anchored.empty?
 
           Answer.note("nothing is declared by `#{target.name}` here")
+        in Syntax::OnRequire then answer_require(target, path)
+        end
+      end
+
+      private def answer_require(target : Syntax::OnRequire, path : String) : Answer
+        string = target.node.string
+        case (resolved = Requires.new(source_paths).resolve(string, path))
+        in Requires::Unresolved
+          tried = resolved.tried.join('\n') { |candidate| "- `#{candidate}`" }
+          Answer.note("no file matches `require \"#{string}\"`, tried:\n#{tried}")
+        in Array(String)
+          return Answer.note("`require \"#{string}\"` matches no `.cr` files") if resolved.empty?
+
+          Answer.files(resolved, "```\n#{resolved.join('\n')}\n```")
         end
       end
 

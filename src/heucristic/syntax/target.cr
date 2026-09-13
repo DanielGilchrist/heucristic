@@ -9,7 +9,8 @@ module Heucristic
     record OnVar, name : String, location : Crystal::Location?, context : Context
     record OnInstanceVar, name : String, context : Context
     record OnName, name : String, location : Crystal::Location, context : Context
+    record OnRequire, node : Crystal::Require
 
-    alias Target = OnDef | OnCall | OnPath | OnVar | OnInstanceVar | OnName
+    alias Target = OnDef | OnCall | OnPath | OnVar | OnInstanceVar | OnName | OnRequire
   end
 end

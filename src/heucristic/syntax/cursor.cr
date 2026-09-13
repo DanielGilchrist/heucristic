@@ -64,6 +64,12 @@ module Heucristic
         @target.nil?
       end
 
+      def visit(node : Crystal::Require) : Bool
+        statement = "require ".size + node.string.size + 2
+        @target = OnRequire.new(node) if over?(node.location, statement)
+        false
+      end
+
       def visit(node : Crystal::MacroIf) : Bool
         return false unless @target.nil?
 

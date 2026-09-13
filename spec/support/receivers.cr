@@ -23,7 +23,11 @@ def receiver_at(source : String, line : Int32, column : Int32) : String
   in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s
   in Heucristic::Syntax::OnVar         then receiver.variable(target.name, target.context).to_s
   in Heucristic::Syntax::OnInstanceVar then receiver.instance_var(target.name, target.context).to_s
-  in Heucristic::Syntax::OnDef, Heucristic::Syntax::OnPath, Heucristic::Syntax::OnName, Nil
+  in Heucristic::Syntax::OnDef,
+     Heucristic::Syntax::OnPath,
+     Heucristic::Syntax::OnName,
+     Heucristic::Syntax::OnRequire,
+     Nil
     raise "cursor did not land on a call or variable at #{line}:#{column}"
   end
 end

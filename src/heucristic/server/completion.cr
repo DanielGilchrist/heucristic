@@ -45,7 +45,12 @@ module Heucristic
         items = case target
                 in Syntax::OnCall then calls(target, prefix)
                 in Syntax::OnPath then paths(target, prefix)
-                in Syntax::OnDef, Syntax::OnVar, Syntax::OnInstanceVar, Syntax::OnName, Nil
+                in Syntax::OnDef,
+                   Syntax::OnVar,
+                   Syntax::OnInstanceVar,
+                   Syntax::OnName,
+                   Syntax::OnRequire,
+                   Nil
                   Array(LSProtocol::CompletionItem).new
                 end
         items.uniq!(&.label)

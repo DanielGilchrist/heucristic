@@ -1026,3 +1026,40 @@ describe Heucristic::Server::Loop, "call checks" do
     client.shutdown
   end
 end
+
+describe Heucristic::Server::Loop, "requires" do
+  root = File.expand_path("../../fixtures/checks", __DIR__)
+  usage_uri = "file://#{root}/src/usage.cr"
+
+  it "jumps from a require to the files it loads and explains one that matches nothing" do
+    client = LspClient.in_process
+    client.initialize!(root)
+    client.await_notification(Notice::Indexed)
+
+    client.open(usage_uri, <<-CR)
+      require "./checks"
+      require "./nope"
+      require "json"
+      require "./*"
+      CR
+    client.await_diagnostics
+
+    checks = File.join(root, "src", "checks.cr")
+    targets = client.definition(usage_uri, 0, 10).result.try(&.as_a.map(&.["uri"].as_s))
+    targets.should eq(["file://#{checks}"])
+    hover_text(client.hover(usage_uri, 0, 10)).to_s.should contain(checks)
+
+    hover_text(client.hover(usage_uri, 1, 3)).to_s.should contain(
+      "no file matches `require \"./nope\"`, tried:\n- `#{File.join(root, "src", "nope.cr")}`"
+    )
+    client.definition(usage_uri, 1, 3).result.try(&.raw).should be_nil
+
+    stdlib = client.definition(usage_uri, 2, 9).result.try(&.as_a.map(&.["uri"].as_s))
+    stdlib.try(&.size).should eq(1)
+    stdlib.try(&.[0].ends_with?("/json.cr")).should be_true
+
+    globbed = client.definition(usage_uri, 3, 0).result.try(&.as_a.map(&.["uri"].as_s))
+    globbed.should eq(["file://#{checks}"])
+    client.shutdown
+  end
+end
