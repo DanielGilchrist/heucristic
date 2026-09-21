@@ -444,7 +444,10 @@ module Heucristic
           compiled_files,
           @root,
           shim_roots,
+          open_paths,
         )
+        return Diagnostics.none if settled.uncompiled_file?(path)
+
         calls = Check::Calls.new(@workspace, @types, @methods, @receiver, settled)
         findings = calls.run(sites).findings
         Check::Cases.new(@workspace, @types, @receiver, settled).run(sites, findings)
@@ -457,6 +460,12 @@ module Heucristic
         ivars.run(sites, findings)
         findings.sort_by! { |finding| {finding.span.start_line, finding.span.start_character} }
         findings.map { |finding| Diagnostics.warning(finding) }
+      end
+
+      private def open_paths : Set(String)
+        paths = Set(String).new
+        @documents.each { |document| paths << document_path(document) }
+        paths
       end
 
       private def shimmed?(path : String) : Bool

@@ -32,6 +32,9 @@ module Heucristic
         location = path.location
         return unless location
         return if MacroArguments.within?(site.context.ancestors, @workspace)
+        return if site.context.blocks.any? do |block_call|
+                    block_call.obj.nil? && Syntax::WellKnown::Pending.named?(block_call.name)
+                  end
         return if inside_lib?(site.context)
 
         scope = Resolve::Scope.new(

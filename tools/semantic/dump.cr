@@ -51,10 +51,14 @@ module Semantic
           declaring = declared_by_macro ? declaring_file(type) : nil
           generated = generated_defs(type, false, declaring) +
                       generated_defs(type.metaclass, true, declaring)
+          extended = extended_modules(type)
+          macros = generated_macros(type)
           parents = project?(type) ? module_parents(type) : Array(String).new
-          next if generated.empty? && parents.empty? && !declared_by_macro
+          if generated.empty? && parents.empty? && extended.empty? && macros.empty?
+            next unless declared_by_macro
+          end
 
-          reopen(type, generated, parents, declared_by_macro)
+          reopen(type, generated, parents, extended, macros, declared_by_macro)
         in Crystal::Type then nil
         end
       end
@@ -80,6 +84,7 @@ module Semantic
 
     private def files(program : Crystal::Program) : Array(String)
       found = Set(String).new
+      program.requires.each { |path| found << path }
       ([program] of Crystal::Type).concat(all_types(program)).each do |type|
         type.locations.try &.each { |location| record_file(location, found) }
         next unless type.is_a?(Crystal::ModuleType)
@@ -157,6 +162,32 @@ module Semantic
       end
     end
 
+    private def extended_modules(type : Crystal::ModuleType) : Array(String)
+      metaclass = type.metaclass
+      return Array(String).new unless metaclass.is_a?(Crystal::ModuleType)
+
+      parents = metaclass.parents || Array(Crystal::Type).new
+      parents.compact_map do |parent|
+        next unless parent.is_a?(Crystal::NonGenericModuleType)
+
+        parent.to_s
+      end
+    end
+
+    private def generated_macros(type : Crystal::ModuleType) : Array(Crystal::Macro)
+      found = Array(Crystal::Macro).new
+      type.macros.try &.each_value do |overloads|
+        overloads.each { |entry| found << entry }
+      end
+      metaclass = type.metaclass
+      if metaclass.is_a?(Crystal::ModuleType)
+        metaclass.macros.try &.each_value do |overloads|
+          overloads.each { |entry| found << entry }
+        end
+      end
+      found
+    end
+
     private def project?(type : Crystal::Type) : Bool
       locations = type.locations
       return false unless locations
@@ -171,6 +202,8 @@ module Semantic
       type : Crystal::ModuleType,
       generated : Array(Generated),
       parents : Array(String),
+      extended : Array(String),
+      macros : Array(Crystal::Macro),
       declared_by_macro : Bool,
     ) : Nil
       emit(declared_by_macro ? Header.declare(type) : Header.reopen(type))
@@ -180,6 +213,11 @@ module Semantic
         end
       end
       parents.each { |parent| emit("  include ::#{parent}") }
+      extended.each { |parent| emit("  extend ::#{parent}") }
+      macros.each do |entry|
+        emit("  #{Header.macro(entry)}")
+        emit("  end")
+      end
       generated.each do |item|
         header = Header.def(item.definition, item.metaclass)
         header.each_line.with_index do |line, index|

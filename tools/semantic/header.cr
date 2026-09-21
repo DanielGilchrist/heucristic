@@ -24,6 +24,18 @@ module Semantic
       "#{header} < ::#{superclass}"
     end
 
+    def macro(definition : Crystal::Macro) : String
+      header = Crystal::Macro.new(
+        definition.name,
+        definition.args,
+        Crystal::Nop.new,
+        definition.block_arg,
+        definition.splat_index,
+        definition.double_splat,
+      )
+      header.to_s.lines.first.chomp
+    end
+
     def def(definition : Crystal::Def, metaclass : Bool) : String
       header = Crystal::Def.new(
         definition.name,

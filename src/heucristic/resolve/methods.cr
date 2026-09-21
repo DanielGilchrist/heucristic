@@ -134,7 +134,7 @@ module Heucristic
           next if argument.is_a?(Unknown) || !restriction.is_a?(Syntax::Type)
 
           expected = @types.resolve_lexically(restriction, scope)
-          next if admits?(expected, argument)
+          next if admits?(expected, argument, any_member)
           next if any_member && argument.is_a?(UnionRef) && call.bound?(index) &&
                   admits_any?(expected, argument)
 
@@ -200,24 +200,28 @@ module Heucristic
         found
       end
 
-      def admits?(restriction : Resolution, argument : Resolved) : Bool
+      def admits?(restriction : Resolution, argument : Resolved, lenient : Bool = false) : Bool
         if argument.is_a?(UnionRef)
           return argument.members.all? do |member|
-            member.is_a?(Unknown) || admits?(restriction, member)
+            member.is_a?(Unknown) || admits?(restriction, member, lenient)
           end
         end
 
         case restriction
         in Unknown, TypeVar then true
         in UnionRef
-          restriction.members.any? { |member| member.is_a?(Unknown) || admits?(member, argument) }
+          restriction.members.any? do |member|
+            member.is_a?(Unknown) || admits?(member, argument, lenient)
+          end
         in MetaRef then argument.is_a?(MetaRef)
         in TypeRef
           case argument
           in TypeRef
             argument.name == restriction.name ||
               ancestor?(argument.name, restriction.name) ||
-              autocast?(argument, restriction)
+              autocast?(argument, restriction) ||
+              (lenient && widens?(argument, restriction)) ||
+              (lenient && descends?(restriction.name, argument.name))
           in UnionRef then false
           in MetaRef  then restriction.is?(:class) || module?(restriction.name)
           in TypeVar  then true
@@ -244,8 +248,13 @@ module Heucristic
 
       private def admits_any?(expected : Resolution, argument : UnionRef) : Bool
         argument.members.any? do |member|
-          member.is_a?(Unknown) || admits?(expected, member)
+          member.is_a?(Unknown) || admits?(expected, member, true)
         end
+      end
+
+      private def descends?(type : String, ancestor : String) : Bool
+        chain = @types.ancestors(type)
+        chain.is_a?(Array(String)) && chain.includes?(ancestor)
       end
 
       private def reachable?(entry : Index::Def, caller_path : String) : Bool
@@ -256,6 +265,12 @@ module Heucristic
 
       private def private_paths(owner : String) : Array(String)
         @private_paths[owner] ||= @workspace.namespaces(owner).compact_map(&.private_path)
+      end
+
+      private def widens?(argument : TypeRef, restriction : TypeRef) : Bool
+        from = CoreType.from_name(argument.name)
+        to = CoreType.from_name(restriction.name)
+        !from.nil? && !to.nil? && from.widens_to?(to)
       end
 
       private def autocast?(argument : TypeRef, restriction : TypeRef) : Bool
@@ -474,13 +489,18 @@ module Heucristic
         if after && (start = searched.index(after))
           searched = searched[(start + 1)..]
         end
+        gathered = Array(Index::Def).new
+        undecided = call.arguments.any?(Unknown)
         searched.each do |level|
           found = candidates.select do |entry|
             entry.owner == level && own?(entry, call.caller_path) && yield entry
           end
-          return most_specific(found, call) unless found.empty?
+          next if found.empty?
+          return most_specific(found, call) unless undecided
+
+          gathered.concat(found)
         end
-        Array(Index::Def).new
+        gathered
       end
 
       private def most_specific(found : Array(Index::Def), call : Call) : Array(Index::Def)

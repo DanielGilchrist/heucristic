@@ -83,8 +83,8 @@ describe Heucristic::Resolve::Types do
     resolve(ws, "Pair", "Outer").should eq("Tuple(Int32, Int32)")
   end
 
-  it "refuses an alias cycle" do
-    resolve(ws, "Loop", "Outer").should eq("unknown (cycle: Outer::Loop)")
+  it "treats an alias that reaches itself as an opaque type" do
+    resolve(ws, "Loop", "Outer").should eq("Outer::Loop")
   end
 
   it "knows the types the compiler creates without source" do
@@ -121,6 +121,22 @@ describe Heucristic::Resolve::Types do
 
   it "gives up on a union with an unresolved member" do
     resolve(ws, "Thing | Missing", "Outer").should eq("unknown (unresolved name: Missing)")
+  end
+
+  it "stops following aliases that reach themselves through a union" do
+    cyclic = workspace(<<-CR)
+      module Q
+        class Queue
+        end
+      end
+
+      class Exchange
+      end
+
+      alias Queue = Q::Queue | Session
+      alias Session = Queue | Exchange
+      CR
+    resolve(cyclic, "Session").should contain("Exchange")
   end
 
   it "labels the restriction kinds it does not handle yet" do

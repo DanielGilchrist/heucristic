@@ -15,6 +15,9 @@ module Heucristic
       TypeHasSubclasses
       ProgramUnsettled
       YieldScopeUnknown
+      PendingSpec
+      FileNotCompiled
+      Unreachable
 
       def label : String
         to_s.underscore.gsub('_', ' ')

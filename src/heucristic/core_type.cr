@@ -42,6 +42,26 @@ module Heucristic
       nil
     end
 
+    def widens_to?(target : CoreType) : ::Bool
+      return true if self == target
+
+      case self
+      in Int8    then target.in?(Int16, Int32, Int64, Int128, Float32, Float64)
+      in Int16   then target.in?(Int32, Int64, Int128, Float32, Float64)
+      in Int32   then target.in?(Int64, Int128, Float64)
+      in Int64   then target.in?(Int128)
+      in UInt8   then target.in?(UInt16, UInt32, UInt64, UInt128, Int16, Int32, Int64, Int128)
+      in UInt16  then target.in?(UInt32, UInt64, UInt128, Int32, Int64, Int128, Float32, Float64)
+      in UInt32  then target.in?(UInt64, UInt128, Int64, Int128, Float64)
+      in UInt64  then target.in?(UInt128, Int128)
+      in Float32 then target == Float64
+      in Int128, UInt128, Float64, Nil, Bool, Char, String, Symbol, Regex, NoReturn, Tuple,
+         NamedTuple, Array, Hash, Range, Proc, Union, Object, Class, Exception, Indexable,
+         Enumerable, Enum, Struct, Reference, Value, Pointer
+        false
+      end
+    end
+
     def numeric? : ::Bool
       case self
       in Int8, Int16, Int32, Int64, Int128, UInt8, UInt16, UInt32, UInt64, UInt128, Float32,

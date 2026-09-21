@@ -10,6 +10,7 @@ module Heucristic
       Dup
       Clone
       Timeout
+      Pending
 
       def self.from_name(name : String) : WellKnown?
         each { |known| return known if known.method_name == name }
@@ -27,6 +28,7 @@ module Heucristic
         in .dup?          then "dup"
         in .clone?        then "clone"
         in .timeout?      then "timeout"
+        in .pending?      then "pending"
         end
       end
 
@@ -36,15 +38,16 @@ module Heucristic
 
       def unchecked? : Bool
         case self
-        in .super?, .previous_def?, .allocate?                         then true
-        in .new?, .initialize?, .self_name?, .dup?, .clone?, .timeout? then false
+        in .super?, .previous_def?, .allocate?                                    then true
+        in .new?, .initialize?, .self_name?, .dup?, .clone?, .timeout?, .pending? then false
         end
       end
 
       def copies? : Bool
         case self
         in .dup?, .clone? then true
-        in .new?, .initialize?, .self_name?, .super?, .previous_def?, .allocate?, .timeout?
+        in .new?, .initialize?, .self_name?, .super?, .previous_def?, .allocate?, .timeout?,
+           .pending?
           false
         end
       end

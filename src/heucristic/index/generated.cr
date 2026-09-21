@@ -18,6 +18,11 @@ module Heucristic
           constructor?(entry.name) || known?(entry, workspace, shims) ||
             synthesized?(entry, macros, workspace)
         end
+        macros_kept = file.macros.reject do |entry|
+          workspace.macros(entry.name).any? do |existing|
+            existing.path != entry.path && existing.owner == entry.owner
+          end
+        end
         File.new(
           file.path,
           kept,
@@ -26,7 +31,7 @@ module Heucristic
           file.instance_vars,
           file.aliases,
           file.constants,
-          file.macros,
+          macros_kept,
         )
       end
 

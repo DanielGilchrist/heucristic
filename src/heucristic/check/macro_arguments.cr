@@ -10,6 +10,7 @@ module Heucristic
 
       def within?(ancestors : Array(Crystal::ASTNode), workspace : Index::Workspace) : Bool
         ancestors.each_with_index.any? do |node, index|
+          next true if node.is_a?(Crystal::Annotation)
           next false unless node.is_a?(Crystal::Call)
           next false unless Index::MacroCall.like?(node, workspace)
 

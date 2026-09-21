@@ -18,6 +18,7 @@ module Heucristic
         @compiled : Set(String),
         @root : String,
         @shim_roots : Array(String),
+        @open : Set(String) = Set(String).new,
       ) : Nil
         @unsettled_files = Hash(String, Bool).new
         @settled_types = Hash(String, Bool).new
@@ -35,6 +36,16 @@ module Heucristic
 
       def namespace?(name : String) : Bool
         type?(name) || declared?(name)
+      end
+
+      def uncompiled_file?(path : String) : Bool
+        return false if !ready? || @compiled.empty? || @open.includes?(path)
+        return false if Index::MacroTarget.generated?(path)
+        return false unless path.starts_with?(@root + "/")
+        return false if path.starts_with?(File.join(@root, "lib") + "/")
+        return false if @shim_roots.any? { |shim_root| path.starts_with?(shim_root + "/") }
+
+        !@compiled.includes?(path)
       end
 
       def project_type?(name : String) : Bool

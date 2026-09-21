@@ -10,8 +10,12 @@ module Heucristic
       record Truthy, positive : Bool
       record IsA, types : Array(Crystal::ASTNode), positive : Bool
       record Assigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
+      record Declared, restriction : Crystal::ASTNode
       record OrAssigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
-      record Reassigned, values : Array(Reassignment), within : Array(Crystal::ASTNode)
+      record Reassigned,
+        values : Array(Reassignment),
+        within : Array(Crystal::ASTNode),
+        definite : Bool = false
       record Branch, positive : Bool, body : Crystal::ASTNode?
       record Branched,
         cond : Crystal::ASTNode,
@@ -19,7 +23,7 @@ module Heucristic
         within : Array(Crystal::ASTNode),
         assigns : Bool
 
-      alias Step = Truthy | IsA | Assigned | OrAssigned | Reassigned | Branched
+      alias Step = Truthy | IsA | Assigned | OrAssigned | Reassigned | Branched | Declared
 
       getter steps : Array(Step)
 
@@ -64,6 +68,8 @@ module Heucristic
           condition(parent.left, false) if parent.right.same?(child)
         in Crystal::Case
           case_branch(parent, child)
+        in Crystal::ExceptionHandler
+          handler_branch(parent, child)
         in Crystal::Expressions
           sequence(parent.expressions, child)
         in Crystal::When, Crystal::ASTNode
@@ -94,12 +100,38 @@ module Heucristic
 
       private def sequence(statements : Array(Crystal::ASTNode), child : Crystal::ASTNode) : Nil
         facts = @facts
+        declared = false
         statements.each do |statement|
           break if statement.same?(child)
           next if facts && !facts.mentions?(@name, statement)
 
-          guard(statement)
+          reassignments = reassignments_within(statement)
+          captured = reassignments.all?(&.path.any?(Crystal::Block))
+          guard(statement) if declared || reassignments.empty? || !captured
+          declared ||= reassignments.any?(&.path.none?(Crystal::Block))
         end
+      end
+
+      private def settled_or_exits?(body : Crystal::ASTNode?) : Bool
+        return false unless body
+
+        exits?(body) || settles?(body)
+      end
+
+      private def settles?(body : Crystal::ASTNode) : Bool
+        statements = body.is_a?(Crystal::Expressions) ? body.expressions : [body]
+        statements.any? do |statement|
+          target = statement.is_a?(Crystal::Assign) ? statement.target : nil
+          target.is_a?(Crystal::Var) && target.name == @name
+        end
+      end
+
+      private def walk_within(body : Crystal::ASTNode, within : Array(Crystal::ASTNode)) : Nil
+        outer = @prefix
+        @prefix = within + [body]
+        statements = body.is_a?(Crystal::Expressions) ? body.expressions : [body]
+        statements.each { |statement| guard(statement) }
+        @prefix = outer
       end
 
       private def guard(statement : Crystal::ASTNode) : Nil
@@ -117,6 +149,11 @@ module Heucristic
           return unless target.is_a?(Crystal::Var) && target.name == @name
 
           @steps << Assigned.new(statement.value, within)
+        in Crystal::UninitializedVar
+          var = statement.var
+          return unless var.is_a?(Crystal::Var) && var.name == @name
+
+          @steps << Declared.new(statement.declared_type)
         in Crystal::OpAssign
           target = statement.target
           return unless target.is_a?(Crystal::Var) && target.name == @name && statement.op == "||"
@@ -135,6 +172,17 @@ module Heucristic
           condition(statement.left, true) if exits?(statement.right)
         in Crystal::Case
           case_exits(statement)
+        in Crystal::ExceptionHandler
+          rescues = statement.rescues || Array(Crystal::Rescue).new
+          if rescues.all? { |handler| exits?(handler.body) } && statement.else.nil?
+            walk_within(statement.body, within)
+          elsif settles?(statement.body) &&
+                rescues.all? { |handler| settled_or_exits?(handler.body) }
+            values = reassignments_within(statement)
+            @steps << Reassigned.new(values, within, true) unless values.empty?
+          else
+            nested(statement)
+          end
         in Crystal::While
           nested(statement)
           condition(statement.cond, false)
@@ -149,11 +197,11 @@ module Heucristic
       private def case_exits(statement : Crystal::Case) : Nil
         subject = unwrapped(statement.cond)
         if subject.is_a?(Crystal::Assign) && (target = subject.target).is_a?(Crystal::Var)
-          return nested(statement) unless target.name == @name
+          return settled_case(statement) unless target.name == @name
 
           @steps << Assigned.new(subject.value, @prefix + [statement])
         elsif !(subject.is_a?(Crystal::Var) && subject.name == @name)
-          return nested(statement)
+          return settled_case(statement)
         end
 
         excluded = Array(Crystal::ASTNode).new
@@ -166,6 +214,16 @@ module Heucristic
           excluded.concat(types)
         end
         @steps << IsA.new(excluded, false) unless excluded.empty?
+      end
+
+      private def settled_case(statement : Crystal::Case) : Nil
+        otherwise = statement.else
+        covered = statement.whens.all? { |branch| settled_or_exits?(branch.body) }
+        closed = otherwise ? settled_or_exits?(otherwise) : statement.exhaustive?
+        return nested(statement) unless covered && closed
+
+        values = reassignments_within(statement)
+        @steps << Reassigned.new(values, @prefix + [statement], true) unless values.empty?
       end
 
       private def unwrapped(node : Crystal::ASTNode?) : Crystal::ASTNode?
@@ -193,6 +251,13 @@ module Heucristic
           found << Reassignment.new(item.value, item.path[(index + 1)..]) if index
         end
         found
+      end
+
+      private def handler_branch(parent : Crystal::ExceptionHandler, child : Crystal::ASTNode) : Nil
+        return if parent.body.same?(child)
+
+        values = reassignments_within(parent.body)
+        @steps << Reassigned.new(values, @prefix + [parent, parent.body]) unless values.empty?
       end
 
       private def case_branch(parent : Crystal::Case, child : Crystal::ASTNode) : Nil

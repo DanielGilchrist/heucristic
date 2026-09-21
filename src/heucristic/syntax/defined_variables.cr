@@ -13,6 +13,12 @@ module Heucristic
         finder.names
       end
 
+      def self.at_top_level(tree : Crystal::ASTNode) : Set(String)
+        finder = new
+        tree.accept(finder)
+        finder.names
+      end
+
       def initialize : Nil
         @names = Set(String).new
       end
@@ -35,6 +41,12 @@ module Heucristic
 
       def visit(node : Crystal::Rescue) : Bool
         node.name.try { |name| @names << name }
+        true
+      end
+
+      def visit(node : Crystal::UninitializedVar | Crystal::TypeDeclaration) : Bool
+        var = node.var
+        @names << var.name if var.is_a?(Crystal::Var)
         true
       end
 

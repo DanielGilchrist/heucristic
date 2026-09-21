@@ -56,9 +56,11 @@ module Heucristic
         levels : Array(String),
         depth : Int32,
       ) : Bool
-        levels[0...depth].any? do |closer|
+        levels.each_with_index.any? do |level, index|
+          next false if index == depth
+
           @workspace.named(definition.name).any? do |candidate|
-            candidate.owner == closer && candidate.receiver == definition.receiver &&
+            candidate.owner == level && candidate.receiver == definition.receiver &&
               !candidate.abstract_def
           end
         end

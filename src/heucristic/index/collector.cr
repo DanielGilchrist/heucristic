@@ -15,6 +15,8 @@ require "../syntax/well_known"
 module Heucristic
   module Index
     class Collector < Crystal::Visitor
+      FLAG_MEMBERS = %w[None All]
+
       def self.collect(path : String, text : Document::Text, tree : Crystal::ASTNode) : File
         collector = new(path, text)
         tree.accept(collector)
@@ -32,6 +34,7 @@ module Heucristic
         @macros = Array(MacroDef).new
         @def_depth = 0
         @opaque_blocks = 0
+        @flag_enums = Set(UInt64).new
         @definitions = Array(Crystal::Def).new
         @visibilities = Array(Visibility).new
         @owners = Array(String).new
@@ -87,8 +90,18 @@ module Heucristic
         true
       end
 
+      def visit(node : Crystal::Expressions) : Bool
+        node.expressions.each_cons_pair do |before, after|
+          next unless after.is_a?(Crystal::EnumDef) && flags_annotation?(before)
+
+          @flag_enums << after.object_id
+        end
+        true
+      end
+
       def visit(node : Crystal::EnumDef) : Bool
         name = enter(node.name)
+        flags = @flag_enums.includes?(node.object_id)
         with_span(node.name) do |span|
           @namespaces << EnumNamespace.new(
             name: name,
@@ -96,9 +109,15 @@ module Heucristic
             name_span: span,
             base_type: Restrictions.of(node.base_type),
             private_path: private_path(node),
+            flags: flags,
           )
         end
         node.members.each { |member| enum_member(name, member) }
+        if flags
+          with_span(node.name) do |span|
+            FLAG_MEMBERS.each { |member| implicit_member(name, member, span) }
+          end
+        end
         true
       end
 
@@ -353,6 +372,16 @@ module Heucristic
         false
       end
 
+      private def flags_annotation?(node : Crystal::ASTNode) : Bool
+        node.is_a?(Crystal::Annotation) && node.path.names.last? == "Flags"
+      end
+
+      private def implicit_member(owner : String, member : String, span : Document::Span) : Nil
+        type = Syntax::Named.new([owner], false)
+        value = Constant::ImplicitValue.new
+        @constants << Constant.new("#{owner}::#{member}", @path, span, value, type, nil)
+      end
+
       private def enum_member(owner : String, member : Crystal::ASTNode) : Nil
         return unless member.is_a?(Crystal::Arg)
         location = member.location
@@ -507,7 +536,10 @@ module Heucristic
 
       private def yielding_without_restriction?(node : Crystal::Def) : Bool
         yields = !node.block_arity.nil? || !node.block_arg.nil?
-        yields && node.block_arg.try(&.restriction).nil?
+        return false unless yields
+
+        restriction = node.block_arg.try(&.restriction)
+        restriction.nil? || (restriction.is_a?(Crystal::ProcNotation) && restriction.inputs.nil?)
       end
 
       private def record_ivar_parameters(node : Crystal::Def) : Nil
@@ -520,6 +552,10 @@ module Heucristic
           break unless target.is_a?(Crystal::InstanceVar) && value.is_a?(Crystal::Var)
 
           parameter = node.args.find(&.name.==(value.name))
+          block_arg = node.block_arg
+          if parameter.nil? && block_arg && block_arg.name == value.name
+            parameter = block_arg
+          end
           next unless parameter
           location = parameter.location
           next unless location
@@ -529,7 +565,9 @@ module Heucristic
           next unless span.is_a?(Document::Span)
 
           if (restriction = parameter.restriction)
-            instance_var(target.name, Syntax::TypeReader.read(restriction), span, :declared)
+            initializer = Syntax::WellKnown::Initialize.named?(node.name)
+            origin = initializer ? Origin::Declared : Origin::Assigned
+            instance_var(target.name, Syntax::TypeReader.read(restriction), span, origin)
             next
           end
 
@@ -594,7 +632,10 @@ module Heucristic
           accessor_defs(var, var.name, type, accessor)
           return unless receiver.instance?
 
-          instance_var("@#{var.name}", type, span_of(var, var.name.size), :declared)
+          span = span_of(var, var.name.size)
+          return unless span
+
+          instance_var("@#{var.name}", type, span, :declared, arg.value, !arg.value.nil?)
         in Crystal::Assign
           target = arg.target
           return unless target.is_a?(Crystal::Var)
@@ -780,6 +821,7 @@ module Heucristic
           abstract_def: node.abstract?,
           visibility: visibility,
           private_path: private_path(node),
+          exit_call: traits.exit_call,
         )
       end
     end

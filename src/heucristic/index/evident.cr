@@ -20,13 +20,13 @@ module Heucristic
         in Crystal::RegexLiteral                                then builtin(:regex)
         in Crystal::NumberLiteral
           builtin(number_type(node.kind))
-        in Crystal::Path, Crystal::Generic then metaclass(node)
-        in Crystal::Call                   then constructed(node)
-        in Crystal::Cast                   then read(node.to)
-        in Crystal::NilableCast            then nilable(node.to)
-        in Crystal::ArrayLiteral           then array_literal(node)
-        in Crystal::HashLiteral            then hash(node)
-        in Crystal::ProcLiteral            then proc_literal(node.def)
+        in Crystal::Generic      then metaclass(node)
+        in Crystal::Call         then constructed(node)
+        in Crystal::Cast         then read(node.to)
+        in Crystal::NilableCast  then nilable(node.to)
+        in Crystal::ArrayLiteral then array_literal(node)
+        in Crystal::HashLiteral  then hash(node)
+        in Crystal::ProcLiteral  then proc_literal(node.def)
         in Crystal::Expressions
           node.expressions.size == 1 ? type(node.expressions[0]) : NotEvident.new
         in Crystal::ASTNode

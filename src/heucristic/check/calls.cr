@@ -42,8 +42,13 @@ module Heucristic
         unknown = Hash(String, Int32).new(0)
         unsettled = Hash(String, Int32).new(0)
         macro_calls = Hash(String, Int32).new(0)
+        uncompiled = @settled.uncompiled_file?(sites.path)
         sites.calls.each do |site|
-          skip = check(site, sites.text, findings, unknown, unsettled)
+          skip = if uncompiled
+                   Skip::FileNotCompiled
+                 else
+                   check(site, sites.text, findings, unknown, unsettled)
+                 end
           if skip
             skips[skip] += 1
             macro_calls[site.call.name] += 1 if skip.macro_invocation?
@@ -67,6 +72,7 @@ module Heucristic
         return Skip::NoLocation unless location
         enclosing = site.context.ancestors[0...-1]
         return Skip::MacroArguments if MacroArguments.within?(enclosing, @workspace)
+        return Skip::PendingSpec if pending_block?(site.context.blocks)
         if select_condition?(call, site.context.ancestors)
           timeout = call.obj.nil? && Syntax::WellKnown::Timeout.named?(call.name)
           return Skip::SelectCondition if timeout
@@ -92,6 +98,7 @@ module Heucristic
           receiver = narrowed_subject(receiver, call, site.context)
         end
         return if abstract_instantiation(known, call, receiver, span, findings)
+        return Skip::Unreachable if receiver.is_a?(Resolve::TypeRef) && receiver.is?(:no_return)
         if receiver.is_a?(Resolve::Unknown)
           if call.obj.nil? && @receiver.yield_scope(site.context).is_a?(Resolve::Unknown)
             return Skip::YieldScopeUnknown
@@ -118,6 +125,7 @@ module Heucristic
         end
         if defs.empty?
           return Skip::MacroInvocation unless macros.empty?
+          return Skip::MacroInvocation if inherited_macro?(receiver, call.name)
 
           findings << Finding.new(:undefined_method, undefined(call, receiver), span)
           return
@@ -264,7 +272,8 @@ module Heucristic
 
           message = "there is no previous definition of '#{definition.name}'"
           findings << Finding.new(:no_previous_def, message, span)
-        in .allocate?, .new?, .initialize?, .self_name?, .dup?, .clone?, .timeout? then return false
+        in .allocate?, .new?, .initialize?, .self_name?, .dup?, .clone?, .timeout?, .pending?
+          return false
         end
         true
       end
@@ -516,6 +525,22 @@ module Heucristic
         Resolve::TypeRef.of(:object)
       end
 
+      private def inherited_macro?(receiver : Resolve::Resolution, name : String) : Bool
+        return false unless receiver.is_a?(Resolve::MetaRef)
+
+        of = receiver.of
+        return false unless of.is_a?(Resolve::TypeRef)
+
+        levels = @methods.levels(of.name)
+        @workspace.macros(name).any?(&.owner.in?(levels))
+      end
+
+      private def pending_block?(blocks : Array(Crystal::Call)) : Bool
+        blocks.any? do |block_call|
+          block_call.obj.nil? && Syntax::WellKnown::Pending.named?(block_call.name)
+        end
+      end
+
       private def undefined(call : Crystal::Call, receiver : Resolve::Resolution) : String
         return "undefined method '#{call.name}' for #{described(receiver)}" if call.obj
 
@@ -607,7 +632,7 @@ module Heucristic
         fit = Fit.new(@methods)
         rejections = Array(Resolve::Methods::Rejected).new(fitting.size)
         fitting.each do |entry|
-          rejected = @methods.rejected_argument(entry, shape, any_member: false)
+          rejected = @methods.rejected_argument(entry, shape, any_member: true)
           return unless rejected
           argument = call.args[rejected.index]?
           return if argument.is_a?(Crystal::NumberLiteral) && fit.numeric?(rejected.expected)

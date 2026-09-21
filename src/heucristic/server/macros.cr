@@ -73,7 +73,7 @@ module Heucristic
           event = run(helper, entry, root, crystal_path, target)
           return event unless event.is_a?(Index::MacrosFailed)
 
-          culprit = culprit(entry, event.trace, candidates(root, target))
+          culprit = culprit(entry, event.trace, candidates(root, target), root)
           return event unless culprit
 
           excluded(target)[culprit] = failure_line(event.trace, event.reason)
@@ -122,14 +122,22 @@ module Heucristic
         errors.last?.try(&.lchop("Error: ").strip) || reason
       end
 
-      private def culprit(entry : String, trace : String, files : Array(String)) : String?
+      private def culprit(
+        entry : String,
+        trace : String,
+        files : Array(String),
+        root : String,
+      ) : String?
         return if files.size < 2
 
         match = trace.match(/while requiring "([^"]+)"/)
-        return unless match
+        if match
+          required = File.expand_path(match[1], File.dirname(entry))
+          found = files.find { |file| file.rchop(".cr") == required }
+          return found if found
+        end
 
-        required = File.expand_path(match[1], File.dirname(entry))
-        files.find { |file| file.rchop(".cr") == required }
+        files.find { |file| trace.includes?(file) || trace.includes?(file.sub(root + "/", "")) }
       end
 
       private def run(

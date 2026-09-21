@@ -1,6 +1,8 @@
 require "compiler/crystal/syntax"
 require "./syntax/broken"
 
+require "./syntax/variable_restorer"
+
 module Heucristic
   module Syntax
     extend self
@@ -16,7 +18,8 @@ module Heucristic
       parser.wants_doc = true
       parser.line_number = at.line_number
       parser.column_number = at.column_number
-      parser.parse
+      parsed = parser.parse
+      variables.empty? ? parsed : parsed.transform(VariableRestorer.new(variables))
     rescue error : Crystal::SyntaxException
       Broken.new(
         error.message || "syntax error",

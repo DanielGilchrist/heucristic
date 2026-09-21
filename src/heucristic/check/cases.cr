@@ -59,7 +59,9 @@ module Heucristic
         findings : Array(Finding),
       ) : Nil
         return unless resolved.arguments.empty?
-        return unless @workspace.namespaces(resolved.name).all?(Index::EnumNamespace)
+        namespaces = @workspace.namespaces(resolved.name)
+        return unless namespaces.all?(Index::EnumNamespace)
+        return if namespaces.any? { |entry| entry.is_a?(Index::EnumNamespace) && entry.flags }
         return unless @settled.type?(resolved.name)
 
         members = @workspace.constants_of(resolved.name).map do |constant|

@@ -79,7 +79,14 @@ module Heucristic
         return false if expanded.is_a?(Index::MacroText::Undecidable)
 
         definition = @defs.last?
-        variables = definition ? DefinedVariables.of(definition) : Set(String).new
+        root = @nodes.first?
+        variables = if definition
+                      DefinedVariables.of(definition)
+                    elsif root
+                      DefinedVariables.at_top_level(root)
+                    else
+                      Set(String).new
+                    end
         fragment = Syntax.parse_fragment(expanded.text, "", expanded.at, variables)
         fragment.accept(self) unless fragment.is_a?(Syntax::Broken)
         false

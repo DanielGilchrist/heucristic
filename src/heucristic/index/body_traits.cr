@@ -3,12 +3,19 @@ require "compiler/crystal/syntax"
 module Heucristic
   module Index
     class BodyTraits < Crystal::Visitor
-      record Traits, with_yield : Bool, macro_body : Bool
+      record Traits, with_yield : Bool, macro_body : Bool, exit_call : String?
 
       def self.of(node : Crystal::Def) : Traits
         visitor = new
         node.body.accept(visitor)
-        Traits.new(visitor.with_yield?, visitor.macro_body?)
+        Traits.new(visitor.with_yield?, visitor.macro_body?, exit_call(node.body))
+      end
+
+      def self.exit_call(body : Crystal::ASTNode) : String?
+        last = body.is_a?(Crystal::Expressions) ? body.expressions.last? : body
+        return unless last.is_a?(Crystal::Call) && last.obj.nil? && last.block.nil?
+
+        last.name
       end
 
       getter? with_yield : Bool

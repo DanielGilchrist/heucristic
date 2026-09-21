@@ -2160,3 +2160,155 @@ describe Heucristic::Resolve::Receiver, "type variables" do
     receiver_at(source, 8, 3).should eq("T")
   end
 end
+
+private def marked(source : String, marker : String, column : Int32) : String
+  line = source.lines.index!(&.includes?(marker)) + 1
+  receiver_at(source, line, column)
+end
+
+describe Heucristic::Resolve::Receiver, "lessons from lavinmq" do
+  it "keeps a block-local variable apart from same-named variables in sibling blocks" do
+    source = <<-CR
+      class Channel(T)
+        def close : Nil
+        end
+      end
+
+      def it(name : String, &) : Nil
+        yield
+      end
+
+      it "a" do
+        msgs = [1]
+        msgs.size
+      end
+      it "b" do
+        msgs = Channel(String).new
+        msgs # HERE
+      end
+      CR
+    marked(source, "msgs # HERE", 3).should eq("Channel(String)")
+  end
+
+  it "destructures a single yielded tuple across block parameters" do
+    source = <<-CR
+      def pair(& : ->) : Nil
+        yield({1, "a"})
+      end
+
+      pair do |number, word|
+        word # HERE
+      end
+      CR
+    marked(source, "word # HERE", 3).should eq("String")
+  end
+
+  it "widens a call with a block by its break values" do
+    source = <<-CR
+      struct Int32
+        def times(&block : self ->) : Nil
+        end
+      end
+
+      found = 3.times do |i|
+        break "x" if i == 1
+      end
+      found # HERE
+      CR
+    marked(source, "found # HERE", 1).should eq("Nil | String")
+  end
+
+  it "treats a begin whose rescues raise as a definite assignment" do
+    source = <<-CR
+      class Regex
+      end
+
+      def build : Regex
+      end
+
+      def go : Nil
+        begin
+          regex = build
+        rescue ArgumentError
+          raise "bad"
+        end
+        regex # HERE
+      end
+      CR
+    marked(source, "regex # HERE", 3).should eq("Regex")
+  end
+
+  it "binds a rescue variable afresh even when the name was assigned earlier" do
+    source = <<-CR
+      class Boom < Exception
+      end
+
+      def exchange? : String?
+      end
+
+      def go(flag : Bool) : Nil
+        if flag
+          puts "a"
+        elsif e = exchange?
+          puts e
+        end
+        begin
+          puts "x"
+        rescue e : Boom
+          e # HERE
+        end
+      end
+      CR
+    marked(source, "e # HERE", 5).should eq("Boom")
+  end
+
+  it "narrows an impossible branch to NoReturn" do
+    source = <<-CR
+      def pick : String | Int32
+      end
+
+      value = pick
+      case value
+      in Symbol then value # HERE
+      in String, Int32 then value
+      end
+      CR
+    marked(source, "value # HERE", 20).should eq("NoReturn")
+  end
+
+  it "types an enum member path and the implicit members of a flags enum" do
+    source = <<-CR
+      class Exchange
+        enum PublishResult
+          Routed
+        end
+
+        @[Flags]
+        enum Options
+          Durable
+        end
+      end
+
+      result = Exchange::PublishResult::Routed
+      result # HERE
+      none = Exchange::Options::None
+      none # NONE
+      CR
+    marked(source, "result # HERE", 1).should eq("Exchange::PublishResult")
+    marked(source, "none # NONE", 1).should eq("Exchange::Options")
+  end
+
+  it "declares a variable from an uninitialized statement" do
+    source = <<-CR
+      lib LibC
+        struct RUsage
+          ru_maxrss : Int64
+        end
+      end
+
+      usage = uninitialized LibC::RUsage
+      usage # HERE
+      CR
+    marked(source, "usage # HERE", 1).should eq("LibC::RUsage")
+  end
+end

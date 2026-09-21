@@ -23,6 +23,7 @@ module Heucristic
       getter controls : Array(ControlSite)
       getter def_sites : Array(DefSite)
       getter instance_vars : Array(InstanceVarSite)
+      getter multi_assigned : Set(String)
 
       def self.in(tree : Crystal::ASTNode, path : String?) : Uses
         uses = new(path)
@@ -40,6 +41,26 @@ module Heucristic
         @def_sites = Array(DefSite).new
         @instance_vars = Array(InstanceVarSite).new
         @written = Set(UInt64).new
+        @multi_assigned = Set(String).new
+      end
+
+      def visit(node : Crystal::MultiAssign) : Bool
+        node.targets.each do |target|
+          next unless target.is_a?(Crystal::InstanceVar)
+
+          @written << target.object_id
+          @multi_assigned << target.name
+        end
+        super
+      end
+
+      def visit(node : Crystal::OpAssign) : Bool
+        target = node.target
+        if target.is_a?(Crystal::InstanceVar)
+          @written << target.object_id
+          @multi_assigned << target.name
+        end
+        super
       end
 
       def visit(node : Crystal::Assign) : Bool

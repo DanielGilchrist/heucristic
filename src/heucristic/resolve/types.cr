@@ -18,6 +18,8 @@ module Heucristic
         constants : Bool
 
       def initialize(@workspace : Index::Workspace) : Nil
+        @following = Array(String).new
+        @descending = Array(String).new
         @ancestors = Ancestors.new(@workspace)
         @inheriting = Array(String).new
         @located = Hash(LocateKey, String | Unknown).new
@@ -121,13 +123,61 @@ module Heucristic
             head = qualify(namespace, first)
             next unless declared?(head, constants, scope)
 
-            head = through_alias(head, scope) unless rest.empty?
-            full = rest.empty? ? head : "#{head}::#{rest.join("::")}"
-            return declared?(full, constants, scope) ? full : Unknown.new(:unresolved_name, full)
+            return head if rest.empty?
+
+            return descend(through_alias(head, scope), rest, constants, scope)
           end
         end
 
         Unknown.new(:unresolved_name, path.to_s)
+      end
+
+      private def descend(
+        head : String,
+        rest : Array(String),
+        constants : Bool,
+        scope : Scope,
+      ) : String | Unknown
+        current = head
+        rest.each_with_index do |segment, position|
+          found = child_of(current, segment, constants, scope)
+          return Unknown.new(:unresolved_name, "#{current}::#{segment}") unless found
+
+          current = position == rest.size - 1 ? found : through_alias(found, scope)
+        end
+        current
+      end
+
+      private def child_of(
+        parent : String,
+        segment : String,
+        constants : Bool,
+        scope : Scope,
+      ) : String?
+        direct = "#{parent}::#{segment}"
+        return direct if declared?(direct, constants, scope)
+        return direct if enum_member?(parent, direct, scope)
+        return if @descending.includes?(parent)
+
+        @descending << parent
+        begin
+          chain = @ancestors.of(parent, self)
+          return if chain.is_a?(Unknown)
+
+          chain.each do |ancestor|
+            inherited = "#{ancestor}::#{segment}"
+            return inherited if declared?(inherited, constants, scope)
+          end
+          nil
+        ensure
+          @descending.pop
+        end
+      end
+
+      private def enum_member?(parent : String, full : String, scope : Scope) : Bool
+        return false unless @workspace.namespaces(parent).any?(Index::EnumNamespace)
+
+        @workspace.constants(full).any? { |entry| visible?(entry.private_path, scope) }
       end
 
       private def top_level_includes(scope : Scope) : Array(Index::Owner)
@@ -239,7 +289,9 @@ module Heucristic
       ) : Resolution
         aliases = visible_aliases(full, scope)
         return TypeRef.new(full, Array(Resolution).new) if aliases.empty?
-        return Unknown.new(:cycle, full) if visiting.includes?(full)
+        if visiting.includes?(full) || @following.includes?(full)
+          return TypeRef.new(full, Array(Resolution).new)
+        end
 
         target = aliases[0].target
         if target.is_a?(Syntax::TypeReader::Unsupported)
@@ -247,11 +299,16 @@ module Heucristic
         end
 
         scope = Scope.of(full.rpartition("::")[0])
-        if target.is_a?(Syntax::Named)
-          return resolve_named(target, scope, visiting + [full], with_ancestors)
+        @following << full
+        begin
+          if target.is_a?(Syntax::Named)
+            resolve_named(target, scope, visiting + [full], with_ancestors)
+          else
+            resolve(target, scope, with_ancestors)
+          end
+        ensure
+          @following.pop
         end
-
-        resolve(target, scope, with_ancestors)
       end
 
       private def declared?(name : String, constants : Bool, scope : Scope) : Bool

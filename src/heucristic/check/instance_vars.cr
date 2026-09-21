@@ -25,24 +25,25 @@ module Heucristic
       end
 
       def run(sites : Index::Sites, findings : Array(Finding)) : Nil
-        sites.instance_vars.each { |site| check(site, sites.text, findings) }
+        sites.instance_vars.each { |site| check(site, sites, findings) }
         sites.defs.each { |site| initializer(site, sites.text, findings) }
       end
 
       private def check(
         site : Syntax::Uses::InstanceVarSite,
-        text : Document::Text,
+        sites : Index::Sites,
         findings : Array(Finding),
       ) : Nil
         owner = site.context.owner
         return unless owner.is_a?(String)
         return unless closed?(owner)
+        return if @workspace.namespaces(owner).any?(Index::ModuleNamespace)
         return if MacroArguments.within?(site.context.ancestors, @workspace)
         location = site.node.location
         return unless location
 
         start = Document::Point.from(location)
-        span = text.span(start, start.advance(site.node.name.size))
+        span = sites.text.span(start, start.advance(site.node.name.size))
         return unless span.is_a?(Document::Span)
 
         entries = @methods.levels(owner).flat_map do |level|
@@ -50,6 +51,7 @@ module Heucristic
         end
         if entries.empty?
           return if site.assign
+          return if sites.multi_assigned.includes?(site.node.name)
 
           message = "can't infer the type of instance variable '#{site.node.name}' of #{owner}"
           findings << Finding.new(:unknown_instance_var, message, span)

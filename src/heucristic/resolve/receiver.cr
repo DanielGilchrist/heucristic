@@ -87,7 +87,12 @@ module Heucristic
           return super_result(call, receiver, shape, site)
         end
 
-        result_of(receiver, shape, site)
+        outcome = result_of(receiver, shape, site)
+        block = call.block
+        return outcome if block.nil? || outcome.is_a?(Unknown)
+
+        escaped = break_values(block, site)
+        escaped.empty? ? outcome : union([outcome] + escaped)
       end
 
       def shape_of(
@@ -212,11 +217,14 @@ module Heucristic
           return receiver.of
         end
         if Syntax::WellKnown::New.named?(entry.name) && receiver.is_a?(MetaRef)
-          return receiver.of if entry.return_type.is_a?(Index::Unrestricted)
+          return receiver.of if entry.return_type.is_a?(Index::Unrestricted) && site.block.nil?
         end
         if entry.qualified == "Object#class"
           return MetaRef.new(receiver) if receiver.is_a?(TypeRef)
           return receiver if receiver.is_a?(MetaRef)
+        end
+        if entry.qualified == "Enum#value" && receiver.is_a?(TypeRef)
+          return enum_base(receiver)
         end
         if entry.qualified == "Array#compact" && receiver.is_a?(TypeRef)
           return compacted(receiver)
@@ -311,12 +319,30 @@ module Heucristic
       end
 
       def no_return?(entry : Index::Def) : Bool
+        no_return?(entry, Array(String).new)
+      end
+
+      private def no_return?(entry : Index::Def, visiting : Array(String)) : Bool
         restriction = entry.return_type
         if restriction.is_a?(Index::Unrestricted)
           shim = @shims.find(entry)
           restriction = shim.entry.return_type if shim
         end
-        restriction.is_a?(Syntax::Named) && restriction.names == [CoreType::NoReturn.type_name]
+        if restriction.is_a?(Syntax::Named) && restriction.names == [CoreType::NoReturn.type_name]
+          return true
+        end
+
+        tail = entry.exit_call
+        return false unless tail
+        return true if KnownExits.new.terminates?(Crystal::Call.new(nil, tail))
+        return false if visiting.includes?(entry.qualified)
+
+        owner = entry.owner
+        return false unless owner.is_a?(String)
+
+        callees = @methods.named_on(TypeRef.new(owner, Array(Resolution).new), tail)
+        deeper = visiting + [entry.qualified]
+        !callees.empty? && callees.all? { |callee| no_return?(callee, deeper) }
       end
 
       def narrowing_steps(name : String, context : Syntax::Context) : Array(Flow::Step)
@@ -463,9 +489,9 @@ module Heucristic
 
       private def guessable?(expression : Crystal::ASTNode) : Bool
         case expression
-        in Crystal::Var     then true
-        in Crystal::Call    then expression.obj.is_a?(Crystal::Path)
-        in Crystal::ASTNode then false
+        in Crystal::Var, Crystal::Path then true
+        in Crystal::Call               then expression.obj.is_a?(Crystal::Path)
+        in Crystal::ASTNode            then false
         end
       end
 
@@ -863,6 +889,12 @@ module Heucristic
             return narrow(from_block, name, inner_steps, context, visiting, locals)
           end
         end
+        if (handler = enclosing_rescue(name, context))
+          inner_steps = Flow.steps(name, context.ancestors[handler..], exits, facts)
+          rescued = context.ancestors[handler].as(Crystal::Rescue)
+          bound = rescued_type(rescued, context)
+          return narrow(bound, name, inner_steps, context, visiting, locals)
+        end
 
         base = declared_variable(name, context, visiting, locals, steps)
         narrow(base, name, steps, context, visiting, locals)
@@ -907,7 +939,7 @@ module Heucristic
           in Flow::Branched then branched(current, step, name, context, visiting, locals)
           in Flow::Reassigned
             values = Array(Resolution).new(step.values.size + 1)
-            values << current
+            values << current unless step.definite
             seeded_locals = seeded(locals, name, current)
             step.values.each do |item|
               at = context.at(step.within + item.path)
@@ -933,8 +965,9 @@ module Heucristic
             else
               union([present, value] of Resolution)
             end
-          in Flow::Truthy then truthy(current, step.positive)
-          in Flow::IsA    then narrow_is_a(current, step.types, step.positive, context)
+          in Flow::Truthy   then truthy(current, step.positive)
+          in Flow::IsA      then narrow_is_a(current, step.types, step.positive, context)
+          in Flow::Declared then declared(Syntax::TypeReader.read(step.restriction), scope(context))
           end
         end
       end
@@ -948,7 +981,7 @@ module Heucristic
           falsey = member.is_a?(TypeRef) && FALSEY.any? { |core| member.is?(core) }
           positive ? !(member.is_a?(TypeRef) && member.is?(:nil)) : falsey
         end
-        return current if kept.empty?
+        return TypeRef.of(:no_return) if kept.empty?
 
         kept.uniq!
         kept.size == 1 ? kept[0] : UnionRef.new(kept)
@@ -999,7 +1032,7 @@ module Heucristic
             kept << member unless matched
           end
         end
-        return current if kept.empty?
+        return TypeRef.of(:no_return) if kept.empty?
 
         kept.uniq!
         kept.size == 1 ? kept[0] : UnionRef.new(kept)
@@ -1014,9 +1047,9 @@ module Heucristic
 
       private def assigning?(step : Flow::Step) : Bool
         case step
-        in Flow::Assigned, Flow::Reassigned, Flow::OrAssigned then true
-        in Flow::Branched                                     then step.assigns
-        in Flow::Truthy, Flow::IsA                            then false
+        in Flow::Assigned, Flow::Reassigned, Flow::OrAssigned, Flow::Declared then true
+        in Flow::Branched                                                     then step.assigns
+        in Flow::Truthy, Flow::IsA                                            then false
         end
       end
 
@@ -1088,6 +1121,7 @@ module Heucristic
           return TypeRef.of(:nil)
         end
 
+        assignments = same_block(assignments, facts.reassigned(name), context)
         assigned = Array(Resolution).new(assignments.size)
         deferred = Array(Crystal::ASTNode).new
         key = variable_key(name, context)
@@ -1210,6 +1244,25 @@ module Heucristic
         yield inner
       end
 
+      private def same_block(
+        assignments : Array(Crystal::ASTNode),
+        placed : Array(Reassignment),
+        context : Syntax::Context,
+      ) : Array(Crystal::ASTNode)
+        block_call = context.blocks.last?
+        return assignments unless block_call
+
+        kept = assignments.select do |value|
+          item = placed.find(&.value.same?(value))
+          item.nil? || item.path.none?(Crystal::Block) || item.path.any?(&.same?(block_call))
+        end
+        kept.empty? ? assignments : kept
+      end
+
+      private def enclosing_rescue(name : String, context : Syntax::Context) : Int32?
+        context.ancestors.rindex { |node| node.is_a?(Crystal::Rescue) && node.name == name }
+      end
+
       private def rescued_type(rescued : Crystal::Rescue, context : Syntax::Context) : Resolution
         types = rescued.types
         return TypeRef.of(:exception) unless types
@@ -1250,7 +1303,7 @@ module Heucristic
       private def outside(call : Crystal::Call, context : Syntax::Context) : Syntax::Context
         enclosing_blocks = context.blocks[0...context.blocks.index!(call)]
         upto = context.ancestors.index(&.same?(call))
-        outer_ancestors = upto ? context.ancestors[0..upto] : Array(Crystal::ASTNode).new
+        outer_ancestors = upto ? context.ancestors[0..upto] : context.ancestors
         Syntax::Context.new(
           context.enclosing,
           context.type_vars,
@@ -1332,10 +1385,12 @@ module Heucristic
       end
 
       private def loop_result(block : Crystal::Block, site : Site) : Resolution
-        breaks = Breaks.in(block)
-        return TypeRef.of(:no_return) if breaks.empty?
+        values = break_values(block, site)
+        values.empty? ? TypeRef.of(:no_return) : union(values)
+      end
 
-        values = breaks.map do |found|
+      private def break_values(block : Crystal::Block, site : Site) : Array(Resolution)
+        Breaks.in(block).map do |found|
           exp = found.node.exp
           next TypeRef.of(:nil).as(Resolution) unless exp
 
@@ -1343,7 +1398,6 @@ module Heucristic
           found.ancestors.each { |ancestor| context = context.inside(ancestor) }
           type_of(exp, context.inside(found.node, exp), site.visiting, site.locals)
         end
-        union(values)
       end
 
       private def implicit_self(context : Syntax::Context) : Resolution
@@ -1355,6 +1409,14 @@ module Heucristic
         return (context.instance ? this : MetaRef.new(this)) unless definition
 
         definition.receiver ? MetaRef.new(this) : this
+      end
+
+      private def enum_base(receiver : TypeRef) : Resolution
+        namespace = @workspace.namespaces(receiver.name).find(&.is_a?(Index::EnumNamespace))
+        base = namespace.is_a?(Index::EnumNamespace) ? namespace.base_type : nil
+        return TypeRef.of(:int32) unless base.is_a?(Syntax::Type)
+
+        @types.resolve_lexically(base, Scope.of(receiver.name.rpartition("::")[0]))
       end
 
       private def compacted(receiver : TypeRef) : Resolution
@@ -1468,6 +1530,9 @@ module Heucristic
         visiting : Array(String),
       ) : Resolution
         owner = name.rpartition("::")[0]
+        if @workspace.namespaces(owner).any?(Index::EnumNamespace)
+          return TypeRef.new(owner, Array(Resolution).new)
+        end
         owner_scope = owner.empty? ? Scope::TOP : Scope.of(owner)
         expression = entry.expression
         enclosing = owner.empty? ? Array(String).new : [owner]
@@ -1585,17 +1650,17 @@ module Heucristic
         parameters : Int32,
       ) : Resolution
         restriction = block_restriction(entry)
-        return yielded(entry, index, receiver, arguments) unless restriction
+        if restriction.nil? || restriction.inputs.empty?
+          return yielded(entry, index, receiver, arguments, parameters)
+        end
 
         scope = return_scope(entry, receiver, arguments, Site::NONE)
         return scope if scope.is_a?(Unknown)
 
         if restriction.inputs.size == 1 && parameters > 1
           yielded = @types.resolve(restriction.inputs[0], scope)
-          if yielded.is_a?(TypeRef) && yielded.is?(:tuple)
-            element = yielded.arguments[index]?
-            return element if element
-          end
+          element = tuple_element(yielded, index)
+          return element if element
         end
         input = restriction.inputs[index]?
         return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values") unless input
@@ -1603,11 +1668,26 @@ module Heucristic
         @types.resolve(input, scope)
       end
 
+      private def tuple_element(yielded : Resolution, index : Int32) : Resolution?
+        if yielded.is_a?(TypeRef) && yielded.is?(:tuple)
+          return yielded.arguments[index]?
+        end
+        return unless yielded.is_a?(UnionRef)
+
+        elements = yielded.members.map do |member|
+          return unless member.is_a?(TypeRef) && member.is?(:tuple)
+
+          member.arguments[index]? || return
+        end
+        union(elements)
+      end
+
       private def yielded(
         entry : Index::Def,
         index : Int32,
         receiver : Resolved,
         arguments : Array(Resolution),
+        parameters : Int32,
       ) : Resolution
         definition = entry.node
         unless definition
@@ -1616,14 +1696,24 @@ module Heucristic
 
         owner = entry.owner
         enclosing = owner.is_a?(String) ? [owner] : Array(String).new
-        sites = Syntax::YieldSites.in(definition, enclosing, entry.free_vars, entry.path)
+        owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
+        type_vars = entry.free_vars + owner_vars
+        sites = Syntax::YieldSites.in(definition, enclosing, type_vars, entry.path)
         if sites.empty?
           return Unknown.new(:no_annotation, "#{entry.qualified} never yields")
         end
 
         values = Array(Resolution).new(sites.size)
         sites.each do |site|
-          expression = site.node.exps[index]?
+          exps = site.node.exps
+          if exps.size == 1 && parameters > 1
+            packed = type_of(exps[0], site.context, [entry.qualified], Array(Binding).new)
+            if packed.is_a?(TypeRef) && packed.is?(:tuple) && (element = packed.arguments[index]?)
+              values << element
+              next
+            end
+          end
+          expression = exps[index]?
           unless expression
             return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values")
           end

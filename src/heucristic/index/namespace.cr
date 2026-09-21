@@ -35,7 +35,8 @@ module Heucristic
       path : String,
       name_span : Document::Span,
       base_type : Restriction,
-      private_path : String? = nil do
+      private_path : String? = nil,
+      flags : Bool = false do
       def keyword : String
         "enum"
       end

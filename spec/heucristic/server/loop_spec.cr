@@ -1004,6 +1004,10 @@ describe Heucristic::Server::Loop, "call checks" do
       def maybe_shape(shape : Shape?) : Nil
         shape.gret
       end
+      def widen(count : Int64) : Nil
+      end
+      narrow_count = 3
+      widen(narrow_count)
       CR
     warnings = client.await_diagnostics(usage_uri) { |found| found.size == 44 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true

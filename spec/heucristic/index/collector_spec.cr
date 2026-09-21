@@ -233,7 +233,7 @@ describe Heucristic::Index::Collector, "instance variables from assignments" do
       {"@label", "::String", Heucristic::Index::Origin::Assigned},
       {"@flag", "::Bool", Heucristic::Index::Origin::Assigned},
       {"@maybe", "::Nil", Heucristic::Index::Origin::Assigned},
-      {"@kind", "Kind.class", Heucristic::Index::Origin::Assigned},
+      {"@kind", "?Kind", Heucristic::Index::Origin::Assigned},
       {"@narrowed", "String", Heucristic::Index::Origin::Assigned},
       {"@optional", "String?", Heucristic::Index::Origin::Assigned},
       {"@computed", "?build", Heucristic::Index::Origin::Assigned},

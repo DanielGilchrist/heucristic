@@ -41,6 +41,24 @@ describe Heucristic::Syntax::Cursor do
     skipped.as(Heucristic::Syntax::OnCall).node.name.should eq("shout")
   end
 
+  it "keeps parameters as variables inside an expanded macro region" do
+    region = <<-CR
+      class Usage
+        def initialize(usage)
+          {% if true %}
+            @max = usage.ru_maxrss
+          {% end %}
+        end
+      end
+      CR
+    tree = Heucristic::Syntax.parse(region, "a.cr")
+    raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+    uses = Heucristic::Syntax::Uses.in(tree, "a.cr")
+    receivers = uses.calls.select(&.call.name.==("ru_maxrss")).map(&.call.obj.class.name)
+    receivers.should eq(["Crystal::Var"])
+  end
+
   it "finds a call by its name" do
     target = target_at(source, 5, 3)
     target.should be_a(Heucristic::Syntax::OnCall)
