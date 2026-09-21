@@ -84,7 +84,14 @@ module Score
     at = args.index("--at").try { |index| args[index + 1]? }
     outcomes = Array(Outcome).new
     elapsed = Time.measure do
-      Dir.glob(File.join(root, "src", "**", "*.cr")).sort.each do |path|
+      if at
+        inspect_line(
+          at, root, workspace, finished.sites, types, methods, receiver, shim_roots, compiled
+        )
+      end
+      scanned = at ? finished.sites.map(&.path) : Dir.glob(File.join(root, "src", "**", "*.cr"))
+      scanned.sort.each do |path|
+        next if at && !at.starts_with?(path.sub(root + "/", "") + ":")
         source = File.read(path)
         tree = Heucristic::Syntax.parse(source, path)
         next unless tree.is_a?(Crystal::ASTNode)
@@ -98,9 +105,24 @@ module Score
 
           result = receiver.result_of(call, site.context)
           targets = targets_of(call, site.context, receiver, methods)
-          if at == "#{path.sub(root + "/", "")}:#{location.line_number}:#{location.column_number}"
+          here = "#{path.sub(root + "/", "")}:#{location.line_number}"
+          if at == here || at == "#{here}:#{location.column_number}"
             puts "#{call.name} at #{at}: #{result}"
             puts "  receiver: #{receiver.of_call(call, site.context)}"
+            shape = receiver.shape_of(call, site.context)
+            puts "  arguments: #{shape.arguments.join(", ")} precisions: #{shape.precisions}"
+            typed = receiver.of_call(call, site.context)
+            if typed.is_a?(Heucristic::Resolve::Resolved)
+              methods.named_on(typed, call.name, site.context.path).each do |entry|
+                rejected = methods.rejected_argument(entry, shape, any_member: true)
+                verdict = if rejected
+                            "rejects #{rejected.actual} for #{rejected.expected}"
+                          else
+                            "accepts"
+                          end
+                puts "  #{entry.signature}: #{verdict}"
+              end
+            end
             chain = site.context.ancestors.map(&.class.name.sub("Crystal::", ""))
             puts "  ancestors: #{chain.join(" > ")}"
             puts "  def: #{site.context.def_node.try(&.name)}, blocks: #{site.context.blocks.size}"
@@ -146,12 +168,16 @@ module Score
     unsettled = Hash(String, Int32).new(0)
     macro_calls = Hash(String, Int32).new(0)
     timings = Array(Timing).new
+    uncompiled = Array(String).new
+    only = ARGV.index("--only").try { |index| ARGV[index + 1]? }
     elapsed = Time.measure do
       all.sort_by(&.path).each do |sites|
         next if sites.path.starts_with?(File.join(root, "lib") + "/")
+        next if only && !sites.path.ends_with?(only)
         next if shim_roots.any? { |shim_root| sites.path.starts_with?(shim_root + "/") }
 
         calls += sites.calls.size
+        uncompiled << sites.path.sub(root + "/", "") if settled.uncompiled_file?(sites.path)
         findings = Array(Heucristic::Check::Finding).new
         spent = Time.measure do
           outcome = checks.run(sites)
@@ -183,15 +209,17 @@ module Score
     puts "#{total} findings; #{checked} of #{calls} calls in #{all.size} files were checkable " \
          "(#{elapsed.total_milliseconds.round}ms cold sweep)"
     explain_skips(skips, examples, unknown, unsettled, macro_calls, root) if ARGV.includes?("--why")
+    if ARGV.includes?("--why") && !uncompiled.empty?
+      puts "files no target compiled (#{uncompiled.size}):"
+      uncompiled.first(12).each { |path| puts "  #{path}" }
+    end
     timings.clear
-    only = ARGV.index("--only").try { |index| ARGV[index + 1]? }
     all.each do |sites|
       next if sites.path.starts_with?(File.join(root, "lib") + "/")
       next if only && !sites.path.ends_with?(only)
 
-      rounds = only ? ROUNDS * 10 : ROUNDS
-      spent = Time.measure { rounds.times { checks.run(sites) } }
-      timings << Timing.new(sites.path.sub(root + "/", ""), spent.total_milliseconds / rounds)
+      spent = Time.measure { ROUNDS.times { checks.run(sites) } }
+      timings << Timing.new(sites.path.sub(root + "/", ""), spent.total_milliseconds / ROUNDS)
     end
     slowest = timings.sort_by { |timing| -timing.milliseconds }.first(3)
     slowest.each { |timing| puts "  #{timing.milliseconds.round(1)}ms #{timing.path}" }
@@ -229,6 +257,47 @@ module Score
     counts.to_a.sort_by { |_, count| -count }.first(12).each do |detail, count|
       puts "  #{count.to_s.rjust(6)}  #{detail}"
     end
+  end
+
+  private def inspect_line(
+    at : String,
+    root : String,
+    workspace : Heucristic::Index::Workspace,
+    all : Array(Heucristic::Index::Sites),
+    types : Heucristic::Resolve::Types,
+    methods : Heucristic::Resolve::Methods,
+    receiver : Heucristic::Resolve::Receiver,
+    shim_roots : Array(String),
+    compiled : Set(String)?,
+  ) : Nil
+    parts = at.split(':')
+    file = parts[0]
+    line = parts[1]? || "0"
+    sites = all.find { |candidate| candidate.path == File.join(root, file) }
+    return puts "no indexed sites for #{file}" unless sites
+
+    settled = Heucristic::Check::Settled.new(
+      workspace,
+      types,
+      !compiled.nil?,
+      Set(String).new,
+      compiled || Set(String).new,
+      root,
+      shim_roots,
+    )
+    calls = Heucristic::Check::Calls.new(workspace, types, methods, receiver, settled)
+    outcome = calls.run(sites)
+    findings = outcome.findings
+    Heucristic::Check::Returns.new(types, methods, receiver, settled).run(sites, findings)
+    findings.each do |finding|
+      near = (finding.span.start_line.to_i64 + 1 - line.to_i64).abs <= 40
+      next unless near
+
+      puts "check: #{finding.rule.code} #{finding.message.lines.first?}"
+      puts "check:   spans lines #{finding.span.start_line + 1}-#{finding.span.end_line + 1}"
+    end
+    on_line = sites.calls.count { |site| site.call.name_location.try(&.line_number) == line.to_i }
+    puts "check: #{on_line} calls on the line"
   end
 
   private def targets_of(
