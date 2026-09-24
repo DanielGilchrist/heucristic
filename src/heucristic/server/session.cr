@@ -114,6 +114,9 @@ module Heucristic
         @index_stdlib = Options.stdlib?(params.initialization_options)
         @semantic = Options.semantic(params.initialization_options)
         @executable = Options.compiler(params.initialization_options)
+        defines = Options.defines(params.initialization_options)
+        @macros.defines(defines)
+        @compiler.defines(defines)
         supported = params.capabilities.window.try(&.work_done_progress) || false
         @progress = Progress.new(@transport, supported)
 

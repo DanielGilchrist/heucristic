@@ -13,6 +13,13 @@ module Heucristic
         raw.try(&.["compiler"]?).try(&.as_s?)
       end
 
+      def defines(raw : JSON::Any?) : Array(String)
+        listed = raw.try(&.["defines"]?).try(&.as_a?)
+        return Array(String).new unless listed
+
+        listed.compact_map(&.as_s?)
+      end
+
       def stdlib?(raw : JSON::Any?) : Bool
         return true unless raw
 

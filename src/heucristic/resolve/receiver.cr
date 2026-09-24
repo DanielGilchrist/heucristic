@@ -217,7 +217,10 @@ module Heucristic
           return receiver.of
         end
         if Syntax::WellKnown::New.named?(entry.name) && receiver.is_a?(MetaRef)
-          return receiver.of if entry.return_type.is_a?(Index::Unrestricted) && site.block.nil?
+          proc_class = receiver.of.is_a?(TypeRef) && receiver.of.as(TypeRef).is?(:proc)
+          if entry.return_type.is_a?(Index::Unrestricted) && (site.block.nil? || proc_class)
+            return receiver.of
+          end
         end
         if entry.qualified == "Object#class"
           return MetaRef.new(receiver) if receiver.is_a?(TypeRef)
@@ -1649,6 +1652,9 @@ module Heucristic
         index : Int32,
         parameters : Int32,
       ) : Resolution
+        proc_input = proc_block_input(entry, receiver, index)
+        return proc_input if proc_input
+
         restriction = block_restriction(entry)
         if restriction.nil? || restriction.inputs.empty?
           return yielded(entry, index, receiver, arguments, parameters)
@@ -1745,6 +1751,22 @@ module Heucristic
           inner.is_a?(TypeRef) || inner.is_a?(TypeVar) ? MetaRef.new(inner) : resolution
         in Unknown then resolution
         end
+      end
+
+      private def proc_block_input(
+        entry : Index::Def,
+        receiver : Resolved,
+        index : Int32,
+      ) : Resolution?
+        return unless receiver.is_a?(MetaRef)
+
+        proc = receiver.of
+        return unless proc.is_a?(TypeRef) && proc.is?(:proc) && proc.arguments.size > index + 1
+
+        restriction = entry.parameters.find(&.kind.block?).try(&.restriction)
+        return unless restriction.is_a?(Syntax::SelfType)
+
+        proc.arguments[index]
       end
 
       private def block_restriction(entry : Index::Def) : Syntax::Proc?

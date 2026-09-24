@@ -12,6 +12,11 @@ module Heucristic
       def initialize(@events : Channel(Index::Event)) : Nil
         @running = false
         @again = false
+        @defines = Array(String).new
+      end
+
+      def defines(flags : Array(String)) : Nil
+        @defines = flags
       end
 
       def start(root : String, executable : String?) : Nil
@@ -46,9 +51,12 @@ module Heucristic
       private def run(executable : String, entry : String, root : String) : Index::Event
         errors = IO::Memory.new
         started = Time.instant
+        arguments = ["build", "--no-codegen", "--no-color", "--warnings", "none", "-f", "json"]
+        @defines.each { |flag| arguments << "-D#{flag}" }
+        arguments << entry
         status = Process.run(
           executable,
-          {"build", "--no-codegen", "--no-color", "--warnings", "none", "-f", "json", entry},
+          arguments,
           chdir: root,
           output: Process::Redirect::Close,
           error: errors,

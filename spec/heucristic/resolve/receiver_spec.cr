@@ -2312,3 +2312,28 @@ describe Heucristic::Resolve::Receiver, "lessons from lavinmq" do
     marked(source, "usage # HERE", 1).should eq("LibC::RUsage")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "Proc.new" do
+  it "types the block parameters from the proc's inputs and returns the proc" do
+    source = <<-CR
+      struct Proc
+        def self.new(&block : self)
+        end
+      end
+
+      class Opcode
+      end
+
+      alias Instruction = Proc(Opcode, Nil)
+
+      def skip : Instruction
+        made = Instruction.new do |opcode|
+          opcode # HERE
+        end
+        made # MADE
+      end
+      CR
+    marked(source, "opcode # HERE", 5).should eq("Opcode")
+    marked(source, "made # MADE", 3).should eq("Proc(Opcode, Nil)")
+  end
+end

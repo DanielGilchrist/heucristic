@@ -23,6 +23,11 @@ module Heucristic
         @again = Hash(Index::MacroTarget, Bool).new(false)
         @loose = Array(String).new
         @excluded = Hash(Index::MacroTarget, Hash(String, String)).new
+        @defines = Array(String).new
+      end
+
+      def defines(flags : Array(String)) : Nil
+        @defines = flags
       end
 
       def loose(files : Array(String)) : Nil
@@ -152,7 +157,7 @@ module Heucristic
         started = Time.instant
         status = Process.run(
           helper,
-          {entry, root},
+          [entry, root] + @defines.map { |flag| "-D#{flag}" },
           env: {"CRYSTAL_PATH" => crystal_path},
           chdir: root,
           output: output,

@@ -300,6 +300,14 @@ module Score
     puts "check: #{on_line} calls on the line"
   end
 
+  private def defines_from(args : Array(String)) : Array(String)
+    found = Array(String).new
+    args.each_with_index do |argument, index|
+      found << args[index + 1] if argument == "--define" && args[index + 1]?
+    end
+    found
+  end
+
   private def targets_of(
     call : Crystal::Call,
     context : Heucristic::Syntax::Context,
@@ -442,6 +450,7 @@ module Score
   ) : Set(String)?
     macros = Heucristic::Server::Macros.new(events)
     macros.loose(loose)
+    macros.defines(defines_from(ARGV))
     macros.start(root, nil, target)
     result = loop do
       event = events.receive

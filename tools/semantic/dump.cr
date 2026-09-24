@@ -5,7 +5,7 @@ require "./header"
 
 module Semantic
   class Dump
-    def initialize(@entry : String, @root : String) : Nil
+    def initialize(@entry : String, @root : String, @defines : Array(String)) : Nil
       @source = String::Builder.new
       @sites = Array(Site).new
       @line = 0
@@ -14,6 +14,7 @@ module Semantic
     def write(io : IO) : Nil
       started = Time.instant
       program = Crystal::Program.new
+      @defines.each { |flag| program.flags << flag }
       program.filename = @entry
       program.color = false
       program.wants_doc = false
