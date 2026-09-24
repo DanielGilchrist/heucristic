@@ -11,7 +11,7 @@ module Semantic
       return 2
     end
 
-    defines = args[2..].compact_map { |flag| flag.lchop?("-D") }
+    defines = args[2..].compact_map(&.lchop?("-D"))
     Dump.new(File.expand_path(entry), File.expand_path(root), defines).write(STDOUT)
     0
   end
