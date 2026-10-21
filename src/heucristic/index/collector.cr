@@ -508,7 +508,19 @@ module Heucristic
         own = name.names.join("::")
         case (namespace = owner)
         in TopLevel then own
-        in String   then name.global? ? own : "#{namespace}::#{own}"
+        in String
+          return own if name.global?
+
+          enclosing = enclosing_named(namespace, name.names) if name.names.size > 1
+          enclosing ? "#{enclosing}::#{name.names[1..].join("::")}" : "#{namespace}::#{own}"
+        end
+      end
+
+      private def enclosing_named(namespace : String, names : Array(String)) : String?
+        segments = namespace.split("::")
+        head = names[0]
+        (segments.size - 1).downto(0) do |index|
+          return segments[0..index].join("::") if segments[index] == head
         end
       end
 

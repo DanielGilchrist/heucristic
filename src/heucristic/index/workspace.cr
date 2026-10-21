@@ -11,6 +11,7 @@ module Heucristic
         @defs = Hash(String, Array(Def)).new
         @defs_by_owner = Hash(String, Array(Def)).new
         @namespaces = Hash(String, Array(Namespace)).new
+        @enclosing = Hash(String, Array(Namespace)).new
         @mixins = Hash(String, Array(Mixin)).new
         @instance_vars = Hash(String, Array(InstanceVar)).new
         @aliases = Hash(String, Array(Alias)).new
@@ -35,7 +36,10 @@ module Heucristic
           add(@defs, entry.name, entry)
           add(@defs_by_owner, owner_key(entry.owner), entry)
         end
-        file.namespaces.each { |entry| add(@namespaces, entry.name, entry) }
+        file.namespaces.each do |entry|
+          add(@namespaces, entry.name, entry)
+          each_enclosing(entry.name) { |prefix| add(@enclosing, prefix, entry) }
+        end
         file.mixins.each { |entry| add(@mixins, owner_key(entry.owner), entry) }
         file.instance_vars.each { |entry| add(@instance_vars, entry.owner, entry) }
         file.aliases.each { |entry| add(@aliases, entry.name, entry) }
@@ -110,7 +114,10 @@ module Heucristic
           drop(@defs, entry.name, path)
           drop(@defs_by_owner, owner_key(entry.owner), path)
         end
-        previous.namespaces.each { |entry| drop(@namespaces, entry.name, path) }
+        previous.namespaces.each do |entry|
+          drop(@namespaces, entry.name, path)
+          each_enclosing(entry.name) { |prefix| drop(@enclosing, prefix, path) }
+        end
         previous.mixins.each { |entry| drop(@mixins, owner_key(entry.owner), path) }
         previous.instance_vars.each { |entry| drop(@instance_vars, entry.owner, path) }
         previous.aliases.each { |entry| drop(@aliases, entry.name, path) }
@@ -131,6 +138,10 @@ module Heucristic
 
       def namespaces(name : String) : Array(Namespace)
         @namespaces[name]? || Array(Namespace).new
+      end
+
+      def encloses?(name : String) : Bool
+        @enclosing.has_key?(name)
       end
 
       def aliases(name : String) : Array(Alias)
@@ -163,6 +174,14 @@ module Heucristic
 
       private def owner_key(owner : Owner) : String
         owner.is_a?(String) ? owner : ""
+      end
+
+      private def each_enclosing(name : String, & : String ->) : Nil
+        offset = 0
+        while (separator = name.index("::", offset))
+          yield name[0, separator]
+          offset = separator + 2
+        end
       end
 
       private def add(table : Hash(String, Array(T)), key : String, entry : T) : Nil forall T

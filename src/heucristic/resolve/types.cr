@@ -315,6 +315,7 @@ module Heucristic
         namespaces = @workspace.namespaces(name)
         return true if namespaces.any? { |entry| visible?(entry.private_path, scope) }
         return true unless visible_aliases(name, scope).empty?
+        return true if @workspace.encloses?(name)
         if constants
           return true if Builtins.constant?(name)
           constants_named = @workspace.constants(name)

@@ -227,3 +227,29 @@ describe Heucristic::Resolve::Types do
     resolve(workspace(source), "Environment::Any", "Commands::Login").should eq("Int32 | String")
   end
 end
+
+describe Heucristic::Resolve::Types, "namespaces created by a qualified declaration" do
+  source = <<-CR
+    class Wire::Client::Connection
+    end
+
+    module Outer
+      module Wire
+      end
+    end
+    CR
+
+  it "resolves through an outer namespace the compiler creates implicitly" do
+    ws = workspace(source)
+    resolve(ws, "Wire::Client::Connection").should eq("Wire::Client::Connection")
+    resolve(ws, "::Wire::Client::Connection", "Outer").should eq("Wire::Client::Connection")
+  end
+
+  it "forgets the implicit namespace when its file is removed" do
+    ws = workspace(source)
+    ws.remove("a.cr")
+    resolve(ws, "Wire::Client::Connection").should eq(
+      "unknown (unresolved name: Wire::Client::Connection)"
+    )
+  end
+end

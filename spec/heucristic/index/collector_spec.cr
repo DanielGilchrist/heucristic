@@ -150,6 +150,29 @@ describe Heucristic::Index::Collector, "namespaces" do
   end
 end
 
+describe Heucristic::Index::Collector, "qualified declaration names" do
+  it "resolves a qualified name's head to the enclosing namespace it names" do
+    source = <<-CR
+      class Process
+        struct Process::Result
+        end
+
+        module Outer
+          class Process::Status
+          end
+
+          class Wire::Client
+          end
+        end
+      end
+      CR
+    index(source).namespaces.map(&.name).should eq(
+      ["Process", "Process::Result", "Process::Outer", "Process::Status",
+       "Process::Outer::Wire::Client"]
+    )
+  end
+end
+
 describe Heucristic::Index::Collector, "record" do
   source = <<-CR
     module M
