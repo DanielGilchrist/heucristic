@@ -631,7 +631,7 @@ module Heucristic
       private def owning(entry : Index::Def, receiver : Resolved) : Resolved
         owner = entry.owner
         return receiver unless owner.is_a?(String) && receiver.is_a?(TypeRef)
-        return receiver if receiver.name == owner
+        return receiver if receiver.name == owner || module?(receiver)
 
         chain = @types.ancestors(receiver.name)
         return receiver if chain.is_a?(Array(String)) && chain.includes?(owner)

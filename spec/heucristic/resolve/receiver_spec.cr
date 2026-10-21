@@ -2404,3 +2404,39 @@ describe Heucristic::Resolve::Receiver, "untyped readers of instance vars" do
     receiver_of_size(source, "box.value.size").should eq("Store")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "Object methods on module-typed values" do
+  source = <<-CR
+    class Object
+      def try(& : self -> U) : U forall U
+      end
+
+      def itself : self
+      end
+    end
+
+    module Replicator
+      def delete_file(path : String) : Int32
+      end
+    end
+
+    class Follower
+      include Replicator
+    end
+
+    class Queue
+      def run(replicator : Replicator) : Nil
+        replicator.itself.size
+        replicator.try { |follower| follower.delete_file("a").size }
+      end
+    end
+    CR
+
+  it "keeps the module as self for a method its includers inherit from Object" do
+    receiver_of_size(source, "replicator.itself.size").should eq("Replicator")
+  end
+
+  it "types a block parameter yielded as self by an Object method" do
+    receiver_of_size(source, "follower.delete_file(\"a\").size").should eq("Int32")
+  end
+end
