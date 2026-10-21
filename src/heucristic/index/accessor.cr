@@ -65,6 +65,16 @@ module Heucristic
         end
       end
 
+      def bang? : Bool
+        case self
+        in .getter_bang?, .property_bang?, .class_getter_bang?, .class_property_bang?
+          true
+        in .getter?, .getter_query?, .property?, .property_query?, .setter?, .class_getter?,
+           .class_getter_query?, .class_property?, .class_property_query?, .class_setter?
+          false
+        end
+      end
+
       def reads? : Bool
         !setter? && !class_setter?
       end

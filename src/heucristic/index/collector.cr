@@ -669,7 +669,8 @@ module Heucristic
         receiver = accessor.receiver
         if accessor.reads?
           reader = "#{name}#{accessor.reader_suffix}"
-          add_def(reader, receiver, span, Array(Parameter).new, type)
+          reads = receiver.instance? && !accessor.bang? ? "@#{name}" : nil
+          add_def(reader, receiver, span, Array(Parameter).new, type, reads)
         end
         return unless accessor.writes?
 
@@ -683,6 +684,7 @@ module Heucristic
         span : Document::Span,
         parameters : Array(Parameter),
         return_type : Restriction,
+        reads : String? = nil,
       ) : Nil
         @defs << Def.new(
           name: name,
@@ -696,6 +698,7 @@ module Heucristic
           free_vars: Array(String).new,
           yields: false,
           visibility: visibility,
+          reads: reads,
         )
       end
 
@@ -822,7 +825,15 @@ module Heucristic
           visibility: visibility,
           private_path: private_path(node),
           exit_call: traits.exit_call,
+          reads: read_instance_var(node),
         )
+      end
+
+      private def read_instance_var(node : Crystal::Def) : String?
+        return if node.receiver || !node.args.empty? || node.block_arity || node.return_type
+
+        body = node.body
+        body.name if body.is_a?(Crystal::InstanceVar)
       end
     end
   end

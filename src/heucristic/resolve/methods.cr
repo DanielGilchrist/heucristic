@@ -496,11 +496,24 @@ module Heucristic
             entry.owner == level && own?(entry, call.caller_path) && yield entry
           end
           next if found.empty?
+
+          found = unredefined(found)
           return most_specific(found, call) unless undecided
 
           gathered.concat(found)
         end
         gathered
+      end
+
+      private def unredefined(found : Array(Index::Def)) : Array(Index::Def)
+        return found if found.size < 2
+
+        found.reject do |entry|
+          found.any? do |other|
+            other.path == entry.path && entry.name_span.before?(other.name_span) &&
+              other.identity == entry.identity
+          end
+        end
       end
 
       private def most_specific(found : Array(Index::Def), call : Call) : Array(Index::Def)

@@ -260,6 +260,9 @@ module Heucristic
           if (target = entry.forwards_to)
             return forwarded(entry, target, arguments, site)
           end
+          if (ivar = entry.reads)
+            return read_instance_var(entry, ivar, receiver, arguments, site)
+          end
 
           Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
         in Syntax::TypeReader::Unsupported
@@ -1447,6 +1450,32 @@ module Heucristic
 
         shape = Methods::Call.new(entry.name, arguments.size, !site.block.nil?, arguments)
         result_of(delegate, shape, Site.new(site.block, site.context, site.locals, visiting))
+      end
+
+      private def read_instance_var(
+        entry : Index::Def,
+        name : String,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+        site : Site,
+      ) : Resolution
+        owner = entry.owner
+        if owner.is_a?(Index::TopLevel)
+          return Unknown.new(:no_annotation, "#{name} outside any type")
+        end
+        return Unknown.new(:cycle, entry.qualified) if site.visiting.includes?(entry.qualified)
+
+        visiting = site.visiting + [entry.qualified]
+        entries = @workspace.instance_vars_of(owner).select(&.name.==(name))
+        if entries.empty?
+          context = Syntax::Context.new([owner], @types.type_vars_of(owner), nil, entry.path)
+          return instance_var(name, context, visiting)
+        end
+
+        scope = return_scope(entry, receiver, arguments, site)
+        return scope if scope.is_a?(Unknown)
+
+        instance_var_from(entries, owner, scope, visiting)
       end
 
       private def return_scope(

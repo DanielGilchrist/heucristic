@@ -2337,3 +2337,70 @@ describe Heucristic::Resolve::Receiver, "Proc.new" do
     marked(source, "made # MADE", 3).should eq("Proc(Opcode, Nil)")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "untyped readers of instance vars" do
+  source = <<-CR
+    class Store
+    end
+
+    class Box(T)
+      getter value
+
+      def initialize(@value : T)
+      end
+    end
+
+    class Server
+      getter store, name
+      property? ready
+
+      def initialize(@name : String, @ready = false)
+        @store = Store.new
+      end
+
+      def title
+        @name
+      end
+
+      getter shovels
+      @shovels : Store?
+
+      def shovels
+        @shovels.not_nil!
+      end
+
+      def run(box : Box(Store)) : Nil
+        store.size
+        name.size
+        ready?.size
+        title.size
+        shovels.size
+        box.value.size
+      end
+    end
+    CR
+
+  it "types an untyped getter from an evident assignment to its ivar" do
+    receiver_of_size(source, "store.size").should eq("Store")
+  end
+
+  it "types an untyped getter from an initialize parameter restriction" do
+    receiver_of_size(source, "name.size").should eq("String")
+  end
+
+  it "types an untyped query property from its ivar's default" do
+    receiver_of_size(source, "ready?.size").should eq("Bool")
+  end
+
+  it "types a def whose whole body reads an ivar" do
+    receiver_of_size(source, "title.size").should eq("String")
+  end
+
+  it "lets a later def in the same file redefine an accessor" do
+    receiver_of_size(source, "shovels.size").should contain("Server#shovels has no return type")
+  end
+
+  it "binds a generic owner's type variable through the receiver" do
+    receiver_of_size(source, "box.value.size").should eq("Store")
+  end
+end

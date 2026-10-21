@@ -26,7 +26,8 @@ module Heucristic
       abstract_def : Bool = false,
       visibility : Visibility = Visibility::Public,
       private_path : String? = nil,
-      exit_call : String? = nil do
+      exit_call : String? = nil,
+      reads : String? = nil do
       def visible_from?(path : String?) : Bool
         path.nil? || private_path.nil? || private_path == path
       end
