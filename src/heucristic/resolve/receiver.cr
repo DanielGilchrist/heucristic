@@ -88,8 +88,10 @@ module Heucristic
         end
 
         outcome = result_of(receiver, shape, site)
+        return macro_result(call, outcome) if outcome.is_a?(Unknown)
+
         block = call.block
-        return outcome if block.nil? || outcome.is_a?(Unknown)
+        return outcome if block.nil?
 
         escaped = break_values(block, site)
         escaped.empty? ? outcome : union([outcome] + escaped)
@@ -417,6 +419,13 @@ module Heucristic
         return distinct[0] if distinct.size == 1
 
         Unknown.new(:ambiguous, "#{defs.size} overloads of `super` do not agree on a type")
+      end
+
+      private def macro_result(call : Crystal::Call, outcome : Unknown) : Unknown
+        return outcome unless call.obj.nil? && outcome.reason.unresolved_name?
+        return outcome if Index::MacroCall.fitting(call, @workspace).empty?
+
+        Unknown.new(:macro, "`#{call.name}` is a macro; its expansion is not typed")
       end
 
       private def blocky?(call : Crystal::Call) : Bool

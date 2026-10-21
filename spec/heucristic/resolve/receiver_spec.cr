@@ -2440,3 +2440,30 @@ describe Heucristic::Resolve::Receiver, "Object methods on module-typed values" 
     receiver_of_size(source, "follower.delete_file(\"a\").size").should eq("Int32")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "receiverless macro calls" do
+  source = <<-CR
+    class Queue
+      private macro parse_header(header, type)
+        {{type}}.new
+      end
+
+      def run : Nil
+        parse_header("ttl", Int32).size
+        missing("ttl").size
+      end
+    end
+    CR
+
+  it "says a receiverless call to a macro is a macro" do
+    receiver_of_size(source, "parse_header(\"ttl\", Int32).size").should eq(
+      "unknown (macro: `parse_header` is a macro; its expansion is not typed)"
+    )
+  end
+
+  it "keeps an unknown name unresolved" do
+    receiver_of_size(source, "missing(\"ttl\").size").should eq(
+      "unknown (unresolved name: no `missing` on Queue)"
+    )
+  end
+end

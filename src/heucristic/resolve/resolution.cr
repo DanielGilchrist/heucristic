@@ -80,6 +80,7 @@ module Heucristic
         InferenceNeeded
         Ambiguous
         TooDeep
+        Macro
       end
 
       def to_s(io : IO) : Nil
