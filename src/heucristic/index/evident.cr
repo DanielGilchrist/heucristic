@@ -14,10 +14,11 @@ module Heucristic
         case node
         in Crystal::StringLiteral, Crystal::StringInterpolation then builtin(:string)
         in Crystal::CharLiteral                                 then builtin(:char)
-        in Crystal::BoolLiteral                                 then builtin(:bool)
-        in Crystal::NilLiteral                                  then builtin(:nil)
-        in Crystal::SymbolLiteral                               then builtin(:symbol)
-        in Crystal::RegexLiteral                                then builtin(:regex)
+        in Crystal::BoolLiteral, Crystal::Not, Crystal::IsA, Crystal::RespondsTo
+          builtin(:bool)
+        in Crystal::NilLiteral    then builtin(:nil)
+        in Crystal::SymbolLiteral then builtin(:symbol)
+        in Crystal::RegexLiteral  then builtin(:regex)
         in Crystal::NumberLiteral
           builtin(number_type(node.kind))
         in Crystal::Generic      then metaclass(node)

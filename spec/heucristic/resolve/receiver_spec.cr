@@ -2467,3 +2467,26 @@ describe Heucristic::Resolve::Receiver, "receiverless macro calls" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "boolean operators" do
+  source = <<-CR
+    class Flag
+      def run(name : String?, value) : Nil
+        (!value).size
+        name.nil?.size
+        value.is_a?(String).size
+        value.responds_to?(:size).size
+      end
+    end
+    CR
+
+  it "types a negation as Bool whatever its operand" do
+    receiver_of_size(source, "(!value).size").should eq("Bool")
+  end
+
+  it "types nil?, is_a? and responds_to? as Bool" do
+    receiver_of_size(source, "name.nil?.size").should eq("Bool")
+    receiver_of_size(source, "value.is_a?(String).size").should eq("Bool")
+    receiver_of_size(source, "value.responds_to?(:size).size").should eq("Bool")
+  end
+end
