@@ -2519,3 +2519,29 @@ describe Heucristic::Resolve::Receiver, "untyped nil-asserting accessors" do
     receiver_of_size(source, "store?.size").should eq("Nil | Store")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "accessor blocks" do
+  source = <<-CR
+    class State
+      def current : String
+      end
+    end
+
+    class Context
+      getter state : State { State.new }
+      getter title : String { state.current.size }
+      class_getter shared : State { build.current.size }
+
+      def self.build : State
+      end
+    end
+    CR
+
+  it "types implicit self inside an instance accessor's block as the instance" do
+    receiver_of_size(source, "state.current.size").should eq("String")
+  end
+
+  it "keeps implicit self inside a class accessor's block as the metaclass" do
+    receiver_of_size(source, "build.current.size").should eq("String")
+  end
+end

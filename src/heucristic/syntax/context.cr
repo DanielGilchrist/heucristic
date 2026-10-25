@@ -1,5 +1,6 @@
 require "compiler/crystal/syntax"
 require "../index/owner"
+require "../index/accessor"
 
 module Heucristic
   module Syntax
@@ -29,6 +30,10 @@ module Heucristic
         )
       end
 
+      def instance_code? : Bool
+        instance || inside_accessor_block?
+      end
+
       def owner : Index::Owner
         enclosing.last? || Index::TopLevel.new
       end
@@ -50,6 +55,19 @@ module Heucristic
 
       def inside(parent : Crystal::ASTNode, child : Crystal::ASTNode) : Context
         inside(parent).inside(child)
+      end
+
+      private def inside_accessor_block? : Bool
+        ancestors.each_with_index do |node, index|
+          next unless node.is_a?(Crystal::Call) && node.obj.nil?
+
+          block = node.block
+          next unless block && ancestors[index + 1]?.try(&.same?(block))
+
+          accessor = Index::Accessor.from_name(node.name)
+          return true if accessor && accessor.receiver.instance?
+        end
+        false
       end
     end
   end

@@ -1422,7 +1422,7 @@ module Heucristic
 
         this = TypeRef.new(owner, Array(Resolution).new)
         definition = context.def_node
-        return (context.instance ? this : MetaRef.new(this)) unless definition
+        return (context.instance_code? ? this : MetaRef.new(this)) unless definition
 
         definition.receiver ? MetaRef.new(this) : this
       end
