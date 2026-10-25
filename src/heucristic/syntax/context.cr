@@ -31,7 +31,11 @@ module Heucristic
       end
 
       def instance_code? : Bool
-        instance || inside_accessor_block?
+        instance || accessor_block.try(&.receiver.instance?) || false
+      end
+
+      def method_body? : Bool
+        !def_node.nil? || !accessor_block.nil?
       end
 
       def proc_index : Int32?
@@ -78,7 +82,7 @@ module Heucristic
         end
       end
 
-      private def inside_accessor_block? : Bool
+      private def accessor_block : Index::Accessor?
         ancestors.each_with_index do |node, index|
           next unless node.is_a?(Crystal::Call) && node.obj.nil?
 
@@ -86,9 +90,8 @@ module Heucristic
           next unless block && ancestors[index + 1]?.try(&.same?(block))
 
           accessor = Index::Accessor.from_name(node.name)
-          return true if accessor && accessor.receiver.instance?
+          return accessor if accessor
         end
-        false
       end
     end
   end

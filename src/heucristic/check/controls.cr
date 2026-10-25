@@ -15,7 +15,7 @@ module Heucristic
         findings : Array(Finding),
       ) : Nil
         node = site.node
-        inside_def = !site.context.def_node.nil?
+        inside_def = site.context.method_body?
         looped = looped?(site.context.ancestors)
         message = case site.kind
                   in .yield?  then inside_def ? nil : "can't use `yield` outside a method"
