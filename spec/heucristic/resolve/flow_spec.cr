@@ -515,3 +515,38 @@ describe Heucristic::Resolve::Flow, "assignments carried round a loop" do
     receiver_of_size(source, "  times.size").should eq("Int32")
   end
 end
+
+describe Heucristic::Resolve::Flow, "self-referential assignments outside loops" do
+  source = <<-CR
+    record Wrapper, defs : Array(Int32)
+
+    class Int32
+      def to_s : String
+      end
+    end
+
+    class Picker
+      def pick : Wrapper | Array(Int32)
+      end
+
+      def run : Nil
+        defs = pick
+        if defs.is_a?(Wrapper)
+          defs = defs.defs
+        end
+        defs.size
+        label = 1
+        label = label.to_s
+        label.size
+      end
+    end
+    CR
+
+  it "takes the new type of a branch reassignment built from itself (crystal run: Array(Int32))" do
+    receiver_of_size(source, "defs.size").should eq("Array(Int32)")
+  end
+
+  it "takes the new type of a straight-line reassignment built from itself (crystal run: String)" do
+    receiver_of_size(source, "label.size").should eq("String")
+  end
+end

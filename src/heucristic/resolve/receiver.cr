@@ -1066,7 +1066,6 @@ module Heucristic
                       type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
                       locals,
                     )
-            settled(name, current, step.value, typed)
           in Flow::Branched then branched(current, step, name, context, visiting, locals)
           in Flow::Reassigned
             values = Array(Resolution).new(step.values.size + 1)
@@ -1078,7 +1077,7 @@ module Heucristic
                       remember_value(
                         item.value, type_of(item.value, at, visiting + [key], seeded_locals), locals
                       )
-              values << settled(name, current, item.value, typed)
+              values << (looped?(step, item) ? settled(name, current, item.value, typed) : typed)
             end
             union(values)
           in Flow::OrAssigned
@@ -1089,12 +1088,11 @@ module Heucristic
                       type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
                       locals,
                     )
-            value = settled(name, current, step.value, typed)
             present = truthy(current, true)
             if present.is_a?(TypeRef) && present.is?(:nil)
-              value
+              typed
             else
-              union([present, value] of Resolution)
+              union([present, typed] of Resolution)
             end
           in Flow::Truthy   then truthy(current, step.positive)
           in Flow::IsA      then narrow_is_a(current, step.types, step.positive, context)
@@ -1344,6 +1342,17 @@ module Heucristic
           :cycle,
           "#{name} widens on every pass (#{seed} then #{typed}); declare its type",
         )
+      end
+
+      private def looped?(step : Flow::Reassigned, item : Reassignment) : Bool
+        return true if step.carried
+
+        statement = step.within.last?
+        return true if statement.is_a?(Crystal::While) || statement.is_a?(Crystal::Until)
+
+        item.path.any? do |node|
+          node.is_a?(Crystal::While) || node.is_a?(Crystal::Until) || node.is_a?(Crystal::Block)
+        end
       end
 
       private def members_of(resolution : Resolved) : Array(Resolution)
