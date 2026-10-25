@@ -346,8 +346,20 @@ module Heucristic
           return unless cond.expressions.size == 1
 
           inside(cond) { condition(cond.expressions[0], positive) }
+        in Crystal::Call
+          evaluated(cond)
         in Crystal::ASTNode then nil
         end
+      end
+
+      private def evaluated(call : Crystal::Call) : Nil
+        values = reassignments_within(call).select do |item|
+          item.path.all? do |node|
+            node.is_a?(Crystal::Call) || node.is_a?(Crystal::Expressions) ||
+              node.is_a?(Crystal::Assign)
+          end
+        end
+        @steps << Reassigned.new(values, @prefix + [call], true) unless values.empty?
       end
 
       private def inside(node : Crystal::ASTNode, & : ->) : Nil

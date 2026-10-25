@@ -421,3 +421,38 @@ describe Heucristic::Resolve::Flow, "exits through a typed receiver" do
     receiver_of_size(source, "x.size").should eq("Nil | Int32")
   end
 end
+
+describe Heucristic::Resolve::Flow, "assignments nested in a loop condition" do
+  source = <<-CR
+    class Int32
+      def *(other : Int32) : Int32
+      end
+
+      def +(other : Int32) : Int32
+      end
+
+      def <(other : Int32) : Bool
+      end
+    end
+
+    class Heap
+      def sift(idx : Int32, size : Int32) : Nil
+        while (child = 2 * idx + 1) < size
+          child.size
+          right = child + 1
+          (right < size).size
+          child = right if right < size
+          idx = child
+        end
+      end
+    end
+    CR
+
+  it "assigns a variable nested in a comparison condition (crystal run: Int32)" do
+    receiver_of_size(source, "child.size").should eq("Int32")
+  end
+
+  it "types a value reassigned under a suffix if after the loop variable (crystal run: Bool)" do
+    receiver_of_size(source, "(right < size).size").should eq("Bool")
+  end
+end
