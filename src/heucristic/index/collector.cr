@@ -3,6 +3,7 @@ require "../document/text"
 require "./file"
 require "./accessor"
 require "./synthesized"
+require "./record_head"
 require "./macro_hook"
 require "./body_traits"
 require "./signature"
@@ -309,9 +310,10 @@ module Heucristic
         in .forward_missing_to? then return record_missing_handler(node)
         in .record?             then nil
         end
-        name = node.args[0]?
-        return true unless name.is_a?(Crystal::Path)
+        head = RecordHead.of(node)
+        return true unless head
 
+        name = head.name
         full = enter(name)
         with_span(name) do |span|
           @namespaces << ClassNamespace.new(
@@ -320,7 +322,7 @@ module Heucristic
             name_span: span,
             kind: :struct,
             abstract_type: false,
-            type_vars: Array(String).new,
+            type_vars: head.type_vars,
             superclass: Unrestricted.new,
             private_path: private_path(node),
           )

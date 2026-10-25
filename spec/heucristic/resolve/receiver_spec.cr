@@ -2730,3 +2730,27 @@ describe Heucristic::Resolve::Receiver, "macro calls through a constant and thei
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "generic records" do
+  source = <<-CR
+    module GraphQL
+      record Envelope(T), data : T, errors : Array(String) do
+        def first_error : Nil
+          errors.size
+        end
+      end
+
+      def self.run(envelope : Envelope(Int32)) : Nil
+        envelope.data.size
+      end
+    end
+    CR
+
+  it "types a getter of a generic record inside its block" do
+    receiver_of_size(source, "errors.size").should eq("Array(String)")
+  end
+
+  it "binds a generic record's type variable through its use" do
+    receiver_of_size(source, "envelope.data.size").should eq("Int32")
+  end
+end

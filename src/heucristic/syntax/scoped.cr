@@ -4,6 +4,7 @@ require "./defined_variables"
 require "../syntax"
 require "../index/macro_text"
 require "../index/synthesized"
+require "../index/record_head"
 
 module Heucristic
   module Syntax
@@ -51,15 +52,19 @@ module Heucristic
 
       def visit(node : Crystal::Call) : Bool
         @blocks << node if node.block
-        if (name = record_name(node))
-          @enclosing << qualify(name)
+        if (head = Index::RecordHead.of(node))
+          @enclosing << qualify(head.name)
+          @type_vars.concat(head.type_vars)
         end
         true
       end
 
       def end_visit(node : Crystal::Call) : Nil
         @blocks.pop if node.block
-        @enclosing.pop if record_name(node)
+        return unless (head = Index::RecordHead.of(node))
+
+        @enclosing.pop
+        head.type_vars.size.times { @type_vars.pop }
       end
 
       def visit(
@@ -111,13 +116,6 @@ module Heucristic
 
       protected def context : Context
         Context.new(@enclosing.dup, @type_vars.dup, @defs.last?, @blocks.dup, @nodes.dup, @path)
-      end
-
-      private def record_name(node : Crystal::Call) : Crystal::Path?
-        return unless node.obj.nil? && Index::Synthesized.from_name(node.name).try(&.record?)
-
-        name = node.args[0]?
-        name.is_a?(Crystal::Path) ? name : nil
       end
 
       private def type_vars_of(node : Crystal::ASTNode) : Array(String)

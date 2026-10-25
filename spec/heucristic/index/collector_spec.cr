@@ -565,3 +565,26 @@ describe Heucristic::Index::Collector, "lazy accessor macros" do
     file.defs.map(&.signature).should eq(["def cache : String"])
   end
 end
+
+describe Heucristic::Index::Collector, "generic records" do
+  it "indexes a generic record as a generic struct owning its fields and block defs" do
+    source = <<-CR
+      module GraphQL
+        record Envelope(T), data : T, errors : Array(String) do
+          def failed? : Bool
+          end
+        end
+      end
+      CR
+    file = index(source)
+    variables = file.namespaces.compact_map do |entry|
+      next unless entry.is_a?(Heucristic::Index::ClassNamespace)
+
+      entry.type_vars if entry.name == "GraphQL::Envelope"
+    end
+    variables.should eq([["T"]])
+    owners = file.defs.map { |entry| {entry.qualified, entry.signature} }
+    owners.should contain({"GraphQL::Envelope#data", "def data : T"})
+    owners.should contain({"GraphQL::Envelope#failed?", "def failed? : Bool"})
+  end
+end
