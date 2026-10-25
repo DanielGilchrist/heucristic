@@ -906,7 +906,8 @@ module Heucristic
         facts = facts_for(context)
         steps = Flow.steps(name, context.ancestors, exits, facts)
         if (local = locals.find(&.name.==(name)))
-          return narrow(local.value, name, steps, context, visiting, locals)
+          uncarried = steps.reject { |step| step.is_a?(Flow::Reassigned) && step.carried }
+          return narrow(local.value, name, uncarried, context, visiting, locals)
         end
         return Unknown.new(:cycle, name) if visiting.includes?(key)
 

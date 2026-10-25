@@ -456,3 +456,62 @@ describe Heucristic::Resolve::Flow, "assignments nested in a loop condition" do
     receiver_of_size(source, "(right < size).size").should eq("Bool")
   end
 end
+
+describe Heucristic::Resolve::Flow, "assignments carried round a loop" do
+  source = <<-CR
+    class Array(T)
+      def each(& : T ->) : Nil
+      end
+    end
+
+    class Walker
+      def run(times : Array(Int32), limit : Int32) : Nil
+        previous = nil
+        times.each do |time|
+          previous.size
+          previous = time
+        end
+        seen = nil
+        while limit > 0
+          seen.size
+          seen = limit
+        end
+        times.each do |times|
+          times.size
+          times = "s"
+        end
+        times.each do |time|
+          fresh = time
+          fresh.size
+          fresh = "s"
+        end
+        times.each { |time| sibling = "s" }
+        times.each do |time|
+          sibling = time
+          sibling.size
+          sibling = nil
+        end
+      end
+    end
+    CR
+
+  it "unions a block body's later assignments at its top (crystal run: Int32 | Nil)" do
+    receiver_of_size(source, "previous.size").should eq("Nil | Int32")
+  end
+
+  it "unions a while body's later assignments at its top (crystal run: Int32 | Nil)" do
+    receiver_of_size(source, "seen.size").should eq("Nil | Int32")
+  end
+
+  it "does not carry a variable first assigned inside the block, which is local to it" do
+    receiver_of_size(source, "fresh.size").should eq("Int32")
+  end
+
+  it "does not treat an assignment in a sibling block as defining the variable" do
+    receiver_of_size(source, "sibling.size").should eq("Int32")
+  end
+
+  it "does not carry an assignment to a block parameter, which every call rebinds" do
+    receiver_of_size(source, "  times.size").should eq("Int32")
+  end
+end

@@ -15,7 +15,8 @@ module Heucristic
       record Reassigned,
         values : Array(Reassignment),
         within : Array(Crystal::ASTNode),
-        definite : Bool = false
+        definite : Bool = false,
+        carried : Bool = false
       record Branch, positive : Bool, body : Crystal::ASTNode?
       record Branched,
         cond : Crystal::ASTNode,
@@ -59,9 +60,17 @@ module Heucristic
           condition(parent.cond, false) if parent.then.same?(child)
           condition(parent.cond, true) if parent.else.same?(child)
         in Crystal::While
-          condition(parent.cond, true) if parent.body.same?(child)
+          if parent.body.same?(child)
+            carried(parent.body) if reassignments_within(parent.cond).empty?
+            condition(parent.cond, true)
+          end
         in Crystal::Until
-          condition(parent.cond, false) if parent.body.same?(child)
+          if parent.body.same?(child)
+            carried(parent.body) if reassignments_within(parent.cond).empty?
+            condition(parent.cond, false)
+          end
+        in Crystal::Block
+          carried(parent.body) if parent.body.same?(child) && parent.args.none?(&.name.==(@name))
         in Crystal::And
           condition(parent.left, true) if parent.right.same?(child)
         in Crystal::Or
@@ -252,6 +261,41 @@ module Heucristic
           found << Reassignment.new(item.value, item.path[(index + 1)..]) if index
         end
         found
+      end
+
+      private def carried(body : Crystal::ASTNode) : Nil
+        return unless defined_outside?(body)
+
+        values = reassignments_within(body)
+        @steps << Reassigned.new(values, @prefix + [body], carried: true) unless values.empty?
+      end
+
+      private def defined_outside?(body : Crystal::ASTNode) : Bool
+        facts = @facts
+        return false unless facts
+        return true if parameter_in_prefix?
+
+        facts.reassigned(@name).any? do |item|
+          item.path.none?(&.same?(body)) && item.path.all? { |node| enclosing_scope?(node) }
+        end
+      end
+
+      private def parameter?(definition : Crystal::Def) : Bool
+        definition.args.any?(&.name.==(@name)) || definition.block_arg.try(&.name) == @name
+      end
+
+      private def enclosing_scope?(node : Crystal::ASTNode) : Bool
+        !node.is_a?(Crystal::Block) || @prefix.any?(&.same?(node))
+      end
+
+      private def parameter_in_prefix? : Bool
+        @prefix.any? do |node|
+          case node
+          in Crystal::Def     then parameter?(node)
+          in Crystal::Block   then node.args.any?(&.name.==(@name))
+          in Crystal::ASTNode then false
+          end
+        end
       end
 
       private def handler_branch(parent : Crystal::ExceptionHandler, child : Crystal::ASTNode) : Nil
