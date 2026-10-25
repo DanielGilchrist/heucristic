@@ -777,7 +777,7 @@ module Heucristic
       private def answer_call(target : Syntax::OnCall) : Answer
         call = target.node
         enclosing = target.context.ancestors[0...-1]
-        macro_call = enclosing_macro_call(enclosing)
+        macro_call = Index::MacroCall.enclosing(enclosing, @workspace)
         if macro_call && call.obj.nil? && statement_of?(macro_call, enclosing)
           owner = "the `#{macro_call.name}` macro#{defined_at(macro_call)}"
           return Answer.note("`#{call.name}` is syntax of #{owner}, not a method call")
@@ -806,17 +806,6 @@ module Heucristic
         entries = Array(Index::Entry).new(found.size)
         found.each { |entry| entries << entry }
         Answer.new(entries, Array(Document::Span).new, sections, Array(String).new)
-      end
-
-      private def enclosing_macro_call(ancestors : Array(Crystal::ASTNode)) : Crystal::Call?
-        ancestors.reverse_each do |node|
-          next unless node.is_a?(Crystal::Call) && Index::MacroCall.like?(node, @workspace)
-          next if node.obj.nil? && Index::Synthesized.from_name(node.name).try(&.record?)
-          next if Index::MacroCall.splices_block?(node, @workspace)
-
-          return node
-        end
-        nil
       end
 
       private def statement_of?(

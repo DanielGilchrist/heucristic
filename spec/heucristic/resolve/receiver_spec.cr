@@ -2686,3 +2686,47 @@ describe Heucristic::Resolve::Receiver, "calls on an abstract base its subclasse
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "macro calls through a constant and their blocks" do
+  source = <<-CR
+    module GraphQL
+      macro fragment(name, &block)
+      end
+    end
+
+    module Queries
+      ::GraphQL.fragment Comments do
+        on PullRequest do
+          comments(last: 100) do
+            body String
+          end
+        end
+      end
+
+      def self.run : Nil
+        missing.size
+      end
+    end
+    CR
+
+  it "says a call to a macro through its owning constant is a macro" do
+    receiver_of_size(
+      source.sub("::GraphQL.fragment Comments do", "::GraphQL.fragment(Comments).size do"),
+      "::GraphQL.fragment(Comments).size",
+    ).should eq("unknown (macro: `fragment` is a macro; its expansion is not typed)")
+  end
+
+  it "says a call nested in a macro's block is the macro's to define" do
+    receiver_of_size(
+      source.sub("body String", "body(String).size"), "body(String).size"
+    ).should eq(
+      "unknown (macro: `body` sits inside the `fragment` macro, which decides what it means)"
+    )
+  end
+
+  it "keeps an unknown name outside any macro unresolved" do
+    receiver_of_size(source, "missing.size").should eq(
+      "unknown (unresolved name: no `missing` on Queries.class)"
+    )
+  end
+end

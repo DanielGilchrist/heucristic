@@ -88,7 +88,7 @@ module Heucristic
         end
 
         outcome = result_of(receiver, shape, site)
-        return macro_result(call, outcome) if outcome.is_a?(Unknown)
+        return macro_result(call, context, outcome) if outcome.is_a?(Unknown)
 
         block = call.block
         return outcome if block.nil?
@@ -427,11 +427,22 @@ module Heucristic
         Unknown.new(:ambiguous, "#{defs.size} overloads of `super` do not agree on a type")
       end
 
-      private def macro_result(call : Crystal::Call, outcome : Unknown) : Unknown
-        return outcome unless call.obj.nil? && outcome.reason.unresolved_name?
-        return outcome if Index::MacroCall.fitting(call, @workspace).empty?
+      private def macro_result(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        outcome : Unknown,
+      ) : Unknown
+        return outcome unless outcome.reason.unresolved_name?
+        if Index::MacroCall.like?(call, @workspace)
+          return Unknown.new(:macro, "`#{call.name}` is a macro; its expansion is not typed")
+        end
+        return outcome unless call.obj.nil?
 
-        Unknown.new(:macro, "`#{call.name}` is a macro; its expansion is not typed")
+        owner = Index::MacroCall.enclosing(context.ancestors, @workspace)
+        return outcome unless owner
+
+        detail = "`#{call.name}` sits inside the `#{owner.name}` macro, which decides what it means"
+        Unknown.new(:macro, detail)
       end
 
       private def blocky?(call : Crystal::Call) : Bool

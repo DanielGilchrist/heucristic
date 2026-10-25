@@ -32,6 +32,17 @@ module Heucristic
         end
       end
 
+      def enclosing(ancestors : Array(Crystal::ASTNode), workspace : Workspace) : Crystal::Call?
+        ancestors.reverse_each do |node|
+          next unless node.is_a?(Crystal::Call) && like?(node, workspace)
+          next if node.obj.nil? && Synthesized.from_name(node.name).try(&.record?)
+          next if splices_block?(node, workspace)
+
+          return node
+        end
+        nil
+      end
+
       def fitting(call : Crystal::Call, workspace : Workspace) : Array(MacroDef)
         workspace.macros(call.name).select(&.arity.accepts?(call.args.size))
       end
