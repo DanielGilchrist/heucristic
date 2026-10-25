@@ -5,6 +5,7 @@ require "./parameter"
 require "./signature"
 require "./receiver"
 require "./visibility"
+require "./instance_var_read"
 
 module Heucristic
   module Index
@@ -27,7 +28,7 @@ module Heucristic
       visibility : Visibility = Visibility::Public,
       private_path : String? = nil,
       exit_call : String? = nil,
-      reads : String? = nil do
+      reads : InstanceVarRead? = nil do
       def visible_from?(path : String?) : Bool
         path.nil? || private_path.nil? || private_path == path
       end

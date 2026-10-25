@@ -2490,3 +2490,32 @@ describe Heucristic::Resolve::Receiver, "boolean operators" do
     receiver_of_size(source, "value.responds_to?(:size).size").should eq("Bool")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "untyped nil-asserting accessors" do
+  source = <<-CR
+    class Store
+    end
+
+    class Server
+      getter! store
+
+      def initialize
+        @store = nil
+        @store = Store.new
+      end
+
+      def run : Nil
+        store.size
+        store?.size
+      end
+    end
+    CR
+
+  it "types the asserting reader as its ivar without Nil" do
+    receiver_of_size(source, "store.size").should eq("Store")
+  end
+
+  it "types the query reader as its ivar" do
+    receiver_of_size(source, "store?.size").should eq("Nil | Store")
+  end
+end

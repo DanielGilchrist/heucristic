@@ -59,9 +59,10 @@ module Heucristic
 
       def reader_suffix : String
         case self
-        in .getter_query?, .property_query?, .class_getter_query?, .class_property_query?   then "?"
-        in .getter_bang?, .property_bang?, .class_getter_bang?, .class_property_bang?       then "!"
-        in .getter?, .property?, .setter?, .class_getter?, .class_property?, .class_setter? then ""
+        in .getter_query?, .property_query?, .class_getter_query?, .class_property_query? then "?"
+        in .getter?, .getter_bang?, .property?, .property_bang?, .setter?, .class_getter?,
+           .class_getter_bang?, .class_property?, .class_property_bang?, .class_setter?
+          ""
         end
       end
 

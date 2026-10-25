@@ -647,7 +647,8 @@ module Heucristic
           span = span_of(var, var.name.size)
           return unless span
 
-          instance_var("@#{var.name}", type, span, :declared, arg.value, !arg.value.nil?)
+          declared = accessor.bang? ? nilable(type) : type
+          instance_var("@#{var.name}", declared, span, :declared, arg.value, !arg.value.nil?)
         in Crystal::Assign
           target = arg.target
           return unless target.is_a?(Crystal::Var)
@@ -681,8 +682,14 @@ module Heucristic
         receiver = accessor.receiver
         if accessor.reads?
           reader = "#{name}#{accessor.reader_suffix}"
-          reads = receiver.instance? && !accessor.bang? ? "@#{name}" : nil
-          add_def(reader, receiver, span, Array(Parameter).new, type, reads)
+          none = Array(Parameter).new
+          plain = read_of(name, receiver, false)
+          if accessor.bang?
+            add_def("#{name}?", receiver, span, none, nilable(type), plain)
+            add_def(reader, receiver, span, none, type, read_of(name, receiver, true))
+          else
+            add_def(reader, receiver, span, none, type, plain)
+          end
         end
         return unless accessor.writes?
 
@@ -696,7 +703,7 @@ module Heucristic
         span : Document::Span,
         parameters : Array(Parameter),
         return_type : Restriction,
-        reads : String? = nil,
+        reads : InstanceVarRead? = nil,
       ) : Nil
         @defs << Def.new(
           name: name,
@@ -841,11 +848,22 @@ module Heucristic
         )
       end
 
-      private def read_instance_var(node : Crystal::Def) : String?
+      private def read_instance_var(node : Crystal::Def) : InstanceVarRead?
         return if node.receiver || !node.args.empty? || node.block_arity || node.return_type
 
         body = node.body
-        body.name if body.is_a?(Crystal::InstanceVar)
+        InstanceVarRead.new(body.name, false) if body.is_a?(Crystal::InstanceVar)
+      end
+
+      private def read_of(name : String, receiver : Receiver, asserted : Bool) : InstanceVarRead?
+        InstanceVarRead.new("@#{name}", asserted) if receiver.instance?
+      end
+
+      private def nilable(type : Restriction) : Restriction
+        case type
+        in Syntax::Type                                  then Syntax::Nilable.new(type)
+        in Syntax::TypeReader::Unsupported, Unrestricted then type
+        end
       end
     end
   end

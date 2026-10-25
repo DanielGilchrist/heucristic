@@ -262,8 +262,9 @@ module Heucristic
           if (target = entry.forwards_to)
             return forwarded(entry, target, arguments, site)
           end
-          if (ivar = entry.reads)
-            return read_instance_var(entry, ivar, receiver, arguments, site)
+          if (read = entry.reads)
+            value = read_instance_var(entry, read.name, receiver, arguments, site)
+            return read.asserted ? truthy(value, true) : value
           end
 
           Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")

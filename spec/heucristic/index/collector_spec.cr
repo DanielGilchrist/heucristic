@@ -528,3 +528,31 @@ describe Heucristic::Index::Collector, "macros and mixins" do
     copies.map(&.signature).should eq(["def clone : self", "def copy_with(**changes) : self"])
   end
 end
+
+describe Heucristic::Index::Collector, "nil-asserting accessor macros" do
+  source = <<-CR
+    class Node
+      getter! parent : Node
+      property! owner : String
+      class_getter! root : Node
+    end
+    CR
+
+  it "declares a nilable query reader and an asserting reader, as the stdlib macro does" do
+    defs = index(source).defs.map { |entry| {entry.qualified, entry.signature} }
+    defs.should eq([
+      {"Node#parent?", "def parent? : Node?"},
+      {"Node#parent", "def parent : Node"},
+      {"Node#owner?", "def owner? : String?"},
+      {"Node#owner", "def owner : String"},
+      {"Node#owner=", "def owner=(value : String) : String"},
+      {"Node.root?", "def self.root? : Node?"},
+      {"Node.root", "def self.root : Node"},
+    ])
+  end
+
+  it "declares the backing ivar as nilable" do
+    ivars = index(source).instance_vars.map { |entry| {entry.name, entry.type.to_s} }
+    ivars.should eq([{"@parent", "Node?"}, {"@owner", "String?"}])
+  end
+end
