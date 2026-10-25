@@ -556,3 +556,12 @@ describe Heucristic::Index::Collector, "nil-asserting accessor macros" do
     ivars.should eq([{"@parent", "Node?"}, {"@owner", "String?"}])
   end
 end
+
+describe Heucristic::Index::Collector, "lazy accessor macros" do
+  it "declares the ivar behind a getter with a block as nilable and its reader as the type" do
+    file = index("class Node\n  getter cache : String do\n    \"x\"\n  end\nend\n")
+    ivars = file.instance_vars.map { |entry| {entry.name, entry.type.to_s} }
+    ivars.should eq([{"@cache", "String?"}])
+    file.defs.map(&.signature).should eq(["def cache : String"])
+  end
+end

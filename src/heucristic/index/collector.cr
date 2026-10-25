@@ -630,11 +630,12 @@ module Heucristic
       private def accessors(node : Crystal::Call, accessor : Accessor) : Bool
         return false if owner.is_a?(TopLevel)
 
-        node.args.each { |arg| accessor(arg, accessor) }
+        lazy = !node.block.nil?
+        node.args.each { |arg| accessor(arg, accessor, lazy) }
         false
       end
 
-      private def accessor(arg : Crystal::ASTNode, accessor : Accessor) : Nil
+      private def accessor(arg : Crystal::ASTNode, accessor : Accessor, lazy : Bool) : Nil
         receiver = accessor.receiver
         case arg
         in Crystal::TypeDeclaration
@@ -647,7 +648,7 @@ module Heucristic
           span = span_of(var, var.name.size)
           return unless span
 
-          declared = accessor.bang? ? nilable(type) : type
+          declared = accessor.bang? || lazy ? nilable(type) : type
           instance_var("@#{var.name}", declared, span, :declared, arg.value, !arg.value.nil?)
         in Crystal::Assign
           target = arg.target
