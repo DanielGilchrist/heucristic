@@ -17,12 +17,12 @@ module Heucristic
       ) : Nil
       end
 
-      def terminates?(call : Crystal::Call) : Bool
+      def terminates?(call : Crystal::Call, path : Array(Crystal::ASTNode)) : Bool
         return true if call.obj.nil? && KnownExits.new.terminates?(call)
         return no_return_call?(call, @receiver) if call.obj.nil?
 
-        @typer.remembered_exit(call) do
-          no_return_call?(call, @typer.of_call(call, @context, Array(Binding).new, @visiting))
+        @typer.remembered_exit(call, @context.at(path), @visiting) do |receiver|
+          no_return_call?(call, receiver)
         end
       end
 

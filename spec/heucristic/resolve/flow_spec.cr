@@ -394,3 +394,30 @@ describe Heucristic::Resolve::Flow, "case on an assignment" do
     receiver_of_size(source, "in Failure then parsed.size").should eq("Failure")
   end
 end
+
+describe Heucristic::Resolve::Flow, "exits through a typed receiver" do
+  source = <<-CR
+    class Failer
+      def fail! : NoReturn
+      end
+    end
+
+    class Fine
+      def fail! : Nil
+      end
+    end
+
+    class Runner
+      def run(x : Int32?) : Nil
+        thing = Fine.new
+        thing.fail! unless x
+        thing = Failer.new
+        x.size
+      end
+    end
+    CR
+
+  it "types the receiver where the guard call sits (crystal run: Int32 | Nil)" do
+    receiver_of_size(source, "x.size").should eq("Nil | Int32")
+  end
+end

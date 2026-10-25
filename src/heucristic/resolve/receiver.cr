@@ -316,15 +316,20 @@ module Heucristic
         @yield_scopes.clear
       end
 
-      def remembered_exit(call : Crystal::Call, & : -> Bool) : Bool
-        filename = call.location.try(&.filename)
-        return yield unless filename.is_a?(String)
-
-        answers = @exit_answers[filename] ||= Hash(UInt64, Bool).new
-        cached = answers[call.object_id]?
+      def remembered_exit(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        visiting : Array(String),
+        & : Resolution -> Bool
+      ) : Bool
+        answers = exit_answers(call)
+        cached = answers.try(&.[call.object_id]?)
         return cached unless cached.nil?
 
-        answers[call.object_id] = yield
+        receiver = of_call(call, context, Array(Binding).new, visiting)
+        answer = yield receiver
+        answers[call.object_id] = answer if answers && !unsettled?(receiver)
+        answer
       end
 
       def no_return?(entry : Index::Def) : Bool
@@ -632,6 +637,13 @@ module Heucristic
 
       private def exits_for(context : Syntax::Context, visiting : Array(String)) : CallExits
         CallExits.new(@methods, implicit_self(context), self, context, visiting)
+      end
+
+      private def exit_answers(call : Crystal::Call) : Hash(UInt64, Bool)?
+        filename = call.location.try(&.filename)
+        return unless filename.is_a?(String)
+
+        @exit_answers[filename] ||= Hash(UInt64, Bool).new
       end
 
       private def module?(receiver : Resolved) : Bool
@@ -1223,7 +1235,7 @@ module Heucristic
         step.branches.each do |branch|
           body = branch.body
           entry = Flow.new(name, exits, facts_for(context))
-          next if body && entry.exits?(body)
+          next if body && entry.exits?(body, step.within)
 
           entry.collect(step.cond, branch.positive, step.within)
           start = narrow(current, name, entry.steps, context, visiting, locals)

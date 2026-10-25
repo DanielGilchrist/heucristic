@@ -88,12 +88,13 @@ module Heucristic
         statements.each { |statement| guard(statement) }
       end
 
-      def exits?(node : Crystal::ASTNode?) : Bool
+      def exits?(node : Crystal::ASTNode?, path : Array(Crystal::ASTNode) = @prefix) : Bool
         case node
         in Crystal::Return, Crystal::Break, Crystal::Next then true
-        in Crystal::Call                                  then @exits.terminates?(node)
+        in Crystal::Call
+          @exits.terminates?(node, path + [node])
         in Crystal::Expressions
-          node.expressions.last?.try { |last| exits?(last) } || false
+          node.expressions.last?.try { |last| exits?(last, path + [node]) } || false
         in Crystal::ASTNode, Nil then false
         end
       end
