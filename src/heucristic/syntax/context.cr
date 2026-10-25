@@ -34,6 +34,21 @@ module Heucristic
         instance || inside_accessor_block?
       end
 
+      def proc_index : Int32?
+        definition = def_node
+        return unless definition
+
+        ancestors.rindex do |node|
+          node.is_a?(Crystal::ProcLiteral) && node.def.same?(definition)
+        end
+      end
+
+      def outside_proc(index : Int32) : Context
+        outer = ancestors[0, index + 1]
+        entered = outer.select(Crystal::Call).select { |call| !call.block.nil? }
+        Context.new(enclosing, type_vars, enclosing_def(outer), entered, outer, path, instance)
+      end
+
       def owner : Index::Owner
         enclosing.last? || Index::TopLevel.new
       end
@@ -55,6 +70,12 @@ module Heucristic
 
       def inside(parent : Crystal::ASTNode, child : Crystal::ASTNode) : Context
         inside(parent).inside(child)
+      end
+
+      private def enclosing_def(nodes : Array(Crystal::ASTNode)) : Crystal::Def?
+        nodes.reverse_each do |node|
+          return node if node.is_a?(Crystal::Def)
+        end
       end
 
       private def inside_accessor_block? : Bool

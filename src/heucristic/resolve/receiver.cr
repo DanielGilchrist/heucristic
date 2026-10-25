@@ -898,6 +898,10 @@ module Heucristic
         end
         return Unknown.new(:cycle, name) if visiting.includes?(key)
 
+        if (captured = captured(name, context, visiting, locals))
+          return captured
+        end
+
         if (inner = shadowing_block(name, context))
           from_block = block_parameter(name, context, locals, visiting + [key])
           if from_block
@@ -914,6 +918,47 @@ module Heucristic
 
         base = declared_variable(name, context, visiting, locals, steps)
         narrow(base, name, steps, context, visiting, locals)
+      end
+
+      private def captured(
+        name : String,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution?
+        index = context.proc_index
+        definition = context.def_node
+        return unless index && definition
+        return if definition.args.any?(&.name.==(name))
+        return if shadowing_block(name, context).try(&.> index)
+
+        inner = facts_of(definition.body)
+        return unless inner.assigned(name).empty? && inner.declaration(name).nil?
+        return if inner.rescued(name)
+
+        outer = context.outside_proc(index)
+        if reassigned_after?(name, context.ancestors[index], outer)
+          return Unknown.new(
+            :inference_needed, "#{name} is captured by a proc and reassigned after it"
+          )
+        end
+
+        variable(name, outer, visiting, locals)
+      end
+
+      private def reassigned_after?(
+        name : String,
+        literal : Crystal::ASTNode,
+        outer : Syntax::Context,
+      ) : Bool
+        created = literal.location
+        facts = facts_for(outer)
+        return false unless created && facts
+
+        facts.assigned(name).any? do |assignment|
+          at = assignment.location
+          at && {at.line_number, at.column_number} > {created.line_number, created.column_number}
+        end
       end
 
       private def facts_of(body : Crystal::ASTNode) : BodyFacts
@@ -1421,6 +1466,9 @@ module Heucristic
         return TypeRef.program if owner.is_a?(Index::TopLevel)
 
         this = TypeRef.new(owner, Array(Resolution).new)
+        index = context.proc_index
+        return implicit_self(context.outside_proc(index)) if index
+
         definition = context.def_node
         return (context.instance_code? ? this : MetaRef.new(this)) unless definition
 

@@ -2545,3 +2545,50 @@ describe Heucristic::Resolve::Receiver, "accessor blocks" do
     receiver_of_size(source, "build.current.size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "proc literal closures" do
+  source = <<-CR
+    class Factory
+      def self.build : String
+      end
+
+      def self.make : Nil
+        -> { build.size }
+      end
+
+      def run(name : String, maybe : String?, count : Int32) : Nil
+        -> { name.size }
+        if maybe
+          -> { maybe.size }
+        end
+        ->(own : Int32) { own.size }
+        moved = 1
+        -> { moved.size }
+        moved = "s"
+        [1].each { |count| -> { count.size } }
+      end
+    end
+    CR
+
+  it "types a captured parameter from the enclosing def" do
+    receiver_of_size(source, "name.size").should eq("String")
+  end
+
+  it "keeps the narrowing in force where the proc is created" do
+    receiver_of_size(source, "maybe.size").should eq("String")
+  end
+
+  it "types the proc's own parameter from its restriction" do
+    receiver_of_size(source, "own.size").should eq("Int32")
+  end
+
+  it "gives up on a captured variable reassigned after the proc" do
+    receiver_of_size(source, "moved.size").should eq(
+      "unknown (inference needed: moved is captured by a proc and reassigned after it)"
+    )
+  end
+
+  it "types implicit self inside a proc in a class method as the metaclass" do
+    receiver_of_size(source, "build.size").should eq("String")
+  end
+end
