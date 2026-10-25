@@ -2592,3 +2592,39 @@ describe Heucristic::Resolve::Receiver, "proc literal closures" do
     receiver_of_size(source, "build.size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "modules that extend themselves" do
+  source = <<-CR
+    module Spinner
+      extend self
+
+      class_property? enabled : Bool = false
+
+      def self.frames : Array(String)
+      end
+
+      def label : String
+      end
+
+      def run : Nil
+        frames.size
+        label.size
+        missing.size
+      end
+    end
+    CR
+
+  it "resolves an implicit call in an instance def against the module's class methods" do
+    receiver_of_size(source, "frames.size").should eq("Array(String)")
+  end
+
+  it "prefers the module's instance methods" do
+    receiver_of_size(source, "label.size").should eq("String")
+  end
+
+  it "still reports a name neither side declares" do
+    receiver_of_size(source, "missing.size").should eq(
+      "unknown (unresolved name: no `missing` on Spinner)"
+    )
+  end
+end

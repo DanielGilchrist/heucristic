@@ -1383,10 +1383,19 @@ module Heucristic
         visiting : Array(String),
       ) : Resolution
         scope = yield_scope(context)
-        return implicit_self(context) if scope.is_a?(Unscoped) || scope.is_a?(Unknown)
+        return implicit_target(call, context) if scope.is_a?(Unscoped) || scope.is_a?(Unknown)
 
         defs = @methods.named_on(scope, call.name, context.path)
-        defs.empty? ? implicit_self(context) : scope
+        defs.empty? ? implicit_target(call, context) : scope
+      end
+
+      private def implicit_target(call : Crystal::Call, context : Syntax::Context) : Resolution
+        this = implicit_self(context)
+        return this unless this.is_a?(TypeRef) && @methods.extends_itself?(this.name)
+        return this unless @methods.named_on(this, call.name, context.path).empty?
+
+        metaclass = MetaRef.new(this)
+        @methods.named_on(metaclass, call.name, context.path).empty? ? this : metaclass
       end
 
       private def opaque_block?(block_call : Crystal::Call) : Bool

@@ -179,6 +179,12 @@ module Heucristic
         found.select { |entry| own?(entry, caller_path) }
       end
 
+      def extends_itself?(type : String) : Bool
+        @workspace.mixins_of(type).any? do |mixin|
+          mixin.kind.extend? && extended_module(mixin, type) == type
+        end
+      end
+
       def own?(entry : Index::Def, caller_path : String?) : Bool
         return true unless caller_path
         return false unless reachable?(entry, caller_path)
