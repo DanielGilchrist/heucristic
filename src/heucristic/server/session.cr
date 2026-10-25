@@ -795,6 +795,10 @@ module Heucristic
         shape = @receiver.shape_of(call, target.context)
         found = @methods.lookup(receiver, shape)
         found = @methods.virtual_lookup(receiver, shape) if found.empty?
+        if found.empty? && (action = @receiver.select_action(call, target.context))
+          shape = @receiver.shape_of(action, target.context)
+          found = @methods.lookup(receiver, shape)
+        end
         if found.empty?
           return Answer.note("no `#{call.name}` indexed on #{receiver}#{macro_hint}")
         end

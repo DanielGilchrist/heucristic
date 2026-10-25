@@ -203,6 +203,35 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
+  it "answers hover for a select condition through the action the compiler calls" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    source = <<-CR
+      def timeout_select_action(timeout : Time::Span) : Channel::TimeoutAction
+      end
+
+      class Waiter
+        def wait(duration : Time::Span, stop : Channel(Nil)) : Bool
+          select
+          when stop.receive
+            false
+          when timeout(duration)
+            true
+          end
+        end
+      end
+      CR
+    client.open(URI_A, source)
+    client.await_diagnostics
+
+    hover_text(client.hover(URI_A, 8, 10)).to_s.should contain(
+      "def timeout_select_action(timeout : Time::Span)"
+    )
+    client.shutdown
+  end
+
   it "explains why a call cannot be resolved instead of guessing" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")

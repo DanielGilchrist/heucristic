@@ -73,7 +73,7 @@ module Heucristic
         enclosing = site.context.ancestors[0...-1]
         return Skip::MacroArguments if MacroArguments.within?(enclosing, @workspace)
         return Skip::PendingSpec if pending_block?(site.context.blocks)
-        if select_condition?(call, site.context.ancestors)
+        if site.context.select_condition?(call)
           timeout = call.obj.nil? && Syntax::WellKnown::Timeout.named?(call.name)
           return Skip::SelectCondition if timeout
         end
@@ -396,20 +396,6 @@ module Heucristic
           found.concat(@methods.named_on(resolved, name))
         end
         found
-      end
-
-      private def select_condition?(
-        call : Crystal::Call,
-        ancestors : Array(Crystal::ASTNode),
-      ) : Bool
-        ancestors.each_with_index.any? do |node, index|
-          next false unless node.is_a?(Crystal::Select)
-          branch = ancestors[index + 1]?
-          next false unless branch.is_a?(Crystal::When)
-
-          inner = ancestors[index + 2]? || call
-          branch.conds.any?(&.same?(inner))
-        end
       end
 
       private def typed_definitions(

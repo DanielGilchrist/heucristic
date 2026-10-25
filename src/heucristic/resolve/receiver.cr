@@ -88,6 +88,11 @@ module Heucristic
         end
 
         outcome = result_of(receiver, shape, site)
+        if outcome.is_a?(Unknown) && outcome.reason.unresolved_name?
+          if (action = select_action(call, context))
+            return result_of(receiver, shape_of(action, context, locals, visiting), site)
+          end
+        end
         return macro_result(call, context, outcome) if outcome.is_a?(Unknown)
 
         block = call.block
@@ -95,6 +100,12 @@ module Heucristic
 
         escaped = break_values(block, site)
         escaped.empty? ? outcome : union([outcome] + escaped)
+      end
+
+      def select_action(call : Crystal::Call, context : Syntax::Context) : Crystal::Call?
+        return unless context.select_condition?(call)
+
+        Crystal::Call.new(call.obj, select_action_name(call.name), call.args)
       end
 
       def shape_of(
@@ -425,6 +436,16 @@ module Heucristic
         return distinct[0] if distinct.size == 1
 
         Unknown.new(:ambiguous, "#{defs.size} overloads of `super` do not agree on a type")
+      end
+
+      private def select_action_name(name : String) : String
+        if name.ends_with?('!')
+          "#{name[0...-1]}_select_action!"
+        elsif name.ends_with?('?')
+          "#{name[0...-1]}_select_action?"
+        else
+          "#{name}_select_action"
+        end
       end
 
       private def macro_result(

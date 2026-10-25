@@ -53,6 +53,17 @@ module Heucristic
         Context.new(enclosing, type_vars, enclosing_def(outer), entered, outer, path, instance)
       end
 
+      def select_condition?(call : Crystal::Call) : Bool
+        ancestors.each_with_index.any? do |node, index|
+          next false unless node.is_a?(Crystal::Select)
+          branch = ancestors[index + 1]?
+          next false unless branch.is_a?(Crystal::When)
+
+          inner = ancestors[index + 2]? || call
+          branch.conds.any?(&.same?(inner))
+        end
+      end
+
       def owner : Index::Owner
         enclosing.last? || Index::TopLevel.new
       end
