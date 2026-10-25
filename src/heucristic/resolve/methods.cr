@@ -5,6 +5,7 @@ require "../index/workspace"
 require "../syntax/type"
 require "../syntax/well_known"
 require "./types"
+require "./descendants"
 
 module Heucristic
   module Resolve
@@ -106,6 +107,7 @@ module Heucristic
         @includers = Hash(String, Array(String)).new
         @private_paths = Hash(String, Array(String)).new
         @compiled = Compiled::NONE
+        @descendants = Descendants.new(@workspace, @types)
       end
 
       def compiled(map : Compiled) : Nil
@@ -115,6 +117,32 @@ module Heucristic
       def invalidate : Nil
         @includers.clear
         @private_paths.clear
+        @descendants.invalidate
+      end
+
+      def virtual_lookup(receiver : Resolution, call : Call) : Array(Index::Def)
+        found = Array(Index::Def).new
+        return found unless receiver.is_a?(TypeRef) && receiver.arguments.empty?
+        return found unless abstract_class?(receiver.name)
+
+        concrete = concrete_descendants(receiver.name)
+        concrete.each do |descendant|
+          below = lookup(TypeRef.new(descendant, Array(Resolution).new), call)
+          return Array(Index::Def).new if below.empty?
+
+          found.concat(below)
+        end
+        found.uniq!
+      end
+
+      def concrete_descendants(type : String) : Array(String)
+        @descendants.of(type).reject { |descendant| abstract_class?(descendant) }
+      end
+
+      def abstract_class?(type : String) : Bool
+        @workspace.namespaces(type).any? do |entry|
+          entry.is_a?(Index::ClassNamespace) && entry.abstract_type
+        end
       end
 
       def compatible?(entry : Index::Def, call : Call) : Bool

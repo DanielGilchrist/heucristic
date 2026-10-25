@@ -2,6 +2,7 @@ require "../index/workspace"
 require "../resolve/types"
 require "../resolve/scope"
 require "../resolve/resolution"
+require "../resolve/descendants"
 require "./macro_uses"
 require "../core_type"
 require "../index/macro_hook"
@@ -23,7 +24,7 @@ module Heucristic
         @unsettled_files = Hash(String, Bool).new
         @settled_types = Hash(String, Bool).new
         @declared_types = Hash(String, Bool).new
-        @children = nil.as(Hash(String, Array(String))?)
+        @descendants = Resolve::Descendants.new(@workspace, @types)
       end
 
       def type?(name : String) : Bool
@@ -79,19 +80,11 @@ module Heucristic
       end
 
       def extended?(name : String) : Bool
-        children.has_key?(name)
+        @descendants.extended?(name)
       end
 
       def descendants(name : String) : Array(String)
-        found = Array(String).new
-        pending = children[name]?.try(&.dup) || Array(String).new
-        while (next_one = pending.pop?)
-          next if found.includes?(next_one)
-
-          found << next_one
-          children[next_one]?.try { |more| pending.concat(more) }
-        end
-        found
+        @descendants.of(name)
       end
 
       private def settled_type?(name : String) : Bool
@@ -163,35 +156,6 @@ module Heucristic
           sites = @workspace.sites(path)
           sites.nil? || MacroUses.any?(sites, @workspace)
         end
-      end
-
-      private def children : Hash(String, Array(String))
-        @children ||= compute_children
-      end
-
-      private def compute_children : Hash(String, Array(String))
-        by_parent = Hash(String, Array(String)).new
-        @workspace.each_file do |file|
-          file.namespaces.each do |entry|
-            next unless entry.is_a?(Index::ClassNamespace)
-
-            parent = superclass_of(entry)
-            next unless parent
-
-            siblings = by_parent[parent] ||= Array(String).new
-            siblings << entry.name unless siblings.includes?(entry.name)
-          end
-        end
-        by_parent
-      end
-
-      private def superclass_of(entry : Index::ClassNamespace) : String?
-        superclass = entry.superclass
-        return unless superclass.is_a?(Syntax::Type)
-
-        scope = Resolve::Scope.new(entry.name, entry.type_vars)
-        resolved = @types.resolve_lexically(superclass, scope)
-        resolved.is_a?(Resolve::TypeRef) ? resolved.name : nil
       end
     end
   end

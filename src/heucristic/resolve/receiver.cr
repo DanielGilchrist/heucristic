@@ -155,7 +155,7 @@ module Heucristic
             "#{variable} is a type variable; `#{call.name}` depends on its instantiation",
           )
         end
-        return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}") if defs.empty?
+        return virtual_result(receiver, call, site) if defs.empty?
 
         results = Array(Resolution).new(defs.size)
         defs.each { |entry| results << return_type(entry, receiver, call.arguments, site) }
@@ -637,6 +637,31 @@ module Heucristic
 
       private def exits_for(context : Syntax::Context, visiting : Array(String)) : CallExits
         CallExits.new(@methods, implicit_self(context), self, context, visiting)
+      end
+
+      private def virtual_result(
+        receiver : Resolved,
+        call : Methods::Call,
+        site : Site,
+      ) : Resolution
+        missing = Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}")
+        return missing unless receiver.is_a?(TypeRef) && receiver.arguments.empty?
+        return missing unless @methods.abstract_class?(receiver.name)
+
+        concrete = @methods.concrete_descendants(receiver.name)
+        return missing if concrete.empty?
+
+        results = Array(Resolution).new(concrete.size)
+        concrete.each do |descendant|
+          below = TypeRef.new(descendant, Array(Resolution).new)
+          if @methods.lookup(below, call).empty?
+            return Unknown.new(
+              :unresolved_name, "no `#{call.name}` on #{descendant}, a subclass of #{receiver}"
+            )
+          end
+          results << result_of(below, call, site)
+        end
+        union(results)
       end
 
       private def exit_answers(call : Crystal::Call) : Hash(UInt64, Bool)?

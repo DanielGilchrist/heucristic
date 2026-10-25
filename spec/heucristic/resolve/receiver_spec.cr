@@ -2628,3 +2628,61 @@ describe Heucristic::Resolve::Receiver, "modules that extend themselves" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "calls on an abstract base its subclasses answer" do
+  source = <<-CR
+    abstract class Shape
+    end
+
+    abstract class Rounded < Shape
+      def name : String
+      end
+    end
+
+    class Circle < Rounded
+      def area : Float64
+      end
+    end
+
+    class Square < Shape
+      def area : Int32
+      end
+
+      def name : String
+      end
+    end
+
+    abstract class Partial
+    end
+
+    class Full < Partial
+      def x : Int32
+      end
+    end
+
+    class Empty < Partial
+    end
+
+    class Runner
+      def run(shape : Shape, partial : Partial) : Nil
+        shape.area.size
+        shape.name.size
+        partial.x.size
+      end
+    end
+    CR
+
+  it "unions the results of every concrete subclass (crystal run: Float64 | Int32)" do
+    receiver_of_size(source, "shape.area.size").should eq("Int32 | Float64")
+  end
+
+  it "finds a method an abstract intermediate defines (crystal run: String)" do
+    receiver_of_size(source, "shape.name.size").should eq("String")
+  end
+
+  it "names the concrete subclass that lacks the method, as the compiler does" do
+    receiver_of_size(source, "partial.x.size").should eq(
+      "unknown (unresolved name: no `x` on Empty, a subclass of Partial)"
+    )
+  end
+end

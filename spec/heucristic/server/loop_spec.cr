@@ -169,6 +169,40 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
+  it "answers hover and definition for a method only an abstract base's subclasses define" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    source = <<-CR
+      abstract class Shape
+      end
+
+      class Circle < Shape
+        def area : Float64
+        end
+      end
+
+      class Square < Shape
+        def area : Int32
+        end
+      end
+
+      def measure(shape : Shape) : Nil
+        shape.area
+      end
+      CR
+    client.open(URI_A, source)
+    client.await_diagnostics
+
+    hover = hover_text(client.hover(URI_A, 14, 9)).to_s
+    hover.should contain("def area : Float64")
+    hover.should contain("def area : Int32")
+    definition = client.definition(URI_A, 14, 9).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i).sort!).should eq([4, 9])
+    client.shutdown
+  end
+
   it "explains why a call cannot be resolved instead of guessing" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")
