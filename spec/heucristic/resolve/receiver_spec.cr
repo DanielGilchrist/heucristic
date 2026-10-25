@@ -2779,3 +2779,36 @@ describe Heucristic::Resolve::Receiver, "inherited type variables as values" do
     receiver_of_size(source, "T.size").should eq("Array(String).class")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "free variables in a union block restriction" do
+  source = <<-CR
+    class Failure
+    end
+
+    class Other
+    end
+
+    class Shift
+    end
+
+    class Prompt
+      def ask(& : String -> T | Failure) : T? forall T
+      end
+
+      def run(fail : Bool) : Nil
+        ask { |answer| fail ? Failure.new : Shift.new }.size
+        nexted = ask do |answer|
+          next Other.new if fail
+          Shift.new
+        end
+        nexted.size
+      end
+    end
+    CR
+
+  it "binds the free member to what the other members do not cover (crystal run: Shift | Nil)" do
+    receiver_of_size(source, "ask { |answer| fail ? Failure.new : Shift.new }.size").should eq(
+      "Shift | Nil"
+    )
+  end
+end

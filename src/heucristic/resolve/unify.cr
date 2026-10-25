@@ -94,6 +94,9 @@ module Heucristic
           bind(bare, argument, free_vars, bindings, types, scope) if bare
           return
         end
+        if argument.is_a?(UnionRef)
+          return bind_remaining(restriction, bare, argument, free_vars, bindings, types, scope)
+        end
         return unless argument.is_a?(TypeRef)
 
         shaped = restriction.members.select(Syntax::Generic).find do |member|
@@ -103,6 +106,36 @@ module Heucristic
         return bind(shaped, argument, free_vars, bindings, types, scope) if shaped
 
         bind(bare, argument, free_vars, bindings, types, scope) if bare
+      end
+
+      private def bind_remaining(
+        restriction : Syntax::Union,
+        bare : Syntax::Named?,
+        argument : UnionRef,
+        free_vars : Array(String),
+        bindings : Array(Binding),
+        types : Types,
+        scope : Scope,
+      ) : Nil
+        return unless bare
+
+        others = restriction.members.reject(&.==(bare))
+        concrete = others.map { |member| types.resolve(member, scope) }
+        remaining = argument.members.reject do |member|
+          concrete.any? { |covering| covers?(covering, member, types) }
+        end
+        return if remaining.empty?
+
+        value = remaining.size == 1 ? remaining[0] : UnionRef.new(remaining)
+        bind(bare, value, free_vars, bindings, types, scope)
+      end
+
+      private def covers?(covering : Resolution, member : Resolution, types : Types) : Bool
+        return false unless covering.is_a?(TypeRef) && member.is_a?(TypeRef)
+        return true if covering == member
+
+        chain = types.ancestors(member.name)
+        !chain.is_a?(Unknown) && chain.includes?(covering.name)
       end
 
       private NIL = TypeRef.of(:nil)
