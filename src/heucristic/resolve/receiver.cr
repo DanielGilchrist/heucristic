@@ -17,7 +17,7 @@ require "./variable_references"
 require "./rescue_variables"
 require "./flow"
 require "./call_exits"
-require "./breaks"
+require "./escapes"
 require "../syntax/yield_sites"
 
 require "../syntax/well_known"
@@ -1539,13 +1539,23 @@ module Heucristic
       end
 
       private def break_values(block : Crystal::Block, site : Site) : Array(Resolution)
-        Breaks.in(block).map do |found|
-          exp = found.node.exp
+        escape_values(Escapes.in(block).breaks, block, site.context, site.visiting, site.locals)
+      end
+
+      private def escape_values(
+        found : Array(Escapes::Found),
+        block : Crystal::Block,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Array(Resolution)
+        found.map do |escape|
+          exp = escape.node.exp
           next TypeRef.of(:nil).as(Resolution) unless exp
 
-          context = site.context.inside(block)
-          found.ancestors.each { |ancestor| context = context.inside(ancestor) }
-          type_of(exp, context.inside(found.node, exp), site.visiting, site.locals)
+          inside = context.inside(block)
+          escape.ancestors.each { |ancestor| inside = inside.inside(ancestor) }
+          type_of(exp, inside.inside(escape.node, exp), visiting, locals)
         end
       end
 
@@ -1985,8 +1995,10 @@ module Heucristic
           locals << Binding.new(argument.name, input) if input
         end
         body = block.body
-        result = type_of(body, site.context.inside(block, body), site.visiting, locals)
-        Unify.bind(output, result, free_vars, bindings, @types, scope)
+        nexts = Escapes.in(block).nexts
+        results = escape_values(nexts, block, site.context, site.visiting, locals)
+        results << type_of(body, site.context.inside(block, body), site.visiting, locals)
+        Unify.bind(output, union(results), free_vars, bindings, @types, scope)
       end
 
       private def passed_block_result(

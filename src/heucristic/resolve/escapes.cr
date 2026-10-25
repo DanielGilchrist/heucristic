@@ -2,24 +2,32 @@ require "compiler/crystal/syntax"
 
 module Heucristic
   module Resolve
-    class Breaks < Crystal::Visitor
-      record Found, node : Crystal::Break, ancestors : Array(Crystal::ASTNode)
+    class Escapes < Crystal::Visitor
+      record Found, node : Crystal::Break | Crystal::Next, ancestors : Array(Crystal::ASTNode)
 
-      getter found : Array(Found)
+      getter breaks : Array(Found)
+      getter nexts : Array(Found)
 
-      def self.in(block : Crystal::Block) : Array(Found)
+      def self.in(block : Crystal::Block) : Escapes
         visitor = new
         block.body.accept(visitor)
-        visitor.found
+        visitor
       end
 
       def initialize : Nil
-        @found = Array(Found).new
+        @breaks = Array(Found).new
+        @nexts = Array(Found).new
         @stack = Array(Crystal::ASTNode).new
       end
 
       def visit(node : Crystal::Break) : Bool
-        @found << Found.new(node, @stack.dup)
+        @breaks << Found.new(node, @stack.dup)
+        @stack << node
+        false
+      end
+
+      def visit(node : Crystal::Next) : Bool
+        @nexts << Found.new(node, @stack.dup)
         @stack << node
         false
       end

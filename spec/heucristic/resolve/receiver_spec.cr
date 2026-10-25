@@ -2811,4 +2811,8 @@ describe Heucristic::Resolve::Receiver, "free variables in a union block restric
       "Shift | Nil"
     )
   end
+
+  it "counts a block's next values in its result (crystal run: Other | Shift | Nil)" do
+    receiver_of_size(source, "nexted.size").should eq("Other | Shift | Nil")
+  end
 end
