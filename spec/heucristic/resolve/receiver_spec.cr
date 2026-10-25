@@ -2754,3 +2754,28 @@ describe Heucristic::Resolve::Receiver, "generic records" do
     receiver_of_size(source, "envelope.data.size").should eq("Int32")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "inherited type variables as values" do
+  source = <<-CR
+    class Array(T)
+      def self.new : self
+      end
+
+      def size : Int32
+      end
+    end
+
+    abstract struct Base(T)
+    end
+
+    struct List < Base(Array(String))
+      def fresh : Nil
+        T.size
+      end
+    end
+    CR
+
+  it "binds a parent's type variable used as a value through the subclass" do
+    receiver_of_size(source, "T.size").should eq("Array(String).class")
+  end
+end

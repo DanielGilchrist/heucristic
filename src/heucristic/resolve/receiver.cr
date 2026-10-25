@@ -1669,14 +1669,15 @@ module Heucristic
         if path.names.size == 1 && !path.global? && scope.type_vars.includes?(path.names[0])
           return MetaRef.new(TypeVar.new(path.names[0]))
         end
-        located = @types.locate_any(Syntax::Named.new(path.names, path.global?), scope)
-        return located if located.is_a?(Unknown)
+        named = Syntax::Named.new(path.names, path.global?)
+        located = @types.locate_any(named, scope)
+        if located.is_a?(Unknown)
+          inherited = @types.resolve(named, scope)
+          return inherited.is_a?(Unknown) ? located : metaclass_of(inherited)
+        end
 
         constants = @workspace.constants(located)
-        if constants.empty?
-          resolved = @types.resolve(Syntax::Named.new(path.names, path.global?), scope)
-          return metaclass_of(resolved)
-        end
+        return metaclass_of(@types.resolve(named, scope)) if constants.empty?
         return Unknown.new(:cycle, located) if visiting.includes?(located)
 
         union(constants.map { |entry| constant_type(entry, located, visiting + [located]) })
