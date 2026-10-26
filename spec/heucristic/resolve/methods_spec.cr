@@ -346,8 +346,8 @@ describe Heucristic::Resolve::Methods, "virtual receivers" do
   it "dispatches over the concrete subclasses a caller's target loads" do
     workspace = Heucristic::Index::Workspace.new
     {
-      {"/p/src/a.cr", "abstract class Shape\nend\n\nclass Circle < Shape\nend\n"},
       {"/p/src/extra.cr", "class Square < Shape\nend\n"},
+      {"/p/src/a.cr", "abstract class Shape\nend\n\nclass Circle < Shape\nend\n"},
     }.each do |path, source|
       tree = Heucristic::Syntax.parse(source, path)
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
@@ -362,9 +362,9 @@ describe Heucristic::Resolve::Methods, "virtual receivers" do
     methods.compiled(Heucristic::Resolve::Compiled.new(targets, "/p", Array(String).new))
     shape = Heucristic::Resolve::TypeRef.new("Shape", Array(Heucristic::Resolve::Resolution).new)
     methods.virtual_receivers(shape, "/p/src/main.cr").map(&.to_s).should eq(["Circle"])
-    methods.virtual_receivers(shape, nil).map(&.to_s).sort!.should eq(["Circle", "Square"])
+    methods.virtual_receivers(shape, nil).map(&.to_s).should eq(["Circle", "Square"])
     metaclass = Heucristic::Resolve::MetaRef.new(shape)
-    methods.virtual_receivers(metaclass, nil).map(&.to_s).sort!.should eq(
+    methods.virtual_receivers(metaclass, nil).map(&.to_s).should eq(
       ["Circle.class", "Square.class"]
     )
   end
@@ -375,6 +375,6 @@ describe Heucristic::Resolve::Methods, "virtual receivers" do
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     float = Heucristic::Resolve::TypeRef.new("Float", Array(Heucristic::Resolve::Resolution).new)
     methods.abstract_class?("Float").should be_true
-    methods.virtual_receivers(float, nil).map(&.to_s).sort!.should eq(["Float32", "Float64"])
+    methods.virtual_receivers(float, nil).map(&.to_s).should eq(["Float32", "Float64"])
   end
 end

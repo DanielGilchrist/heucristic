@@ -28,7 +28,7 @@ module Heucristic
           found << next_one
           children[next_one]?.try { |more| pending.concat(more) }
         end
-        found
+        found.sort!
       end
 
       private def children : Hash(String, Array(String))

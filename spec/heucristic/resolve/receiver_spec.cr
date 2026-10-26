@@ -2673,7 +2673,7 @@ describe Heucristic::Resolve::Receiver, "calls on an abstract base its subclasse
     CR
 
   it "unions the results of every concrete subclass (crystal run: Float64 | Int32)" do
-    receiver_of_size(source, "shape.area.size").should eq("Int32 | Float64")
+    receiver_of_size(source, "shape.area.size").should eq("Float64 | Int32")
   end
 
   it "finds a method an abstract intermediate defines (crystal run: String)" do
