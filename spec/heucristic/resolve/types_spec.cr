@@ -254,12 +254,26 @@ describe Heucristic::Resolve::Types, "namespaces created by a qualified declarat
   end
 end
 
+private def platform(handle : String, native : String) : String
+  <<-CR
+    module System
+      alias Handle = #{handle}
+      alias Native = #{native}
+    end
+
+    module #{native}
+      class Error
+      end
+    end
+    CR
+end
+
 describe Heucristic::Resolve::Types, "aliases declared once per platform" do
   it "follows the declaration in a loaded file and refuses to guess otherwise" do
     workspace = Heucristic::Index::Workspace.new
     {
-      {"/std/unix.cr", "module System\n  alias Handle = Int32\nend\n"},
-      {"/std/win32.cr", "module System\n  alias Handle = UInt64\nend\n"},
+      {"/std/win32.cr", platform("UInt64", "Win")},
+      {"/std/unix.cr", platform("Int32", "Unix")},
     }.each do |path, source|
       tree = Heucristic::Syntax.parse(source, path)
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
@@ -277,5 +291,6 @@ describe Heucristic::Resolve::Types, "aliases declared once per platform" do
     types.compiled(Heucristic::Resolve::Compiled.new(targets, "/p", Array(String).new))
     scope = Heucristic::Resolve::Scope::TOP
     types.resolve(restriction("System::Handle"), scope).to_s.should eq("Int32")
+    types.resolve(restriction("System::Native::Error"), scope).to_s.should eq("Unix::Error")
   end
 end

@@ -204,7 +204,10 @@ module Heucristic
         aliases = visible_aliases(name, scope)
         return name if aliases.empty?
 
-        target = aliases[0].target
+        targets = loaded(aliases).map(&.target).uniq!
+        return name unless targets.size == 1
+
+        target = targets[0]
         return name unless target.is_a?(Syntax::Named)
 
         owner = name.rpartition("::")[0]
