@@ -119,9 +119,9 @@ module Iterator(T)
   def uniq(&func : T -> U) : Iterator(T) forall U
   end
 
-  def with_index(offset : Int = 0) : Iterator(Tuple(T, Int32))
+  def with_index(offset : Int = 0) : Iterator(Tuple(T, typeof(offset)))
   end
 
-  def with_index(offset : Int = 0, & : T, Int32 ->) : Nil
+  def with_index(offset : Int = 0, & : T, typeof(offset) ->) : Nil
   end
 end

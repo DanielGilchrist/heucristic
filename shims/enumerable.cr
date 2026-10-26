@@ -14,7 +14,7 @@ module Enumerable(T)
   def each_slice(count : Int, reuse = false, & : Array(T) ->) : Nil
   end
 
-  def each_with_index(offset = 0, & : T, Int32 ->) : Nil
+  def each_with_index(offset = 0, & : T, typeof(offset) ->) : Nil
   end
 
   def find(if_none : U = nil, & : T ->) : T | U forall U

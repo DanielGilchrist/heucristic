@@ -1660,6 +1660,7 @@ module Heucristic
 
         scope = Scope.new(owner, type_vars, bindings, entry.path)
         bind_arguments(entry, arguments, free_vars, bindings, scope)
+        bind_parameter_types(entry, arguments, bindings, scope)
         bind_named(entry, site.named, free_vars, bindings, scope)
         bind_block(entry, site, free_vars, bindings, scope)
         entry.free_vars.each do |free_var|
@@ -2065,6 +2066,18 @@ module Heucristic
           next unless argument
 
           Unify.bind(restriction, argument, free_vars, bindings, @types, scope)
+        end
+      end
+
+      private def bind_parameter_types(
+        entry : Index::Def,
+        arguments : Array(Resolution),
+        bindings : Array(Binding),
+        scope : Scope,
+      ) : Nil
+        entry.parameters.select(&.kind.positional?).each_with_index do |parameter, index|
+          argument = arguments[index]? || defaulted(parameter, scope)
+          bindings << Binding.new("typeof(#{parameter.name})", argument) if argument
         end
       end
 

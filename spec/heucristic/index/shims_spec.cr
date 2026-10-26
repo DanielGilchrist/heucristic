@@ -106,3 +106,40 @@ describe Heucristic::Resolve::Receiver, "with shims" do
     shims.find(stdlib.defs[1]).should be_nil
   end
 end
+
+describe Heucristic::Resolve::Receiver, "typeof a parameter in a shim" do
+  it "types typeof(parameter) as the argument, or the default when it is left out" do
+    stdlib_source = <<-CR
+      module Iterator(T)
+        def with_index(offset : Int = 0)
+        end
+      end
+
+      class Counter
+        include Iterator(String)
+      end
+      CR
+    shim_source = <<-CR
+      module Iterator(T)
+        def with_index(offset : Int = 0) : Iterator(Tuple(T, typeof(offset)))
+        end
+      end
+      CR
+    workspace = Heucristic::Index::Workspace.new
+    workspace.update(collect("iterator.cr", stdlib_source))
+    shims = Heucristic::Index::Shims.new
+    shims.replace_all([collect("shims/iterator.cr", shim_source)])
+    types = Heucristic::Resolve::Types.new(workspace)
+    methods = Heucristic::Resolve::Methods.new(workspace, types)
+    receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
+    none = Array(Heucristic::Resolve::Resolution).new
+    counter = Heucristic::Resolve::TypeRef.new("Counter", none)
+    int64 = Heucristic::Resolve::TypeRef.new("Int64", none)
+
+    arguments = [int64] of Heucristic::Resolve::Resolution
+    explicit = Heucristic::Resolve::Methods::Call.new("with_index", 1, false, arguments)
+    receiver.result_of(counter, explicit).to_s.should eq("Iterator(Tuple(String, Int64))")
+    defaulted = Heucristic::Resolve::Methods::Call.new("with_index", 0, false)
+    receiver.result_of(counter, defaulted).to_s.should eq("Iterator(Tuple(String, Int32))")
+  end
+end

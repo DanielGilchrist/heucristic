@@ -81,17 +81,17 @@ module Heucristic
 
       private def resolve(type : Syntax::Type, scope : Scope, with_ancestors : Bool) : Resolution
         case type
-        in Syntax::Named     then resolve_named(type, scope, Array(String).new, with_ancestors)
-        in Syntax::Generic   then resolve_generic(type, scope, with_ancestors)
-        in Syntax::Union     then resolve_union(type.members, scope, with_ancestors)
-        in Syntax::Nilable   then resolve_nilable(type, scope, with_ancestors)
-        in Syntax::Metaclass then resolve_metaclass(type, scope, with_ancestors)
-        in Syntax::SelfType  then resolve_self(scope)
-        in Syntax::Proc      then resolve_proc(type, scope, with_ancestors)
-        in Syntax::Splat     then resolve_splat(type, scope)
-        in Syntax::TypeOf, Syntax::Underscore
-          Unknown.new(:unsupported, type.to_s)
-        in Syntax::Literal then Unknown.new(:non_type_argument, type.source)
+        in Syntax::Named      then resolve_named(type, scope, Array(String).new, with_ancestors)
+        in Syntax::Generic    then resolve_generic(type, scope, with_ancestors)
+        in Syntax::Union      then resolve_union(type.members, scope, with_ancestors)
+        in Syntax::Nilable    then resolve_nilable(type, scope, with_ancestors)
+        in Syntax::Metaclass  then resolve_metaclass(type, scope, with_ancestors)
+        in Syntax::SelfType   then resolve_self(scope)
+        in Syntax::Proc       then resolve_proc(type, scope, with_ancestors)
+        in Syntax::Splat      then resolve_splat(type, scope)
+        in Syntax::TypeOf     then scope.bound(type.to_s) || Unknown.new(:unsupported, type.to_s)
+        in Syntax::Underscore then Unknown.new(:unsupported, type.to_s)
+        in Syntax::Literal    then Unknown.new(:non_type_argument, type.source)
         end
       end
 
