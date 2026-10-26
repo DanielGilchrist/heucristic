@@ -2861,3 +2861,22 @@ describe Heucristic::Resolve::Receiver, "subclass dispatch through blocks and me
     receiver_of_size(source, "algorithm.size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "calls inside annotations" do
+  source = <<-CR
+    annotation Opt
+    end
+
+    class Cli
+      @[Opt("--expires", value: v(1).size)]
+      def run : Nil
+      end
+    end
+    CR
+
+  it "says a call in an annotation's arguments is for macros to read" do
+    receiver_of_size(source, "v(1).size").should eq(
+      "unknown (macro: `v` sits inside an annotation, whose arguments only macros read)"
+    )
+  end
+end

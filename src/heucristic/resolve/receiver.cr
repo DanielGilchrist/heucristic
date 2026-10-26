@@ -454,6 +454,10 @@ module Heucristic
         outcome : Unknown,
       ) : Unknown
         return outcome unless outcome.reason.unresolved_name?
+        if context.ancestors.any?(Crystal::Annotation)
+          detail = "`#{call.name}` sits inside an annotation, whose arguments only macros read"
+          return Unknown.new(:macro, detail)
+        end
         if Index::MacroCall.like?(call, @workspace)
           return Unknown.new(:macro, "`#{call.name}` is a macro; its expansion is not typed")
         end
