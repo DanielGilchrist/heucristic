@@ -550,3 +550,53 @@ describe Heucristic::Resolve::Flow, "self-referential assignments outside loops"
     receiver_of_size(source, "label.size").should eq("String")
   end
 end
+
+describe Heucristic::Resolve::Flow, "responds_to? narrowing" do
+  source = <<-CR
+    abstract class Sock
+    end
+
+    class Tcp < Sock
+      def write_timeout=(value : Int32) : Int32
+      end
+    end
+
+    class Pipe < Sock
+    end
+
+    class Int32
+      def abs : Int32
+      end
+    end
+
+    class String
+      def upcase : String
+      end
+    end
+
+    class Closer
+      def close(sock : Sock, value : Int32 | String) : Nil
+        if sock.responds_to?(:write_timeout=)
+          sock.size
+        end
+        if value.responds_to?(:upcase)
+          value.size
+        else
+          (value).size
+        end
+      end
+    end
+    CR
+
+  it "keeps the subclasses of a virtual type that respond (crystal run: Tcp)" do
+    receiver_of_size(source, "sock.size").should eq("Tcp")
+  end
+
+  it "keeps the union members that respond" do
+    receiver_of_size(source, "  value.size").should eq("String")
+  end
+
+  it "keeps the union members that do not respond on the negative side (crystal run: Int32)" do
+    receiver_of_size(source, "(value).size").should eq("Int32")
+  end
+end

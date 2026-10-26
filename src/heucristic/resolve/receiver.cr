@@ -1142,9 +1142,11 @@ module Heucristic
             else
               union([present, typed] of Resolution)
             end
-          in Flow::Truthy   then truthy(current, step.positive)
-          in Flow::IsA      then narrow_is_a(current, step.types, step.positive, context)
-          in Flow::Declared then declared(Syntax::TypeReader.read(step.restriction), scope(context))
+          in Flow::Truthy     then truthy(current, step.positive)
+          in Flow::IsA        then narrow_is_a(current, step.types, step.positive, context)
+          in Flow::RespondsTo then responding(current, step.method, step.positive, context)
+          in Flow::Declared
+            declared(Syntax::TypeReader.read(step.restriction), scope(context))
           end
         end
       end
@@ -1215,6 +1217,34 @@ module Heucristic
         kept.size == 1 ? kept[0] : UnionRef.new(kept)
       end
 
+      private def responding(
+        current : Resolution,
+        method : String,
+        positive : Bool,
+        context : Syntax::Context,
+      ) : Resolution
+        return current if current.is_a?(Unknown)
+
+        members = current.is_a?(UnionRef) ? current.members : [current] of Resolution
+        kept = Array(Resolution).new(members.size)
+        members.each do |member|
+          next kept << member unless member.is_a?(TypeRef) || member.is_a?(MetaRef)
+
+          responds = !@methods.named_on(member, method, context.path).empty?
+          if positive && !responds
+            @methods.virtual_receivers(member, context.path).each do |below|
+              kept << below unless @methods.named_on(below, method, context.path).empty?
+            end
+          elsif positive == responds
+            kept << member
+          end
+        end
+        return TypeRef.of(:no_return) if kept.empty?
+
+        kept.uniq!
+        kept.size == 1 ? kept[0] : UnionRef.new(kept)
+      end
+
       private def covers?(ancestor : TypeRef, descendant : TypeRef) : Bool
         return true if ancestor.name == descendant.name
 
@@ -1226,7 +1256,7 @@ module Heucristic
         case step
         in Flow::Assigned, Flow::Reassigned, Flow::OrAssigned, Flow::Declared then true
         in Flow::Branched                                                     then step.assigns
-        in Flow::Truthy, Flow::IsA                                            then false
+        in Flow::Truthy, Flow::IsA, Flow::RespondsTo                          then false
         end
       end
 

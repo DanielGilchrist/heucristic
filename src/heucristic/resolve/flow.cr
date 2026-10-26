@@ -9,6 +9,7 @@ module Heucristic
     class Flow
       record Truthy, positive : Bool
       record IsA, types : Array(Crystal::ASTNode), positive : Bool
+      record RespondsTo, method : String, positive : Bool
       record Assigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
       record Declared, restriction : Crystal::ASTNode
       record OrAssigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
@@ -24,7 +25,8 @@ module Heucristic
         within : Array(Crystal::ASTNode),
         assigns : Bool
 
-      alias Step = Truthy | IsA | Assigned | OrAssigned | Reassigned | Branched | Declared
+      alias Step = Truthy | IsA | RespondsTo | Assigned | OrAssigned | Reassigned | Branched |
+                   Declared
 
       getter steps : Array(Step)
 
@@ -363,6 +365,11 @@ module Heucristic
             @steps << IsA.new([cond.const], positive)
           elsif obj.is_a?(Crystal::Var) && obj.name == @name
             @steps << IsA.new([cond.const], positive)
+          end
+        in Crystal::RespondsTo
+          obj = unwrapped(cond.obj)
+          if obj.is_a?(Crystal::Var) && obj.name == @name
+            @steps << RespondsTo.new(cond.name, positive)
           end
         in Crystal::Not
           inside(cond) { condition(cond.exp, !positive) }
