@@ -3061,3 +3061,22 @@ describe Heucristic::Resolve::Receiver, "unpacked block parameters in a block's 
     receiver_of_size(source, "pairs.map { |(name, count)| name }.size").should eq("Array(String)")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "typeof as a value" do
+  source = <<-CR
+    class Probe
+      def run(text : String, number : Int32) : Nil
+        typeof(text).size
+        typeof(text, number).size
+      end
+    end
+    CR
+
+  it "types typeof of an expression as its metaclass" do
+    receiver_of_size(source, "typeof(text).size").should eq("String.class")
+  end
+
+  it "types typeof of several expressions as the metaclass of their union" do
+    receiver_of_size(source, "typeof(text, number).size").should eq("String.class | Int32.class")
+  end
+end

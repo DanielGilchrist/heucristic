@@ -989,6 +989,10 @@ module Heucristic
           unknown = members.find(&.is_a?(Unknown))
           unknown || TypeRef.new(CoreType::NamedTuple.type_name, members, node.entries.map(&.key))
         in Crystal::Nop then TypeRef.of(:nil)
+        in Crystal::TypeOf
+          members = Array(Resolution).new(node.expressions.size)
+          node.expressions.each { |inner| members << type_of(inner, context, visiting, locals) }
+          members.find(&.is_a?(Unknown)) || metaclass_of(union(members))
         in Crystal::Expressions
           last = node.expressions.last?
           return TypeRef.of(:nil) unless last
