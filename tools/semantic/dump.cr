@@ -77,14 +77,15 @@ module Semantic
     end
 
     private def constant_value(value : Crystal::ASTNode) : String
-      case value
-      in Crystal::NumberLiteral, Crystal::StringLiteral, Crystal::SymbolLiteral,
-         Crystal::BoolLiteral, Crystal::NilLiteral, Crystal::CharLiteral,
-         Crystal::ArrayLiteral, Crystal::TupleLiteral, Crystal::HashLiteral,
-         Crystal::NamedTupleLiteral
-        value.to_s
-      in Crystal::ASTNode then "uninitialized ::Nil"
-      end
+      source = value.to_s
+      reparses?(source) ? source : "uninitialized ::Nil"
+    end
+
+    private def reparses?(source : String) : Bool
+      Crystal::Parser.parse(source)
+      true
+    rescue Crystal::SyntaxException
+      false
     end
 
     private def files(program : Crystal::Program) : Array(String)

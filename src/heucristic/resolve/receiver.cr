@@ -1784,6 +1784,10 @@ module Heucristic
         union(constants.map { |entry| constant_type(entry, located, visiting + [located]) })
       end
 
+      private def placeholder?(expression : Crystal::ASTNode) : Bool
+        expression.is_a?(Crystal::Call) && expression.obj.nil? && expression.name == "uninitialized"
+      end
+
       private def metaclass_of(resolved : Resolution) : Resolution
         case resolved
         in TypeRef, TypeVar then MetaRef.new(resolved)
@@ -1816,6 +1820,10 @@ module Heucristic
         return @types.resolve(type, owner_scope) if type.is_a?(Syntax::Type)
         unless expression
           return Unknown.new(:no_annotation, "#{name} has no value to type")
+        end
+        if Index::MacroTarget.generated?(entry.path) && placeholder?(expression)
+          detail = "#{name} is set by a macro whose value the helper did not export"
+          return Unknown.new(:macro, detail)
         end
 
         type_of(expression, context, visiting, Array(Binding).new)

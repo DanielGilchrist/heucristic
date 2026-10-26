@@ -2994,3 +2994,27 @@ describe Heucristic::Resolve::Receiver, "constants the compiler defines" do
     receiver_of_size(source, "Crystal::USER_FLAGS.size").should eq("Array(String)")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "constants a macro sets" do
+  it "types an exported value and explains a value the helper could not export" do
+    caller = <<-CR
+      class Controller
+        def run : Nil
+          Log.size
+          Hidden.size
+        end
+      end
+      CR
+    generated = <<-CR
+      class ::Controller
+        Log = "bindings"
+        Hidden = uninitialized ::Nil
+      end
+      CR
+    files = {"a.cr" => caller, "<macros>" => generated}
+    receiver_across(files, "a.cr", "Log.size").should eq("String")
+    receiver_across(files, "a.cr", "Hidden.size").should eq(
+      "unknown (macro: Controller::Hidden is set by a macro whose value the helper did not export)"
+    )
+  end
+end
