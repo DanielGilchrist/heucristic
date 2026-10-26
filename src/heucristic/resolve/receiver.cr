@@ -93,7 +93,7 @@ module Heucristic
             return result_of(receiver, shape_of(action, context, locals, visiting), site)
           end
         end
-        return macro_result(call, context, outcome) if outcome.is_a?(Unknown)
+        return macro_result(call, context, outcome, receiver, shape) if outcome.is_a?(Unknown)
 
         block = call.block
         return outcome if block.nil?
@@ -460,13 +460,16 @@ module Heucristic
         call : Crystal::Call,
         context : Syntax::Context,
         outcome : Unknown,
+        receiver : Resolved,
+        shape : Methods::Call,
       ) : Unknown
         return outcome unless outcome.reason.unresolved_name?
         if context.ancestors.any?(Crystal::Annotation)
           detail = "`#{call.name}` sits inside an annotation, whose arguments only macros read"
           return Unknown.new(:macro, detail)
         end
-        if Index::MacroCall.like?(call, @workspace)
+        inherited = @methods.class_macros(receiver, shape)
+        if Index::MacroCall.like?(call, @workspace) || !inherited.empty?
           return Unknown.new(:macro, "`#{call.name}` is a macro; its expansion is not typed")
         end
         return outcome unless call.obj.nil?

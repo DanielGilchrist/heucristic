@@ -2912,3 +2912,61 @@ describe Heucristic::Resolve::Receiver, "forward_missing_to" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "macros reached through a receiver's type" do
+  source = <<-CR
+    struct Number
+      macro static_array(*nums)
+      end
+    end
+
+    struct Slice(T)
+      macro [](*args, read_only = false)
+      end
+    end
+
+    alias Bytes = Slice(UInt8)
+
+    module ClassMethods
+      macro from_errno(message)
+      end
+    end
+
+    class Failure
+      extend ClassMethods
+    end
+
+    class Runner
+      def run : Nil
+        UInt8.static_array(1, 2).size
+        Bytes[1, 2].size
+        Failure.from_errno("x").size
+        UInt8.nothing.size
+      end
+    end
+    CR
+
+  it "finds a macro an ancestor of the receiver's type owns" do
+    receiver_of_size(source, "UInt8.static_array(1, 2).size").should eq(
+      "unknown (macro: `static_array` is a macro; its expansion is not typed)"
+    )
+  end
+
+  it "finds a macro through an alias of the receiver" do
+    receiver_of_size(source, "Bytes[1, 2].size").should eq(
+      "unknown (macro: `[]` is a macro; its expansion is not typed)"
+    )
+  end
+
+  it "finds a macro in a module the receiver's type extends" do
+    receiver_of_size(source, "Failure.from_errno(\"x\").size").should eq(
+      "unknown (macro: `from_errno` is a macro; its expansion is not typed)"
+    )
+  end
+
+  it "keeps a name no level declares unresolved" do
+    receiver_of_size(source, "UInt8.nothing.size").should eq(
+      "unknown (unresolved name: no `nothing` on UInt8.class)"
+    )
+  end
+end

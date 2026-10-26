@@ -121,6 +121,20 @@ module Heucristic
         @descendants.invalidate
       end
 
+      def class_macros(receiver : Resolution, call : Call) : Array(Index::MacroDef)
+        found = Array(Index::MacroDef).new
+        return found unless receiver.is_a?(MetaRef)
+
+        of = receiver.of
+        return found unless of.is_a?(TypeRef)
+
+        owners = macro_owners(of.name)
+        @workspace.macros(call.name).select do |entry|
+          owner = entry.owner
+          owner.is_a?(String) && owners.includes?(owner) && entry.arity.accepts?(call.arity)
+        end
+      end
+
       def dispatch(receiver : Resolution, call : Call) : Array(Index::Def)
         found = lookup(receiver, call)
         found.empty? ? virtual_lookup(receiver, call) : found
@@ -615,6 +629,20 @@ module Heucristic
         includers_of(type).each { |includer| found.concat(instance_named(includer, name)) }
         @including.pop
         found.uniq!
+      end
+
+      private def macro_owners(type : String) : Array(String)
+        searched = levels(type)
+        owners = searched.dup
+        searched.each do |level|
+          @workspace.mixins_of(level).each do |mixin|
+            next unless mixin.kind.extend?
+
+            module_name = extended_module(mixin, level)
+            owners.concat(levels(module_name)) if module_name
+          end
+        end
+        owners.uniq!
       end
 
       private def metaclass_named(type : String, name : String) : Array(Index::Def)

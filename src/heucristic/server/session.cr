@@ -794,6 +794,13 @@ module Heucristic
 
         shape = @receiver.shape_of(call, target.context)
         found = @methods.dispatch(receiver, shape)
+        if found.empty?
+          inherited = @methods.class_macros(receiver, shape)
+          unless inherited.empty?
+            described = inherited.map { |definition| describe_macro(definition) }
+            return Answer.macros(inherited, described)
+          end
+        end
         if found.empty? && (action = @receiver.select_action(call, target.context))
           shape = @receiver.shape_of(action, target.context)
           found = @methods.lookup(receiver, shape)
