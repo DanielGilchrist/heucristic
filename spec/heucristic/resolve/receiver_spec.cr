@@ -2970,3 +2970,27 @@ describe Heucristic::Resolve::Receiver, "macros reached through a receiver's typ
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "constants the compiler defines" do
+  source = <<-CR
+    class Report
+      def run : Nil
+        Crystal::DESCRIPTION.size
+        Crystal::BUILD_COMMIT.size
+        Crystal::USER_FLAGS.size
+      end
+    end
+    CR
+
+  it "types a compiler-defined string constant (program.cr: define_crystal_string_constant)" do
+    receiver_of_size(source, "Crystal::DESCRIPTION.size").should eq("String")
+  end
+
+  it "types the build commit as nilable, as a compiler built without one defines it as nil" do
+    receiver_of_size(source, "Crystal::BUILD_COMMIT.size").should eq("String | Nil")
+  end
+
+  it "types the flag constants as string arrays (program.cr: define_string_array_constant)" do
+    receiver_of_size(source, "Crystal::USER_FLAGS.size").should eq("Array(String)")
+  end
+end

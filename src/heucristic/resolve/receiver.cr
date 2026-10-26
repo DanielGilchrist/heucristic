@@ -1768,6 +1768,9 @@ module Heucristic
           return MetaRef.new(TypeVar.new(path.names[0]))
         end
         named = Syntax::Named.new(path.names, path.global?)
+        if (builtin = Builtins.constant_type(path.names.join("::")))
+          return @types.resolve(builtin, Scope::TOP)
+        end
         located = @types.locate_any(named, scope)
         if located.is_a?(Unknown)
           inherited = @types.resolve(named, scope)

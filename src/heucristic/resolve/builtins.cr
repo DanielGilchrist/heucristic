@@ -1,3 +1,5 @@
+require "../syntax/type"
+
 module Heucristic
   module Resolve
     module Builtins
@@ -33,8 +35,12 @@ module Heucristic
         "Crystal::BUILD_COMMIT", "Crystal::BUILD_DATE", "Crystal::CACHE_DIR",
         "Crystal::DEFAULT_PATH", "Crystal::DESCRIPTION", "Crystal::PATH", "Crystal::VERSION",
         "Crystal::LLVM_VERSION", "Crystal::HOST_TRIPLE", "Crystal::TARGET_TRIPLE",
-        "Crystal::LIBRARY_PATH", "Crystal::LIBRARY_RPATH",
+        "Crystal::LIBRARY_PATH", "Crystal::LIBRARY_RPATH", "Crystal::USER_FLAGS",
+        "Crystal::ALL_FLAGS",
       }
+
+      NILABLE_STRING_CONSTANTS = {"Crystal::BUILD_COMMIT"}
+      STRING_ARRAY_CONSTANTS   = {"Crystal::USER_FLAGS", "Crystal::ALL_FLAGS"}
 
       def self.includes?(name : String) : Bool
         ROOTS.includes?(name) || SUPERCLASSES.any? { |entry| entry[0] == name }
@@ -46,6 +52,18 @@ module Heucristic
 
       def self.constant?(name : String) : Bool
         CONSTANTS.includes?(name)
+      end
+
+      def self.constant_type(name : String) : Syntax::Type?
+        return unless constant?(name)
+
+        string = Syntax::Named.of(:string)
+        return Syntax::Nilable.new(string) if NILABLE_STRING_CONSTANTS.includes?(name)
+        return string unless STRING_ARRAY_CONSTANTS.includes?(name)
+
+        arguments = [string] of Syntax::Type
+        named = Array(Syntax::Generic::NamedArgument).new
+        Syntax::Generic.new(Syntax::Named.of(:array), arguments, named)
       end
 
       def self.type_vars(name : String) : Array(String)
