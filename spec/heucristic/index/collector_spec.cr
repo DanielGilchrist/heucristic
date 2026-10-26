@@ -442,7 +442,9 @@ describe Heucristic::Index::Collector, "macros and mixins" do
       {entry.name, owner.is_a?(String) ? owner : "top-level"}
     end
     owners.should eq([{"shout", "top-level"}, {"wrap", "Wrapper"}, {"method_missing", "Wrapper"}])
-    file.defs.should be_empty
+    file.defs.map { |entry| {entry.qualified, entry.forwards_to.to_s} }.should eq(
+      [{"Wrapper#method_missing", "@inner"}]
+    )
   end
 
   it "tells declaring macro bodies from expression-only ones" do

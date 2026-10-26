@@ -102,6 +102,11 @@ module Heucristic
         escaped.empty? ? outcome : union([outcome] + escaped)
       end
 
+      def forwarded_receiver(receiver : Resolved) : Resolution?
+        handler = missing_handler(receiver)
+        forward_receiver(handler, [handler.qualified]) if handler
+      end
+
       def select_action(call : Crystal::Call, context : Syntax::Context) : Crystal::Call?
         return unless context.select_condition?(call)
 
@@ -165,6 +170,9 @@ module Heucristic
             :free_variable,
             "#{variable} is a type variable; `#{call.name}` depends on its instantiation",
           )
+        end
+        if defs.empty? && (forwarded = missing_forward(receiver, call, site))
+          return forwarded
         end
         return virtual_result(receiver, call, site) if defs.empty?
 
@@ -673,6 +681,42 @@ module Heucristic
 
       private def exits_for(context : Syntax::Context, visiting : Array(String)) : CallExits
         CallExits.new(@methods, implicit_self(context), self, context, visiting)
+      end
+
+      private def missing_forward(
+        receiver : Resolved,
+        call : Methods::Call,
+        site : Site,
+      ) : Resolution?
+        handler = missing_handler(receiver)
+        return unless handler
+        return Unknown.new(:cycle, handler.qualified) if site.visiting.includes?(handler.qualified)
+
+        visiting = site.visiting + [handler.qualified]
+        delegate = forward_receiver(handler, visiting)
+        return delegate if delegate.is_a?(Unknown)
+
+        result_of(delegate, call, Site.new(site.block, site.context, site.locals, visiting))
+      end
+
+      private def missing_handler(receiver : Resolved) : Index::Def?
+        return unless receiver.is_a?(TypeRef)
+
+        levels = @methods.levels(receiver.name)
+        @workspace.named(Index::MacroHook::MethodMissing.macro_name).find do |entry|
+          owner = entry.owner
+          !entry.forwards_to.nil? && owner.is_a?(String) && levels.includes?(owner)
+        end
+      end
+
+      private def forward_receiver(handler : Index::Def, visiting : Array(String)) : Resolution
+        target = handler.forwards_to
+        return Unknown.new(:unresolved_name, handler.qualified) unless target
+
+        owner = handler.owner
+        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
+        context = Syntax::Context.new(enclosing, Array(String).new, nil, handler.path, true)
+        type_of(target, context, visiting, Array(Binding).new)
       end
 
       private def virtual_result(

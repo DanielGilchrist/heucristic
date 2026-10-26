@@ -232,6 +232,35 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
+  it "answers hover for a call forwarded by forward_missing_to" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    source = <<-CR
+      class Store
+        def lookup(key : String) : Bool?
+        end
+      end
+
+      class Cache
+        @store = Store.new
+
+        forward_missing_to @store
+      end
+
+      def allowed?(cache : Cache) : Nil
+        cache.lookup("a")
+      end
+      CR
+    client.open(URI_A, source)
+    client.await_diagnostics
+
+    hover = hover_text(client.hover(URI_A, 12, 9)).to_s
+    hover.should contain("def lookup(key : String) : Bool | Nil")
+    client.shutdown
+  end
+
   it "explains why a call cannot be resolved instead of guessing" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")

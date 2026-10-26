@@ -345,6 +345,7 @@ module Heucristic
           Parameter.new("args", "args", Unrestricted.new, nil, :splat),
           Parameter.new("options", "options", Unrestricted.new, nil, :double_splat),
         ]
+        record_forward(node)
         record_macro(
           MacroHook::MethodMissing.macro_name,
           node,
@@ -352,6 +353,28 @@ module Heucristic
           Arity.anything,
           :declaring,
           false,
+        )
+      end
+
+      private def record_forward(node : Crystal::Call) : Nil
+        target = node.args[0]?
+        return if owner.is_a?(TopLevel) || target.nil?
+
+        span = span_of(node, node.name.size)
+        return unless span
+
+        @defs << Def.new(
+          name: MacroHook::MethodMissing.macro_name,
+          owner: owner,
+          receiver: :instance,
+          path: @path,
+          name_span: span,
+          arity: Arity.new(0, 0, true),
+          parameters: [Parameter.new("args", "args", Unrestricted.new, nil, :splat)],
+          return_type: Unrestricted.new,
+          free_vars: Array(String).new,
+          yields: false,
+          forwards_to: target,
         )
       end
 

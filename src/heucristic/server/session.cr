@@ -799,6 +799,13 @@ module Heucristic
           found = @methods.lookup(receiver, shape)
         end
         if found.empty?
+          forwarded = @receiver.forwarded_receiver(receiver)
+          if forwarded.is_a?(Resolve::Resolved)
+            receiver = forwarded
+            found = @methods.dispatch(receiver, shape)
+          end
+        end
+        if found.empty?
           return Answer.note("no `#{call.name}` indexed on #{receiver}#{macro_hint}")
         end
 

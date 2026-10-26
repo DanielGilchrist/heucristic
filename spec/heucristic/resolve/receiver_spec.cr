@@ -2880,3 +2880,35 @@ describe Heucristic::Resolve::Receiver, "calls inside annotations" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "forward_missing_to" do
+  source = <<-CR
+    class Store
+      def lookup(key : String) : Bool?
+      end
+    end
+
+    class Cache
+      @store = Store.new
+
+      forward_missing_to @store
+    end
+
+    class User
+      def allowed?(cache : Cache) : Nil
+        cache.lookup("a").size
+        cache.missing.size
+      end
+    end
+    CR
+
+  it "types a call the receiver lacks through its forward_missing_to target" do
+    receiver_of_size(source, "cache.lookup(\"a\").size").should eq("Bool | Nil")
+  end
+
+  it "reports a call the forward target lacks as missing there" do
+    receiver_of_size(source, "cache.missing.size").should eq(
+      "unknown (unresolved name: no `missing` on Store)"
+    )
+  end
+end
