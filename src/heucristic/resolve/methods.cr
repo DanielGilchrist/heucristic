@@ -112,6 +112,7 @@ module Heucristic
 
       def compiled(map : Compiled) : Nil
         @compiled = map
+        @types.compiled(map)
       end
 
       def invalidate : Nil

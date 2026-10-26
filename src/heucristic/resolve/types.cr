@@ -4,6 +4,7 @@ require "./resolution"
 require "./scope"
 require "./builtins"
 require "./ancestors"
+require "./compiled"
 
 module Heucristic
   module Resolve
@@ -23,11 +24,17 @@ module Heucristic
         @ancestors = Ancestors.new(@workspace)
         @inheriting = Array(String).new
         @located = Hash(LocateKey, String | Unknown).new
+        @compiled = Compiled::NONE
       end
 
       def invalidate : Nil
         @ancestors.invalidate
         @located.clear
+      end
+
+      def compiled(map : Compiled) : Nil
+        @compiled = map
+        invalidate
       end
 
       def ancestors(name : String) : Ancestors::Chain
@@ -293,7 +300,14 @@ module Heucristic
           return TypeRef.new(full, Array(Resolution).new)
         end
 
-        target = aliases[0].target
+        candidates = loaded(aliases)
+        targets = candidates.map(&.target).uniq!
+        if targets.size > 1
+          places = candidates.map(&.path).sort!.join(", ")
+          return Unknown.new(:ambiguous, "#{full} is declared differently in #{places}")
+        end
+
+        target = targets[0]
         if target.is_a?(Syntax::TypeReader::Unsupported)
           return Unknown.new(:unsupported, target.source)
         end
@@ -309,6 +323,11 @@ module Heucristic
         ensure
           @following.pop
         end
+      end
+
+      private def loaded(aliases : Array(Index::Alias)) : Array(Index::Alias)
+        known = aliases.select { |entry| @compiled.known?(entry.path) }
+        known.empty? ? aliases : known
       end
 
       private def declared?(name : String, constants : Bool, scope : Scope) : Bool

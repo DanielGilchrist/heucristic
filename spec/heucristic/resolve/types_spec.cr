@@ -253,3 +253,29 @@ describe Heucristic::Resolve::Types, "namespaces created by a qualified declarat
     )
   end
 end
+
+describe Heucristic::Resolve::Types, "aliases declared once per platform" do
+  it "follows the declaration in a loaded file and refuses to guess otherwise" do
+    workspace = Heucristic::Index::Workspace.new
+    {
+      {"/std/unix.cr", "module System\n  alias Handle = Int32\nend\n"},
+      {"/std/win32.cr", "module System\n  alias Handle = UInt64\nend\n"},
+    }.each do |path, source|
+      tree = Heucristic::Syntax.parse(source, path)
+      raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+      workspace.update(
+        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+      )
+    end
+    types = Heucristic::Resolve::Types.new(workspace)
+    resolve(workspace, "System::Handle").should eq(
+      "unknown (ambiguous: System::Handle is declared differently in /std/unix.cr, /std/win32.cr)"
+    )
+
+    targets = {Heucristic::Index::MacroTarget::Main => Set{"/p/src/main.cr", "/std/unix.cr"}}
+    types.compiled(Heucristic::Resolve::Compiled.new(targets, "/p", Array(String).new))
+    scope = Heucristic::Resolve::Scope::TOP
+    types.resolve(restriction("System::Handle"), scope).to_s.should eq("Int32")
+  end
+end
