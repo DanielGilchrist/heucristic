@@ -120,19 +120,35 @@ module Heucristic
         @descendants.invalidate
       end
 
+      def dispatch(receiver : Resolution, call : Call) : Array(Index::Def)
+        found = lookup(receiver, call)
+        found.empty? ? virtual_lookup(receiver, call) : found
+      end
+
       def virtual_lookup(receiver : Resolution, call : Call) : Array(Index::Def)
         found = Array(Index::Def).new
-        return found unless receiver.is_a?(TypeRef) && receiver.arguments.empty?
-        return found unless abstract_class?(receiver.name)
+        virtual_receivers(receiver, call.caller_path).each do |below|
+          defs = lookup(below, call)
+          return Array(Index::Def).new if defs.empty?
 
-        concrete = concrete_descendants(receiver.name)
-        concrete.each do |descendant|
-          below = lookup(TypeRef.new(descendant, Array(Resolution).new), call)
-          return Array(Index::Def).new if below.empty?
-
-          found.concat(below)
+          found.concat(defs)
         end
         found.uniq!
+      end
+
+      def virtual_receivers(receiver : Resolution, caller_path : String?) : Array(Resolved)
+        receivers = Array(Resolved).new
+        base = receiver.is_a?(MetaRef) ? receiver.of : receiver
+        return receivers unless base.is_a?(TypeRef) && base.arguments.empty?
+        return receivers unless abstract_class?(base.name)
+
+        concrete_descendants(base.name).each do |descendant|
+          next unless loaded?(descendant, caller_path)
+
+          instance = TypeRef.new(descendant, Array(Resolution).new)
+          receivers << (receiver.is_a?(MetaRef) ? MetaRef.new(instance) : instance)
+        end
+        receivers
       end
 
       def concrete_descendants(type : String) : Array(String)
@@ -140,6 +156,8 @@ module Heucristic
       end
 
       def abstract_class?(type : String) : Bool
+        return true if Builtins.abstract?(type)
+
         @workspace.namespaces(type).any? do |entry|
           entry.is_a?(Index::ClassNamespace) && entry.abstract_type
         end
@@ -289,6 +307,12 @@ module Heucristic
       private def descends?(type : String, ancestor : String) : Bool
         chain = @types.ancestors(type)
         chain.is_a?(Array(String)) && chain.includes?(ancestor)
+      end
+
+      private def loaded?(type : String, caller_path : String?) : Bool
+        return true unless caller_path && @compiled.known?(caller_path)
+
+        @workspace.namespaces(type).any? { |entry| @compiled.shared?(caller_path, entry.path) }
       end
 
       private def reachable?(entry : Index::Def, caller_path : String) : Bool

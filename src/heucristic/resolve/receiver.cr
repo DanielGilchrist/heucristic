@@ -676,19 +676,16 @@ module Heucristic
         call : Methods::Call,
         site : Site,
       ) : Resolution
-        missing = Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}")
-        return missing unless receiver.is_a?(TypeRef) && receiver.arguments.empty?
-        return missing unless @methods.abstract_class?(receiver.name)
-
-        concrete = @methods.concrete_descendants(receiver.name)
-        return missing if concrete.empty?
+        concrete = @methods.virtual_receivers(receiver, call.caller_path)
+        if concrete.empty?
+          return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}")
+        end
 
         results = Array(Resolution).new(concrete.size)
-        concrete.each do |descendant|
-          below = TypeRef.new(descendant, Array(Resolution).new)
+        concrete.each do |below|
           if @methods.lookup(below, call).empty?
             return Unknown.new(
-              :unresolved_name, "no `#{call.name}` on #{descendant}, a subclass of #{receiver}"
+              :unresolved_name, "no `#{call.name}` on #{below}, a subclass of #{receiver}"
             )
           end
           results << result_of(below, call, site)
@@ -1490,7 +1487,7 @@ module Heucristic
         return target if target.is_a?(Unknown)
 
         shape = shape_of(block_call, outer)
-        defs = @methods.lookup(target, shape)
+        defs = @methods.dispatch(target, shape)
         if defs.empty?
           return Unknown.new(:unresolved_name, "no `#{block_call.name}` on #{target}")
         end
@@ -1822,6 +1819,10 @@ module Heucristic
         end
 
         defs = @methods.lookup(receiver, shape)
+        if defs.empty? && !@methods.virtual_lookup(receiver, shape).empty?
+          virtual = @methods.virtual_receivers(receiver, shape.caller_path)
+          return union(virtual.map { |below| block_inputs(below, shape, index, parameters) })
+        end
         return Unknown.new(:unresolved_name, "no `#{shape.name}` on #{receiver}") if defs.empty?
 
         inputs = Array(Resolution).new(defs.size)

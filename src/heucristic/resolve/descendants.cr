@@ -2,6 +2,7 @@ require "../index/workspace"
 require "./types"
 require "./scope"
 require "./resolution"
+require "./builtins"
 
 module Heucristic
   module Resolve
@@ -36,6 +37,9 @@ module Heucristic
 
       private def compute_children : Hash(String, Array(String))
         by_parent = Hash(String, Array(String)).new
+        Builtins::SUPERCLASSES.each do |child, parent|
+          (by_parent[parent] ||= Array(String).new) << child
+        end
         @workspace.each_file do |file|
           file.namespaces.each do |entry|
             next unless entry.is_a?(Index::ClassNamespace)

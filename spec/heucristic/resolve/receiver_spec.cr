@@ -2816,3 +2816,48 @@ describe Heucristic::Resolve::Receiver, "free variables in a union block restric
     receiver_of_size(source, "nexted.size").should eq("Other | Shift | Nil")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "subclass dispatch through blocks and metaclasses" do
+  source = <<-CR
+    class Channel
+      def rate : Int32
+      end
+    end
+
+    abstract class Client
+      def self.build : String
+        algorithm.size
+      end
+    end
+
+    class AmqpClient < Client
+      def self.algorithm : String
+      end
+
+      def each_channel(& : Channel ->) : Nil
+      end
+    end
+
+    class MqttClient < Client
+      def self.algorithm : String
+      end
+
+      def each_channel(& : Channel ->) : Nil
+      end
+    end
+
+    class Server
+      def run(client : Client) : Nil
+        client.each_channel { |channel| channel.rate.size }
+      end
+    end
+    CR
+
+  it "types a block parameter of a method every concrete subclass yields" do
+    receiver_of_size(source, "channel.rate.size").should eq("Int32")
+  end
+
+  it "types a class method only the concrete subclasses define (crystal: String)" do
+    receiver_of_size(source, "algorithm.size").should eq("String")
+  end
+end

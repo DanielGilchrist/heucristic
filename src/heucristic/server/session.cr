@@ -793,8 +793,7 @@ module Heucristic
         end
 
         shape = @receiver.shape_of(call, target.context)
-        found = @methods.lookup(receiver, shape)
-        found = @methods.virtual_lookup(receiver, shape) if found.empty?
+        found = @methods.dispatch(receiver, shape)
         if found.empty? && (action = @receiver.select_action(call, target.context))
           shape = @receiver.shape_of(action, target.context)
           found = @methods.lookup(receiver, shape)

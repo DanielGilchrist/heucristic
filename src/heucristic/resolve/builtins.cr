@@ -27,6 +27,8 @@ module Heucristic
         {"Exception", "Reference"}, {"Enum", "Value"}, {"Proc", "Value"}, {"Union", "Value"},
       }
 
+      ABSTRACT = {"Object", "Value", "Number", "Int", "Float", "Struct", "Enum"}
+
       CONSTANTS = {
         "Crystal::BUILD_COMMIT", "Crystal::BUILD_DATE", "Crystal::CACHE_DIR",
         "Crystal::DEFAULT_PATH", "Crystal::DESCRIPTION", "Crystal::PATH", "Crystal::VERSION",
@@ -36,6 +38,10 @@ module Heucristic
 
       def self.includes?(name : String) : Bool
         ROOTS.includes?(name) || SUPERCLASSES.any? { |entry| entry[0] == name }
+      end
+
+      def self.abstract?(name : String) : Bool
+        ABSTRACT.includes?(name)
       end
 
       def self.constant?(name : String) : Bool
