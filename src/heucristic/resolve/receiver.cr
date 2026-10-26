@@ -1985,6 +1985,9 @@ module Heucristic
         owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
         type_vars = entry.free_vars + owner_vars
         sites = Syntax::YieldSites.in(definition, enclosing, type_vars, entry.path)
+        if sites.empty? && entry.macro_body
+          return Unknown.new(:macro, "#{entry.qualified} yields only inside macro code")
+        end
         if sites.empty?
           return Unknown.new(:no_annotation, "#{entry.qualified} never yields")
         end

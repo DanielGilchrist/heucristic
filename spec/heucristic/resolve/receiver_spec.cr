@@ -3018,3 +3018,27 @@ describe Heucristic::Resolve::Receiver, "constants a macro sets" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "yields inside macro code" do
+  source = <<-CR
+    struct Pair(T)
+      def reduce(&)
+        {% for i in 0...2 %}
+          yield self[{{ i }}]
+        {% end %}
+      end
+    end
+
+    class Folder
+      def run(pair : Pair(Int32)) : Nil
+        pair.reduce { |value| value.size }
+      end
+    end
+    CR
+
+  it "says a def yields only inside macro code instead of claiming it never yields" do
+    receiver_of_size(source, "value.size").should eq(
+      "unknown (macro: Pair#reduce yields only inside macro code)"
+    )
+  end
+end
