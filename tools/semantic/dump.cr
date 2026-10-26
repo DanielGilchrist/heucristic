@@ -45,7 +45,8 @@ module Semantic
 
     private def collect(program : Crystal::Program) : Nil
       all_types(program).each do |type|
-        next if type.is_a?(Crystal::LibType)
+        next emit_lib(type) if type.is_a?(Crystal::LibType)
+
         declared_by_macro = macro_declared?(type)
         case type
         in Crystal::Const
@@ -234,6 +235,49 @@ module Semantic
       end
       emit("end")
       emit("")
+    end
+
+    private def emit_lib(type : Crystal::LibType) : Nil
+      funs = Array(String).new
+      type.defs.try &.each_value do |overloads|
+        overloads.each do |overload|
+          external = overload.def
+          next unless external.is_a?(Crystal::External)
+          next if external.external_var?
+
+          fun_def = external.fun_def?
+          next unless fun_def && external.location.try(&.filename).is_a?(Crystal::VirtualFile)
+
+          funs << fun_source(fun_def)
+        end
+      end
+      return if funs.empty?
+      unless reparses?("lib #{type}\n#{funs.join('\n')}\nend")
+        funs.select! { |text| reparses?("lib #{type}\n#{text}\nend") }
+      end
+      return if funs.empty?
+
+      emit("lib #{type}")
+      funs.each { |text| text.each_line { |line| emit(line) } }
+      emit("end")
+    end
+
+    private def fun_source(fun_def : Crystal::FunDef) : String
+      String.build do |io|
+        io << "fun " << fun_def.name << " = " << real_name(fun_def.real_name) << '('
+        fun_def.args.each_with_index do |arg, index|
+          io << ", " if index > 0
+          io << arg.name << " : " unless arg.name.empty?
+          io << arg.restriction
+        end
+        io << (fun_def.args.empty? ? "..." : ", ...") if fun_def.varargs?
+        io << ')'
+        fun_def.return_type.try { |type| io << " : " << type }
+      end
+    end
+
+    private def real_name(name : String) : String
+      name.matches?(/\A[A-Za-z_][A-Za-z0-9_]*\z/) ? name : name.inspect
     end
 
     private def emit(text : String) : Nil
