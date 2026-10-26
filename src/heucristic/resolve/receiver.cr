@@ -2089,7 +2089,16 @@ module Heucristic
         locals = site.locals.dup
         block.args.each_with_index do |argument, index|
           input = inputs[index]?
-          locals << Binding.new(argument.name, input) if input
+          next unless input
+
+          unpacked = block.unpacks.try(&.[index]?)
+          next locals << Binding.new(argument.name, input) unless unpacked
+
+          unpacked.expressions.each_with_index do |target, position|
+            next unless target.is_a?(Crystal::Var)
+
+            locals << Binding.new(target.name, tuple_element(input, position, target.name))
+          end
         end
         body = block.body
         nexts = Escapes.in(block).nexts

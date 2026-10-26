@@ -3042,3 +3042,22 @@ describe Heucristic::Resolve::Receiver, "yields inside macro code" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "unpacked block parameters in a block's result" do
+  source = <<-CR
+    class Array(T)
+      def map(& : T -> U) : Array(U) forall U
+      end
+    end
+
+    class Pairs
+      def run(pairs : Array(Tuple(String, Int32))) : Nil
+        pairs.map { |(name, count)| name }.size
+      end
+    end
+    CR
+
+  it "binds unpacked block parameters when typing the block's result" do
+    receiver_of_size(source, "pairs.map { |(name, count)| name }.size").should eq("Array(String)")
+  end
+end
