@@ -15,6 +15,10 @@ module Semantic
       started = Time.instant
       program = Crystal::Program.new
       @defines.each { |flag| program.flags << flag }
+      {% if Crystal::Program.has_method?(:define_crystal_constants) %}
+        program.user_flags.concat(@defines)
+        program.define_crystal_constants
+      {% end %}
       program.filename = @entry
       program.color = false
       program.wants_doc = false
