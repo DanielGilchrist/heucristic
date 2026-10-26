@@ -26,10 +26,10 @@ module Indexable(T)
   def each(& : T ->) : Nil
   end
 
-  def each(*, start : Int, count : Int, & : T ->) : Nil
+  def each(*, start : Int, count : Int, & : T ->) : self
   end
 
-  def each(*, within range : Range, & : T ->) : Nil
+  def each(*, within range : Range, & : T ->) : self
   end
 
   def each_combination(size : Int = self.size, reuse = false) : Iterator(Array(T))
@@ -38,7 +38,7 @@ module Indexable(T)
   def each_index : Iterator(Int32)
   end
 
-  def each_index(*, start : Int, count : Int, & : Int32 ->) : Nil
+  def each_index(*, start : Int, count : Int, & : Int32 ->) : self
   end
 
   def each_permutation(size : Int = self.size, reuse = false) : Iterator(Array(T))

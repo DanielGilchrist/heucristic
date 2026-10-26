@@ -1,11 +1,11 @@
 class String
-  def split(limit : Int32? = nil, &block : String -> _) : Nil
+  def split(limit : Int32? = nil, &block : String -> U) : U? forall U
   end
 
-  def split(separator : Char, limit = nil, *, remove_empty = false, &block : String -> _) : Nil
+  def split(separator : Char, limit = nil, *, remove_empty = false, &block : String -> U) : U? forall U
   end
 
-  def split(separator : String, limit = nil, *, remove_empty = false, &block : String -> _) : Nil
+  def split(separator : String, limit = nil, *, remove_empty = false, &block : String -> U) : U? forall U
   end
 
   def rindex(search : Char, offset = size - 1) : Int32?

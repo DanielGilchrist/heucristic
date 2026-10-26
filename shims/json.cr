@@ -7,9 +7,9 @@ module JSON
 end
 
 class JSON::Builder
-  def object(& : ->) : Nil
+  def object(& : -> U) : U forall U
   end
 
-  def field(name, & : ->) : Nil
+  def field(name, & : -> U) : U forall U
   end
 end
