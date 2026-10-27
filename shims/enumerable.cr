@@ -26,7 +26,7 @@ module Enumerable(T)
   def group_by(& : T -> U) : Hash(U, Array(T)) forall U
   end
 
-  def in_groups_of(size : Int, filled_up_with : U = nil) : Array(Array(T | U))
+  def in_groups_of(size : Int, filled_up_with : U = nil) : Array(Array(T | U)) forall U
   end
 
   def zip(*others : Indexable | Iterable | Iterator, &) : Nil
@@ -53,7 +53,7 @@ module Enumerable(T)
   def reduce?(& : T, T -> T) : T?
   end
 
-  def in_groups_of(size : Int, filled_up_with : U = nil, reuse = false, & : Array(T | U) ->) : Nil
+  def in_groups_of(size : Int, filled_up_with : U = nil, reuse = false, & : Array(T | U) ->) : Nil forall U
   end
 
   def join(separator = "", & : T ->) : String

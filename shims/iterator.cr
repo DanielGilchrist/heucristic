@@ -17,13 +17,13 @@ module Iterator(T)
   def accumulate(&block : T, T -> T) : Iterator(T)
   end
 
-  def accumulate(initial : U) : Iterator(U)
+  def accumulate(initial : U) : Iterator(U) forall U
   end
 
   def accumulate(initial : U, &block : U, T -> U) : Iterator(U) forall U
   end
 
-  def chain(other : Iterator(U)) : Iterator(T | U)
+  def chain(other : Iterator(U)) : Iterator(T | U) forall U
   end
 
   def chunk(reuse = false, &block : T -> U) : Iterator(Tuple(U, Array(T))) forall U
@@ -74,7 +74,7 @@ module Iterator(T)
   def select(pattern) : Iterator(T)
   end
 
-  def select(type : U.class) : Iterator(U)
+  def select(type : U.class) : Iterator(U) forall U
   end
 
   def skip(n : Int) : Iterator(T)

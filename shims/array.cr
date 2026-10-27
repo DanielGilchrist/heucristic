@@ -26,7 +26,7 @@ class Array(T)
   def map_with_index(offset = 0, & : T, Int32 -> U) : Array(U) forall U
   end
 
-  def product(ary : Array(U)) : Array(Tuple(T, U))
+  def product(ary : Array(U)) : Array(Tuple(T, U)) forall U
   end
 
   def to_lookup_hash(& : T -> U) : Hash(U, T) forall U
