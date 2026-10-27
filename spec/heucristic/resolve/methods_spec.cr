@@ -378,3 +378,43 @@ describe Heucristic::Resolve::Methods, "virtual receivers" do
     methods.virtual_receivers(float, nil).map(&.to_s).should eq(["Float32", "Float64"])
   end
 end
+
+private def platform_source(handle : String) : String
+  <<-CR
+    module System
+      def self.handle : #{handle}
+      end
+    end
+
+    lib LibC
+      struct Limit
+      end
+    end
+    CR
+end
+
+describe Heucristic::Resolve::Methods, "loaded files" do
+  it "answers only from the declaration a caller's target loads, default constructors too" do
+    workspace = Heucristic::Index::Workspace.new
+    {
+      {"/std/unix.cr", platform_source("Int32")},
+      {"/std/win32.cr", platform_source("UInt64")},
+    }.each do |path, source|
+      tree = Heucristic::Syntax.parse(source, path)
+      raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+      workspace.update(
+        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+      )
+    end
+    types = Heucristic::Resolve::Types.new(workspace)
+    methods = Heucristic::Resolve::Methods.new(workspace, types)
+    targets = {Heucristic::Index::MacroTarget::Main => Set{"/p/src/main.cr", "/std/unix.cr"}}
+    methods.compiled(Heucristic::Resolve::Compiled.new(targets, "/p", Array(String).new))
+    none = Array(Heucristic::Resolve::Resolution).new
+    system = Heucristic::Resolve::MetaRef.new(Heucristic::Resolve::TypeRef.new("System", none))
+    methods.named_on(system, "handle", "/p/src/main.cr").map(&.path).should eq(["/std/unix.cr"])
+    limit = Heucristic::Resolve::MetaRef.new(Heucristic::Resolve::TypeRef.new("LibC::Limit", none))
+    methods.named_on(limit, "new", "/p/src/main.cr").map(&.path).should eq(["/std/unix.cr"])
+  end
+end

@@ -178,16 +178,21 @@ module Heucristic
         end
       end
 
-      def compatible?(entry : Index::Def, call : Call) : Bool
-        rejected_argument(entry, call).nil?
+      def compatible?(entry : Index::Def, call : Call, receiver : Resolution? = nil) : Bool
+        rejected_argument(entry, call, receiver: receiver).nil?
       end
 
-      def rejected_argument(entry : Index::Def, call : Call, any_member : Bool = false) : Rejected?
+      def rejected_argument(
+        entry : Index::Def,
+        call : Call,
+        any_member : Bool = false,
+        receiver : Resolution? = nil,
+      ) : Rejected?
         positional = entry.parameters.select(&.kind.positional?)
         owner = entry.owner
         owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
         type_vars = entry.free_vars + owner_vars
-        scope = Scope.new(owner, type_vars, Array(Binding).new, entry.path)
+        scope = Scope.new(owner, type_vars, receiver_bindings(receiver, owner), entry.path)
         splat = entry.parameters.find(&.kind.splat?)
         call.arguments.each_with_index do |argument, index|
           parameter = positional[index]? || splat
@@ -206,7 +211,7 @@ module Heucristic
 
       def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
         found = case receiver
-                in TypeRef          then instance_methods(receiver.name, call)
+                in TypeRef          then instance_methods(receiver.name, call, receiver)
                 in MetaRef          then metaclass_methods(receiver.of, call)
                 in UnionRef         then union_methods(receiver, call)
                 in TypeVar, Unknown then Array(Index::Def).new
@@ -234,7 +239,11 @@ module Heucristic
                 in TypeRef then instance_named(receiver.name, name)
                 in MetaRef
                   of = receiver.of
-                  of.is_a?(TypeVar) ? Array(Index::Def).new : metaclass_named(of.name, name)
+                  if of.is_a?(TypeVar)
+                    Array(Index::Def).new
+                  else
+                    metaclass_named(of.name, name, caller_path)
+                  end
                 in UnionRef, TypeVar then Array(Index::Def).new
                 end
         found.select { |entry| own?(entry, caller_path) }
@@ -330,10 +339,12 @@ module Heucristic
         @workspace.namespaces(type).any? { |entry| @compiled.shared?(caller_path, entry.path) }
       end
 
-      private def reachable?(entry : Index::Def, caller_path : String) : Bool
-        return true unless @compiled.project?(entry.path) && @compiled.known?(caller_path)
+      private def loaded_for?(caller_path : String?, path : String) : Bool
+        caller_path ? @compiled.loaded?(caller_path, path) : false
+      end
 
-        @compiled.shared?(caller_path, entry.path)
+      private def reachable?(entry : Index::Def, caller_path : String) : Bool
+        @compiled.loaded?(caller_path, entry.path)
       end
 
       private def private_paths(owner : String) : Array(String)
@@ -357,9 +368,13 @@ module Heucristic
         chain.is_a?(Unknown) || chain.includes?(candidate)
       end
 
-      private def instance_methods(type : String, call : Call) : Array(Index::Def)
+      private def instance_methods(
+        type : String,
+        call : Call,
+        receiver : TypeRef? = nil,
+      ) : Array(Index::Def)
         found = first_level(type, call) do |entry|
-          entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
+          entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call, receiver)
         end
         return found unless found.empty?
 
@@ -509,7 +524,10 @@ module Heucristic
         declared = @workspace.named(initialize).any? { |entry| searched.includes?(entry.owner) }
         return Array(Index::Def).new if declared
 
-        entry = @workspace.namespaces(type).select(Index::ClassNamespace).first?
+        declared = @workspace.namespaces(type).select(Index::ClassNamespace)
+        caller_path = call.caller_path
+        entry = declared.find { |candidate| loaded_for?(caller_path, candidate.path) }
+        entry ||= declared.first?
         return Array(Index::Def).new unless entry
 
         [Index::Def.new(
@@ -590,9 +608,20 @@ module Heucristic
       end
 
       private def most_specific(found : Array(Index::Def), call : Call) : Array(Index::Def)
+        fixed = found.reject(&.arity.splat)
+        found = fixed unless fixed.empty?
         found.reject do |entry|
           found.any? { |other| other != entry && stricter?(other, entry, call) }
         end
+      end
+
+      private def receiver_bindings(receiver : Resolution?, owner : Index::Owner) : Array(Binding)
+        none = Array(Binding).new
+        return none unless receiver.is_a?(TypeRef) && owner.is_a?(String)
+        return none if receiver.arguments.empty? && receiver.name == owner
+
+        bound = @types.bindings(receiver, owner)
+        bound.is_a?(Unknown) ? none : bound
       end
 
       private def stricter?(candidate : Index::Def, other : Index::Def, call : Call) : Bool
@@ -645,7 +674,11 @@ module Heucristic
         owners.uniq!
       end
 
-      private def metaclass_named(type : String, name : String) : Array(Index::Def)
+      private def metaclass_named(
+        type : String,
+        name : String,
+        caller_path : String? = nil,
+      ) : Array(Index::Def)
         searched = levels(type)
         found = @workspace.named(name).select do |entry|
           entry.receiver.metaclass? && searched.includes?(entry.owner)
@@ -659,18 +692,21 @@ module Heucristic
           end
         end
         found.concat(instance_named(CoreType::Class.type_name, name))
-        found.concat(constructors(type)) if Syntax::WellKnown::New.named?(name)
+        found.concat(constructors(type, caller_path)) if Syntax::WellKnown::New.named?(name)
         found.uniq!
       end
 
-      private def constructors(type : String) : Array(Index::Def)
+      private def constructors(type : String, caller_path : String?) : Array(Index::Def)
         levels(type).each do |level|
           declared = @workspace.named(Syntax::WellKnown::Initialize.method_name).select do |entry|
             entry.receiver.instance? && entry.owner == level
           end
           return declared unless declared.empty?
         end
-        default_constructor(type, Call.new(Syntax::WellKnown::New.method_name, 0, false))
+        none = Array(Resolution).new
+        call = Call.new(Syntax::WellKnown::New.method_name, 0, false, none, Array(String).new,
+          caller_path: caller_path)
+        default_constructor(type, call)
       end
     end
   end

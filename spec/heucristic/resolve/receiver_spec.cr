@@ -3080,3 +3080,55 @@ describe Heucristic::Resolve::Receiver, "typeof as a value" do
     receiver_of_size(source, "typeof(text, number).size").should eq("String.class | Int32.class")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "overloads chosen with the receiver's type arguments" do
+  source = <<-CR
+    class Box(T)
+      def put(value : T) : T
+      end
+
+      def put(values : Array(T)) : Array(T)
+      end
+
+      def dig(key : String) : Int32
+      end
+
+      def dig(key : String, *rest) : String
+      end
+    end
+
+    module Comparable(T)
+      def ==(other : T) : Bool
+      end
+    end
+
+    struct Value
+      def ==(other) : String
+      end
+    end
+
+    struct Version < Value
+      include Comparable(Version)
+    end
+
+    class Runner
+      def run(box : Box(Int32), version : Version) : Nil
+        box.put([1]).size
+        box.dig("a").size
+        (version == 1).size
+      end
+    end
+    CR
+
+  it "drops an overload whose restriction the receiver's type argument rules out" do
+    receiver_of_size(source, "box.put([1]).size").should eq("Array(Int32)")
+  end
+
+  it "prefers the overload without a splat (crystal run: Int32)" do
+    receiver_of_size(source, "box.dig(\"a\").size").should eq("Int32")
+  end
+
+  it "moves past an ancestor whose restriction rejects the argument" do
+    receiver_of_size(source, "(version == 1).size").should eq("String")
+  end
+end

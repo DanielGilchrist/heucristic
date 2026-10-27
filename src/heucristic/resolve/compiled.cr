@@ -24,6 +24,13 @@ module Heucristic
         @targets.each_value.any?(&.includes?(path))
       end
 
+      def loaded?(caller_path : String, path : String) : Bool
+        return true unless known?(caller_path)
+        return true if @shim_roots.any? { |shim_root| path.starts_with?(shim_root + "/") }
+
+        shared?(caller_path, path)
+      end
+
       def shared?(caller_path : String, path : String) : Bool
         return true if Index::MacroTarget.generated?(path)
 
