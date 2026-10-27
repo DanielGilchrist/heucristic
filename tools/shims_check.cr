@@ -3,11 +3,12 @@ require "../src/heucristic/index/shims"
 require "../src/heucristic/index/workspace"
 require "../src/heucristic/crystal_env"
 require "../src/heucristic/server/shim_roots"
+require "./shims_check/verify"
 
 module ShimsCheck
   extend self
 
-  def run : Int32
+  def run(args : Array(String)) : Int32
     roots = Heucristic::CrystalEnv.source_paths(Dir.current)
     if roots.is_a?(Heucristic::CrystalEnv::Unavailable)
       STDERR.puts roots.reason
@@ -34,6 +35,8 @@ module ShimsCheck
     shims.replace_all(finished.shims)
 
     orphans = Array(String).new
+    absent = Array(String).new
+    applicable = Set(String).new
     redundant = Array(String).new
     duplicated = Array(String).new
     finished.files.select { |file| Heucristic::Index::Loader.generated?(file.path) }.each do |file|
@@ -49,18 +52,42 @@ module ShimsCheck
       target ||= by_shape[shim.entry.shape]?.try do |candidates|
         candidates.find { |candidate| shims.find(candidate) == shim }
       end
-      if target.nil?
+      if target.nil? && !indexed_owner?(shim.entry, finished.files, shim_roots)
+        absent << "#{shim.entry.identity}  (#{shim.entry.path})"
+      elsif target.nil?
         orphans << "#{shim.entry.identity}  (#{shim.entry.path})"
       elsif typed?(target) && !adds_block_type?(shim.entry, target)
         redundant << "#{shim.entry.identity}  stdlib says : #{target.return_type} (#{target.path})"
       end
+      applicable << shim.entry.identity if target
     end
 
     puts "shims: #{shims.size} from #{shim_roots.join(", ")}"
     report("orphans (no stdlib def with this identity)", orphans)
     report("redundant (stdlib now has a return type)", redundant)
     report("generated defs the stdlib now declares in source", duplicated)
-    orphans.empty? && redundant.empty? && duplicated.empty? ? 0 : 1
+    report("shims for shards this project does not install", absent)
+    structural = orphans.empty? && redundant.empty? && duplicated.empty? ? 0 : 1
+    return structural unless args.includes?("--verify")
+
+    verified = Verify.run(finished.files, shims, applicable, shim_roots)
+    structural == 0 && verified == 0 ? 0 : 1
+  end
+
+  private def indexed_owner?(
+    entry : Heucristic::Index::Def,
+    files : Array(Heucristic::Index::File),
+    shim_roots : Array(String),
+  ) : Bool
+    owner = entry.owner
+    return true unless owner.is_a?(String)
+
+    head = owner.split("::").first
+    files.any? do |file|
+      next false if shim_roots.any? { |root| file.path.starts_with?(root + "/") }
+
+      file.namespaces.any? { |namespace| namespace.name.split("::").first == head }
+    end
   end
 
   private def typed?(target : Heucristic::Index::Def) : Bool
@@ -82,4 +109,4 @@ module ShimsCheck
   end
 end
 
-exit ShimsCheck.run
+exit ShimsCheck.run(ARGV)
