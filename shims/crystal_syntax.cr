@@ -29,3 +29,31 @@ class Crystal::Location
   def filename : String | Crystal::VirtualFile | Nil
   end
 end
+
+class Crystal::ASTNode
+  def transform(transformer) : Crystal::ASTNode
+  end
+
+  def name_location : Nil
+  end
+end
+
+class Crystal::Call
+  def name_size : Int32
+  end
+end
+
+class Crystal::Path
+  def self.global(names) : Crystal::Path
+  end
+end
+
+class Crystal::Lexer
+  def filename=(filename) : typeof(filename)
+  end
+end
+
+class Crystal::Parser
+  def wants_doc=(@wants_doc : Bool) : Bool
+  end
+end

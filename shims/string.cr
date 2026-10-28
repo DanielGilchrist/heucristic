@@ -26,3 +26,14 @@ class String
   def to_i?(base : Int = 10, whitespace : Bool = true, underscore : Bool = false, prefix : Bool = false, strict : Bool = true, leading_zero_is_octal : Bool = false) : Int32?
   end
 end
+
+class String
+  def index(search : String, offset = 0) : Int32?
+  end
+
+  def each_line(chomp = true, *, remove_empty : Bool = false) : Iterator(String)
+  end
+
+  def each_char : Iterator(Char)
+  end
+end

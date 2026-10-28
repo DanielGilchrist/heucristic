@@ -5,3 +5,8 @@ struct Int
   def ===(char : Char) : Bool
   end
 end
+
+struct Int
+  def times : Iterator(self)
+  end
+end

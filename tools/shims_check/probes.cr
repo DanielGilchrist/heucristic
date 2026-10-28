@@ -4,6 +4,15 @@ require "log"
 require "colorize"
 require "spec"
 require "compiler/crystal/syntax"
+require "benchmark"
+require "http/client"
+require "http/server"
+require "http/web_socket"
+require "option_parser"
+require "openssl"
+require "socket"
+require "sync/shared"
+require "uri"
 
 macro probe(expression)
 end
@@ -57,8 +66,6 @@ tuple = {1, "a"}
 pair = {1, 2}
 range = 1..3
 iterator : Iterator(Int32) = ints.each
-indexable : Indexable(Int32) = ints
-enumerable : Enumerable(Int32) = set
 io = IO::Memory.new
 file_descriptor : IO::FileDescriptor = STDIN
 version = Version.new(1)
@@ -122,7 +129,6 @@ probe set.each_cons(2, &.size)
 probe set.each_slice(2, &.size)
 probe set.each_with_index(1_i64) { |_, index| index }
 probe set.each { |value| value }
-probe enumerable.each { |value| value }
 probe set.find(0) { |value| value > 1 }
 probe set.flat_map { |value| [value.to_s] }
 probe set.group_by(&.even?)
@@ -190,11 +196,6 @@ probe ints.rindex(2) { |value| value > 1 }
 probe ints.rindex(1, 2)
 probe ints.sample(Random.new)
 probe deque.size
-probe indexable.each { |value| value }
-probe indexable.index(1, 0)
-probe indexable.size
-probe indexable.each
-probe indexable.unsafe_fetch(0)
 probe ints.unsafe_fetch(0)
 
 probe one === letter
@@ -346,3 +347,98 @@ JSON.build do |json|
     probe json.field("a") { 1 }
   end
 end
+
+named = {a: 1, b: "x"}
+counts = {a: 1, b: 2}
+shared : Sync::Shared(Int32) = Sync::Shared(Int32).new(1)
+atomic : Atomic(Int32) = Atomic(Int32).new(1)
+params : URI::Params = URI::Params.new
+uri : URI = URI.new("http", "localhost")
+socket : TCPSocket = TCPSocket.allocate
+time : Time = Time.utc
+options : OpenSSL::SSL::Options = OpenSSL::SSL::Options::NO_SSL_V2
+context : OpenSSL::SSL::Context::Client = OpenSSL::SSL::Context::Client.new
+parser_options : OptionParser = OptionParser.new
+lexer : Crystal::Lexer = Crystal::Lexer.new("1")
+call : Crystal::Call = Crystal::Call.new(nil, "a")
+
+probe expect_raises(ArgumentError) { raise ArgumentError.new }
+probe 1.should_not(Spec::BeAExpectation(String).new)
+probe 1.should_not(Spec::BeNilExpectation.new)
+probe maybe.should_not(Spec::BeNilExpectation.new)
+probe maybe.should_not(eq(2))
+probe 1.should_not(eq(2))
+probe Benchmark.ips(calculation: 1.seconds, warmup: 1.seconds, interactive: false, &.report("a") { })
+probe Benchmark.ips(calculation: 1, warmup: 1, interactive: false, &.report("a") { })
+probe 3.times
+probe shared.shared(&.to_s)
+probe shared.lock(&.to_s)
+probe named.merge({c: 1})
+probe named.merge(c: 1)
+probe named.keys
+probe named.values
+probe counts.values.sum
+probe counts.keys
+probe named.each_with_index { |_key, _value, index| index }
+probe named.empty?
+probe Slice(UInt8).new(2)
+probe Slice.new(2, &.itself)
+probe Slice.new(2, 1_u8)
+probe HTTP::Client.new(uri, &.port)
+probe HTTP::Client.new("localhost", &.port)
+probe(params["a"] = "b")
+probe params.to_s
+URI::Params.build do |builder|
+  probe builder.add("a", "b")
+  probe builder.add("a", ["b"])
+end
+probe 1.not_nil!
+probe 1.itself
+probe ints.cycle
+probe ints.cycle(2)
+probe atomic.swap(2)
+probe "a".index("a")
+probe "a".each_line
+probe "a".each_char
+probe(socket.keepalive = true)
+probe socket.close
+probe(socket.tcp_keepalive_idle = 1)
+probe(socket.tcp_keepalive_interval = 1)
+probe(socket.tcp_keepalive_count = 1)
+probe node.transform(Crystal::Transformer.new)
+probe node.name_location
+probe call.name_size
+probe Crystal::Path.global("A")
+probe(lexer.filename = "a")
+probe(parser.wants_doc = true)
+probe parser_options.on("-a", "x") { }
+probe parser_options.on("-a", "--aa", "x") { }
+probe parser_options.invalid_option { }
+probe hash.fetch("a", "x")
+probe hash.fetch("a", &.size)
+probe context.add_options(options)
+probe context.remove_options(options)
+probe deque.clear
+probe deque.shift
+probe deque.shift { "x" }
+probe File.tempfile("a", "b")
+probe File.tempfile("b")
+probe File.tempfile("a", "b", &.size)
+probe File.tempfile("b", &.size)
+probe time.shift(days: 1)
+probe 1.5 ** one
+probe Colour.each { 1 }
+
+def probe_declared(indexable : Indexable(Int32), enumerable : Enumerable(Int32), io : IO, maybe : Int32?, bytes : Bytes) : Nil
+  probe indexable.each { |value| value }
+  probe indexable.index(1, 0)
+  probe indexable.size
+  probe indexable.unsafe_fetch(0)
+  probe indexable.each
+  probe enumerable.each { |value| value }
+  probe io.read(bytes)
+  probe io.close
+  probe maybe.not_nil!("x")
+end
+
+probe_declared([1, 2], Set{1}, IO::Memory.new, 1, Bytes.new(1))

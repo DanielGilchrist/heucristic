@@ -56,3 +56,4 @@ Globs:
   - "**/*.cr"
   - "!lib"
   - "!shims"
+  - "!tools/shims_check/probes.cr"

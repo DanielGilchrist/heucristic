@@ -39,3 +39,14 @@ struct Nil
   def ==(other : Nil) : Bool
   end
 end
+
+class Object
+  def not_nil! : self
+  end
+
+  def not_nil!(message) : self
+  end
+
+  def itself : self
+  end
+end

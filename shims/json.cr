@@ -13,3 +13,8 @@ class JSON::Builder
   def field(name, & : -> U) : U forall U
   end
 end
+
+class JSON::Builder::Escape
+  def read(slice : Bytes) : NoReturn
+  end
+end

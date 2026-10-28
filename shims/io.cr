@@ -5,3 +5,11 @@ class IO
   def read_bytes(type : T.class, format : IO::ByteFormat = IO::ByteFormat::SystemEndian) : T forall T
   end
 end
+
+class IO
+  def read(slice : Bytes) : Int32
+  end
+
+  def close : Nil
+  end
+end

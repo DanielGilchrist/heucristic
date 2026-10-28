@@ -46,3 +46,19 @@ module Spec::Expectations
   def be_empty : Spec::BeEmptyExpectation
   end
 end
+
+module Spec::Expectations
+  def expect_raises(klass : T.class, message : String | Regex | Nil = nil, file = __FILE__, line = __LINE__, &) : T forall T
+  end
+end
+
+module Spec::ObjectExtensions
+  def should_not(expectation : BeAExpectation(T), failure_message : String? = nil, *, file = __FILE__, line = __LINE__) : self forall T
+  end
+
+  def should_not(expectation : BeNilExpectation, failure_message : String? = nil, *, file = __FILE__, line = __LINE__) : self
+  end
+
+  def should_not(expectation, failure_message : String? = nil, *, file = __FILE__, line = __LINE__) : self
+  end
+end

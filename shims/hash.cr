@@ -38,3 +38,14 @@ class Hash(K, V)
   def reject!(& : K, V -> _) : self
   end
 end
+
+class Hash(K, V)
+  def dig?(key : K) : V?
+  end
+
+  def fetch(key, default) : V | typeof(default)
+  end
+
+  def fetch(key, & : K -> U) : V | U forall U
+  end
+end
