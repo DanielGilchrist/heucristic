@@ -68,10 +68,6 @@ module Heucristic
         enclosing.last? || Index::TopLevel.new
       end
 
-      def at(path : Array(Crystal::ASTNode)) : Context
-        Context.new(enclosing, type_vars, def_node, blocks, path, self.path)
-      end
-
       def at(ancestors : Array(Crystal::ASTNode)) : Context
         entered = ancestors.select(Crystal::Call).select { |call| !call.block.nil? }
         Context.new(enclosing, type_vars, def_node, entered, ancestors, path, instance)

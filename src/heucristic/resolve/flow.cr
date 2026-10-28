@@ -431,10 +431,6 @@ module Heucristic
 
         @steps << IsA.new(first.types + second.types, true)
       end
-
-      private def empty?(node : Crystal::ASTNode?) : Bool
-        node.nil? || node.is_a?(Crystal::Nop)
-      end
     end
   end
 end

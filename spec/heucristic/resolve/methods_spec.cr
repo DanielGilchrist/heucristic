@@ -102,7 +102,7 @@ describe Heucristic::Resolve::Methods, "compiled targets" do
       Heucristic::Index::MacroTarget::Main  => Set{"/p/src/a.cr", "/p/src/main.cr"},
       Heucristic::Index::MacroTarget::Loose => Set{"/p/bench/b.cr"},
     }
-    methods.compiled(Heucristic::Resolve::Compiled.new(targets, "/p", Array(String).new))
+    methods.compiled(Heucristic::Resolve::Compiled.new(targets, Array(String).new))
     foo = Heucristic::Resolve::TypeRef.new("Foo", Array(Heucristic::Resolve::Resolution).new)
     methods.named_on(foo, "bar", "/p/src/main.cr").map(&.path).should eq(["/p/src/a.cr"])
     methods.named_on(foo, "bar", "/p/bench/b.cr").map(&.path).should eq(["/p/bench/b.cr"])
@@ -359,7 +359,7 @@ describe Heucristic::Resolve::Methods, "virtual receivers" do
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     targets = {Heucristic::Index::MacroTarget::Main => Set{"/p/src/a.cr", "/p/src/main.cr"}}
-    methods.compiled(Heucristic::Resolve::Compiled.new(targets, "/p", Array(String).new))
+    methods.compiled(Heucristic::Resolve::Compiled.new(targets, Array(String).new))
     shape = Heucristic::Resolve::TypeRef.new("Shape", Array(Heucristic::Resolve::Resolution).new)
     methods.virtual_receivers(shape, "/p/src/main.cr").map(&.to_s).should eq(["Circle"])
     methods.virtual_receivers(shape, nil).map(&.to_s).should eq(["Circle", "Square"])
@@ -410,7 +410,7 @@ describe Heucristic::Resolve::Methods, "loaded files" do
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     targets = {Heucristic::Index::MacroTarget::Main => Set{"/p/src/main.cr", "/std/unix.cr"}}
-    methods.compiled(Heucristic::Resolve::Compiled.new(targets, "/p", Array(String).new))
+    methods.compiled(Heucristic::Resolve::Compiled.new(targets, Array(String).new))
     none = Array(Heucristic::Resolve::Resolution).new
     system = Heucristic::Resolve::MetaRef.new(Heucristic::Resolve::TypeRef.new("System", none))
     methods.named_on(system, "handle", "/p/src/main.cr").map(&.path).should eq(["/std/unix.cr"])

@@ -4,15 +4,8 @@ require "./reassignment"
 module Heucristic
   module Resolve
     class LocalAssignments < Crystal::Visitor
-      getter values : Array(Crystal::ASTNode)
       getter targets : Array(Crystal::Var)
       getter located : Array(Reassignment)
-
-      def self.find(body : Crystal::ASTNode, name : String) : Array(Crystal::ASTNode)
-        finder = new(name)
-        body.accept(finder)
-        finder.values
-      end
 
       def self.locate(body : Crystal::ASTNode, name : String) : Array(Reassignment)
         finder = new(name)
@@ -42,7 +35,6 @@ module Heucristic
       end
 
       def initialize(@name : String) : Nil
-        @values = Array(Crystal::ASTNode).new
         @targets = Array(Crystal::Var).new
         @located = Array(Reassignment).new
         @path = Array(Crystal::ASTNode).new
@@ -95,7 +87,6 @@ module Heucristic
       end
 
       private def remember(value : Crystal::ASTNode) : Nil
-        @values << value
         @located << Reassignment.new(value, @path[1..])
       end
     end

@@ -75,7 +75,7 @@ module Score
     end
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
-    methods.compiled(Heucristic::Resolve::Compiled.new(targets, root, shim_roots)) if targets
+    methods.compiled(Heucristic::Resolve::Compiled.new(targets, shim_roots)) if targets
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
     if args.includes?("--check")
       return check(root, workspace, finished.sites, types, methods, receiver, shim_roots, compiled)

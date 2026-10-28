@@ -8,11 +8,6 @@ module Heucristic
       MethodAdded
       MethodMissing
 
-      def self.from_name(name : String) : MacroHook?
-        each { |hook| return hook if hook.macro_name == name }
-        nil
-      end
-
       def macro_name : String
         case self
         in .included?       then "included"

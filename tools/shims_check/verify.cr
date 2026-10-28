@@ -100,7 +100,7 @@ module ShimsCheck
       loaded = expand(workspace, shims)
       if loaded
         targets = {Heucristic::Index::MacroTarget::Loose => loaded}
-        methods.compiled(Heucristic::Resolve::Compiled.new(targets, Dir.current, shim_roots))
+        methods.compiled(Heucristic::Resolve::Compiled.new(targets, shim_roots))
       end
       Resolver.new(Heucristic::Resolve::Receiver.new(workspace, shims, types, methods), methods)
     end

@@ -19,10 +19,6 @@ module Heucristic
         visitor.traits
       end
 
-      def self.effect(node : Crystal::Macro) : MacroEffect
-        of(node).effect
-      end
-
       getter effect : MacroEffect
 
       def initialize(@block_name : String?) : Nil

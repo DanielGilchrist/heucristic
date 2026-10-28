@@ -288,7 +288,7 @@ describe Heucristic::Resolve::Types, "aliases declared once per platform" do
     )
 
     targets = {Heucristic::Index::MacroTarget::Main => Set{"/p/src/main.cr", "/std/unix.cr"}}
-    types.compiled(Heucristic::Resolve::Compiled.new(targets, "/p", Array(String).new))
+    types.compiled(Heucristic::Resolve::Compiled.new(targets, Array(String).new))
     scope = Heucristic::Resolve::Scope::TOP
     types.resolve(restriction("System::Handle"), scope).to_s.should eq("Int32")
     types.resolve(restriction("System::Native::Error"), scope).to_s.should eq("Unix::Error")

@@ -260,7 +260,7 @@ module Heucristic
           sites = @macro_sites[path] = Hash(Int32, Index::MacroSite).new
           event.sites.each { |site| sites[site.line] = site }
           @compiled[event.target] = event.files.to_set
-          @methods.compiled(Resolve::Compiled.new(@compiled, @root, shim_roots))
+          @methods.compiled(Resolve::Compiled.new(@compiled, shim_roots))
           elapsed = event.elapsed.total_milliseconds.round
           case event.target
           in .main?
