@@ -179,7 +179,13 @@ module Heucristic
         end
 
         Index::MacrosExpanded.new(
-          target, source, parsed.sites, parsed.files, Time.instant - started, excluded(target).dup
+          target,
+          source,
+          parsed.sites,
+          parsed.files,
+          parsed.expansions,
+          Time.instant - started,
+          excluded(target).dup,
         )
       rescue error : JSON::ParseException
         Index::MacrosFailed.new(target, "the helper's output is not JSON: #{error.message}", "")

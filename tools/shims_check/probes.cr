@@ -384,6 +384,7 @@ probe named.empty?
 probe Slice(UInt8).new(2)
 probe Slice.new(2, &.itself)
 probe Slice.new(2, 1_u8)
+probe Tuple.new(1, "a")
 probe HTTP::Client.new(uri, &.port)
 probe HTTP::Client.new("localhost", &.port)
 probe(params["a"] = "b")

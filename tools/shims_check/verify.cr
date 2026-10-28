@@ -133,6 +133,7 @@ module ShimsCheck
       collected = Heucristic::Index::Collector.collect(path, text, generated)
       merged = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims)
       workspace.update(merged)
+      workspace.expand(Heucristic::Index::MacroTarget::Loose, result.expansions)
       result.files.to_set
     end
 

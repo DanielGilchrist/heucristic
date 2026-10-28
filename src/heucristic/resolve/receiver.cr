@@ -18,6 +18,9 @@ require "./flow"
 require "./call_exits"
 require "./escapes"
 require "../syntax/yield_sites"
+require "../syntax"
+require "../syntax/defined_variables"
+require "../syntax/expansion_locals"
 
 require "../syntax/well_known"
 
@@ -27,6 +30,8 @@ module Heucristic
       DEPTH_LIMIT = 48
 
       record Unscoped
+
+      record Expanded, tree : Crystal::ASTNode, isolated : Syntax::ExpansionLocals::Isolated
 
       record Site,
         block : Crystal::Block?,
@@ -57,6 +62,8 @@ module Heucristic
         @typed_values = Hash(UInt64, Resolution).new
         @block_inputs = Hash({UInt64, Int32}, Resolution).new
         @yield_scopes = Hash(UInt64, Resolution | Unscoped).new
+        @expanded = Hash(UInt64, Expanded | Syntax::Broken).new
+        @macro_assigned = Hash(UInt64, Hash(String, String)).new
       end
 
       def result_of(
@@ -92,7 +99,9 @@ module Heucristic
             return result_of(receiver, shape_of(action, context, locals, visiting), site)
           end
         end
-        return macro_result(call, context, outcome, receiver, shape) if outcome.is_a?(Unknown)
+        if outcome.is_a?(Unknown)
+          return macro_result(call, context, outcome, receiver, shape, locals, visiting)
+        end
 
         block = call.block
         return outcome if block.nil?
@@ -323,6 +332,8 @@ module Heucristic
         @typed_values.clear
         @block_inputs.clear
         @yield_scopes.clear
+        @expanded.clear
+        @macro_assigned.clear
       end
 
       def forget(path : String) : Nil
@@ -331,6 +342,8 @@ module Heucristic
         @typed_values.clear
         @block_inputs.clear
         @yield_scopes.clear
+        @expanded.clear
+        @macro_assigned.clear
       end
 
       def remembered_exit(
@@ -460,7 +473,9 @@ module Heucristic
         outcome : Unknown,
         receiver : Resolved,
         shape : Methods::Call,
-      ) : Unknown
+        locals : Array(Binding),
+        visiting : Array(String),
+      ) : Resolution
         return outcome unless outcome.reason.unresolved_name?
         if context.ancestors.any?(Crystal::Annotation)
           detail = "`#{call.name}` sits inside an annotation, whose arguments only macros read"
@@ -468,6 +483,9 @@ module Heucristic
         end
         inherited = @methods.class_macros(receiver, shape)
         if Index::MacroCall.like?(call, @workspace) || !inherited.empty?
+          expanded = expanded_result(call, context, locals, visiting)
+          return expanded if expanded
+
           return Unknown.new(:macro, "`#{call.name}` is a macro; its expansion is not typed")
         end
         return outcome unless call.obj.nil?
@@ -779,6 +797,7 @@ module Heucristic
 
       private def tuple_element_at(receiver : TypeRef, call : Crystal::Call) : Resolution?
         return unless call.name.in?("[]", "[]?") && call.args.size == 1
+        return if receiver.arguments.empty?
 
         literal = call.args[0]
         return unless literal.is_a?(Crystal::NumberLiteral)
@@ -799,6 +818,8 @@ module Heucristic
         site : Site,
       ) : Resolution?
         members = receiver.arguments
+        return if members.empty?
+
         qualified = entry.qualified
         if qualified == "Tuple#first" || qualified == "Tuple#last"
           member = entry.name == "first" ? members.first? : members.last?
@@ -1002,6 +1023,11 @@ module Heucristic
         locals : Array(Binding),
       ) : Resolution
         return implicit_self(context) if Syntax::WellKnown::SelfName.named?(name)
+        if (assigner = macro_assigning(name, context))
+          detail = "`#{name}` is assigned by the expansion of `#{assigner}`, " \
+                   "which flow does not follow"
+          return Unknown.new(:macro, detail)
+        end
         key = variable_key(name, context)
         exits = exits_for(context, visiting + [key])
         facts = facts_for(context)
@@ -2357,6 +2383,126 @@ module Heucristic
         return true unless below.is_a?(TypeRef)
 
         @methods.defined_between?(below.name, receiver.name, call.name)
+      end
+
+      private def expanded_result(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        locals : Array(Binding),
+        visiting : Array(String),
+      ) : Resolution?
+        location = call.name_location
+        path = context.path
+        return unless location && path
+
+        found = @workspace.expansion(path, location.line_number, location.column_number)
+        return unless found && found.name == call.name
+
+        key = "expansion@#{path}:#{location.line_number}:#{location.column_number}"
+        return Unknown.new(:cycle, call.name) if visiting.includes?(key)
+
+        expanded = expansion_of(call, found, context, path)
+        if expanded.is_a?(Syntax::Broken)
+          detail = "the expansion of `#{call.name}` does not parse: #{expanded.message}"
+          return Unknown.new(:macro, detail)
+        end
+
+        tree = expanded.tree
+        statements = tree.is_a?(Crystal::Expressions) ? tree.expressions : [tree]
+        last = statements.last?
+        return TypeRef.of(:nil) unless last
+
+        inner = visiting + [key]
+        bound = expansion_bindings(statements, expanded.isolated, call, context, inner, locals)
+        type_of(last, context, inner, bound + locals)
+      end
+
+      private def expansion_of(
+        call : Crystal::Call,
+        found : Index::MacroExpansion,
+        context : Syntax::Context,
+        path : String,
+      ) : Expanded | Syntax::Broken
+        @expanded[call.object_id] ||= expand(call, found, context, path)
+      end
+
+      private def expand(
+        call : Crystal::Call,
+        found : Index::MacroExpansion,
+        context : Syntax::Context,
+        path : String,
+      ) : Expanded | Syntax::Broken
+        definition = context.def_node
+        root = context.ancestors.first?
+        variables = if definition
+                      Syntax::DefinedVariables.of(definition)
+                    elsif root
+                      Syntax::DefinedVariables.at_top_level(root)
+                    else
+                      Set(String).new
+                    end
+        at = call.location || Crystal::Location.new(path, 1, 1)
+        tree = Syntax.parse_fragment(found.source, path, at, variables)
+        return tree if tree.is_a?(Syntax::Broken)
+
+        Expanded.new(tree, Syntax::ExpansionLocals.isolate(tree))
+      end
+
+      private def expansion_bindings(
+        statements : Array(Crystal::ASTNode),
+        isolated : Syntax::ExpansionLocals::Isolated,
+        call : Crystal::Call,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Array(Binding)
+        bound = Array(Binding).new(isolated.names.size)
+        isolated.nested.each do |name|
+          detail = "`#{name.lchop(Syntax::ExpansionLocals::PREFIX)}` is assigned inside the " \
+                   "expansion of `#{call.name}` where flow decides its type"
+          bound << Binding.new(name, Unknown.new(:macro, detail))
+        end
+        statements[0...-1].each do |statement|
+          next unless statement.is_a?(Crystal::Assign)
+
+          target = statement.target
+          next unless target.is_a?(Crystal::Var)
+          next if isolated.nested.includes?(target.name)
+
+          typed = type_of(statement.value, context, visiting, bound + locals)
+          bound.unshift(Binding.new(target.name, typed))
+        end
+        bound
+      end
+
+      private def macro_assigning(name : String, context : Syntax::Context) : String?
+        path = context.path
+        facts = facts_for(context)
+        return unless path && facts
+
+        assigners = @macro_assigned[facts.object_id] ||= macro_assigners(facts, context, path)
+        assigners[name]?
+      end
+
+      private def macro_assigners(
+        facts : BodyFacts,
+        context : Syntax::Context,
+        path : String,
+      ) : Hash(String, String)
+        found = Hash(String, String).new
+        facts.calls.each do |call|
+          location = call.name_location
+          next unless location
+
+          expansion = @workspace.expansion(path, location.line_number, location.column_number)
+          next unless expansion && expansion.name == call.name
+
+          expanded = expansion_of(call, expansion, context, path)
+          next if expanded.is_a?(Syntax::Broken)
+
+          expanded.isolated.assigned.each { |assigned| found[assigned] ||= call.name }
+        end
+        found
       end
     end
   end

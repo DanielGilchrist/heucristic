@@ -22,6 +22,7 @@ module Heucristic
         @within = Hash(String, Hash(UInt64, Array(Reassignment))).new
         @outside = Hash(Scoped, Bool).new
         @statements = Hash(Scoped, Array(Int32)).new
+        @calls = Array(Crystal::Call).new
         @path = Array(Crystal::ASTNode).new
       end
 
@@ -33,6 +34,10 @@ module Heucristic
       def defined_outside?(name : String, body : Crystal::ASTNode, & : -> Bool) : Bool
         key = Scoped.new(name, body.object_id)
         @outside.fetch(key) { @outside[key] = yield }
+      end
+
+      def calls : Array(Crystal::Call)
+        @calls
       end
 
       def assigned(name : String) : Array(Crystal::ASTNode)
@@ -102,6 +107,12 @@ module Heucristic
       def visit(node : Crystal::Var) : Bool
         containing = @mentioned[node.name] ||= Set(UInt64).new
         @path.each { |ancestor| containing << ancestor.object_id }
+        true
+      end
+
+      def visit(node : Crystal::Call) : Bool
+        receiver = node.obj
+        @calls << node if receiver.nil? || receiver.is_a?(Crystal::Path)
         true
       end
 

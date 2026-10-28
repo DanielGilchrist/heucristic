@@ -1,4 +1,7 @@
 struct Tuple(*T)
+  def self.new(*args : *T) : Tuple(*T)
+  end
+
   def [](index : Int) : Union(*T)
   end
 

@@ -468,6 +468,7 @@ module Score
       collected = Heucristic::Index::Collector.collect(path, text, tree)
       file = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims)
       workspace.update(file)
+      workspace.expand(target, result.expansions)
       elapsed = result.elapsed.total_milliseconds.round
       puts "macros (#{target.wire}): #{file.defs.size} generated defs kept of " \
            "#{collected.defs.size} in #{elapsed}ms"

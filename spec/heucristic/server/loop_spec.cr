@@ -505,6 +505,37 @@ describe Heucristic::Server::Loop, "macro expansion" do
     client.shutdown
   end
 
+  it "types a macro call from the expansion the helper reports" do
+    expanding = File.expand_path("../../support/fake_expanding_semantic", __DIR__)
+    client = LspClient.in_process
+    client.initialize!(root, semantic: expanding)
+    client.await_notification(Notice::Indexed)
+    client.await_stage(Notice::Macros, Stage::Done)
+
+    uri = "file://#{root}/src/crate.cr"
+    client.open(uri, <<-CR)
+      class String
+        def size : Int32
+        end
+      end
+
+      class Crate
+        macro make(value)
+          {{ value }}
+        end
+
+        def run : Nil
+          make("a").size
+        end
+      end
+      CR
+    client.await_diagnostics
+    text = hover_text(client.hover(uri, 11, 15)).to_s
+    text.should contain("# String")
+    text.should contain("def size : Int32")
+    client.shutdown
+  end
+
   it "reports a failed expansion and says so in the hover" do
     client = LspClient.in_process
     client.initialize!(root, semantic: failing)

@@ -2,6 +2,8 @@ require "./file"
 require "./sites"
 require "./call_use"
 require "./path_use"
+require "./macro_target"
+require "./macro_expansion"
 
 module Heucristic
   module Index
@@ -21,6 +23,7 @@ module Heucristic
         @sites = Hash(String, Sites).new
         @call_uses = Hash(String, Array(CallUse)).new
         @path_uses = Hash(String, Array(PathUse)).new
+        @expansions = Hash(MacroTarget, Hash(MacroExpansion::Key, MacroExpansion)).new
       end
 
       def size : Int32
@@ -53,6 +56,19 @@ module Heucristic
 
       def replace_all(files : Array(File)) : Nil
         files.each { |file| update(file) }
+      end
+
+      def expand(target : MacroTarget, expansions : Array(MacroExpansion)) : Nil
+        @expansions[target] = expansions.to_h { |expansion| {expansion.key, expansion} }
+      end
+
+      def expansion(path : String, line : Int32, column : Int32) : MacroExpansion?
+        key = MacroExpansion::Key.new(path, line, column)
+        @expansions.each_value do |table|
+          found = table[key]?
+          return found if found
+        end
+        nil
       end
 
       def update_sites(sites : Sites) : Nil

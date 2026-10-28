@@ -3183,6 +3183,12 @@ describe Heucristic::Resolve::Receiver, "dispatch and stdlib specials" do
     struct Tuple(*T)
       def types : T
       end
+
+      def [](index : Int) : Union(*T)
+      end
+
+      def first : Union(*T)
+      end
     end
 
     struct NamedTuple
@@ -3230,6 +3236,8 @@ describe Heucristic::Resolve::Receiver, "dispatch and stdlib specials" do
         stream.close.size
         pair[1]?.size
         bare.types.size
+        bare[0].size
+        bare.first.size
         named = {a: 1, b: "x"}
         named.values.size
         named.keys.size
@@ -3261,6 +3269,11 @@ describe Heucristic::Resolve::Receiver, "dispatch and stdlib specials" do
     receiver_of_size(source, "bare.types.size").should eq("T")
   end
 
+  it "does not read a bare Tuple as the empty tuple" do
+    receiver_of_size(source, "bare[0].size").should eq("unknown (unsupported: *T)")
+    receiver_of_size(source, "bare.first.size").should eq("unknown (unsupported: *T)")
+  end
+
   it "types NamedTuple#values and #keys from the labels (crystal run: Tuple(Int32, String))" do
     receiver_of_size(source, "named.values.size").should eq("Tuple(Int32, String)")
     receiver_of_size(source, "named.keys.size").should eq("Tuple(Symbol, Symbol)")
@@ -3278,5 +3291,91 @@ describe Heucristic::Resolve::Receiver, "dispatch and stdlib specials" do
 
   it "types a declared local from its value (crystal run: maybe : Int32? = nil is Nil)" do
     receiver_of_size(source, "maybe.size").should eq("Nil")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "macro expansions" do
+  source = <<-CR
+    class Crate
+      macro make(value)
+        {{ value }}
+      end
+
+      macro shadow
+        value = "text"
+        value
+      end
+
+      macro nested
+        if value = maybe
+          value
+        end
+      end
+
+      macro branchy
+        if maybe
+          value = 1
+        end
+        value
+      end
+
+      def maybe : Int32?
+      end
+
+      def run : Nil
+        make("a").size
+      end
+
+      def outer : Nil
+        value = "outer"
+        nested.size
+        branchy.size
+      end
+
+      def assigned : Nil
+        value = 1
+        shadow.size
+        value.size
+      end
+    end
+    CR
+
+  expansions = [
+    expansion_at(source, %(make("a")), "make", %("a")),
+    expansion_at(source, "shadow.size", "shadow", %(value = "text"\nvalue)),
+    expansion_at(source, "nested.size", "nested", "if value = maybe\n  value\nend"),
+    expansion_at(source, "branchy.size", "branchy", "if maybe\n  value = 1\nend\nvalue"),
+  ]
+
+  it "types a macro call from its expansion (crystal run: String)" do
+    receiver_of_size(source, %(make("a").size), expansions).should eq("String")
+  end
+
+  it "types the expansion's own straight-line locals (crystal run: String)" do
+    receiver_of_size(source, "shadow.size", expansions).should eq("String")
+  end
+
+  it "keeps the expansion's locals apart from the def's (crystal run: Int32 | Nil)" do
+    receiver_of_size(source, "nested.size", expansions).should eq("Int32 | Nil")
+  end
+
+  it "leaves a local the expansion assigns in a branch unknown (crystal run: Int32 | Nil)" do
+    receiver_of_size(source, "branchy.size", expansions).should eq(
+      "unknown (macro: `value` is assigned inside the expansion of `branchy` " \
+      "where flow decides its type)"
+    )
+  end
+
+  it "stops typing a def's local that an expansion reassigns (crystal run: String)" do
+    receiver_of_size(source, "value.size", expansions).should eq(
+      "unknown (macro: `value` is assigned by the expansion of `shadow`, " \
+      "which flow does not follow)"
+    )
+  end
+
+  it "says the macro is untyped when no expansion is known" do
+    receiver_of_size(source, %(make("a").size)).should eq(
+      "unknown (macro: `make` is a macro; its expansion is not typed)"
+    )
   end
 end

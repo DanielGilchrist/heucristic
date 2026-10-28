@@ -5,6 +5,15 @@ require "../../src/heucristic/resolve/receiver"
 require "../../src/heucristic/syntax/cursor"
 
 def receiver_at(source : String, line : Int32, column : Int32) : String
+  receiver_at(source, line, column, Array(Heucristic::Index::MacroExpansion).new)
+end
+
+def receiver_at(
+  source : String,
+  line : Int32,
+  column : Int32,
+  expansions : Array(Heucristic::Index::MacroExpansion),
+) : String
   tree = Heucristic::Syntax.parse(source, "a.cr")
   raise "syntax error: #{tree.message}" if tree.is_a?(Heucristic::Syntax::Broken)
 
@@ -12,6 +21,7 @@ def receiver_at(source : String, line : Int32, column : Int32) : String
   workspace.update(
     Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
   )
+  workspace.expand(Heucristic::Index::MacroTarget::Main, expansions)
   types = Heucristic::Resolve::Types.new(workspace)
   methods = Heucristic::Resolve::Methods.new(workspace, types)
   shims = Heucristic::Index::Shims.new
@@ -33,9 +43,28 @@ def receiver_at(source : String, line : Int32, column : Int32) : String
 end
 
 def receiver_of_size(source : String, line_text : String) : String
+  receiver_of_size(source, line_text, Array(Heucristic::Index::MacroExpansion).new)
+end
+
+def receiver_of_size(
+  source : String,
+  line_text : String,
+  expansions : Array(Heucristic::Index::MacroExpansion),
+) : String
   line = source.lines.index!(&.includes?(line_text)) + 1
   column = source.lines[line - 1].index!(line_text) + line_text.rindex!("size") + 1
-  receiver_at(source, line, column)
+  receiver_at(source, line, column, expansions)
+end
+
+def expansion_at(
+  source : String,
+  call_text : String,
+  name : String,
+  expanded : String,
+) : Heucristic::Index::MacroExpansion
+  line = source.lines.index!(&.includes?(call_text)) + 1
+  column = source.lines[line - 1].index!(call_text) + 1
+  Heucristic::Index::MacroExpansion.new("a.cr", line, column, name, expanded)
 end
 
 def receiver_across(files : Hash(String, String), path : String, line_text : String) : String

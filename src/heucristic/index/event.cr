@@ -1,5 +1,6 @@
 require "./file"
 require "./macro_site"
+require "./macro_expansion"
 require "./sites"
 require "../check/compiler_error"
 require "./macro_target"
@@ -19,6 +20,7 @@ module Heucristic
       source : String,
       sites : Array(MacroSite),
       files : Array(String),
+      expansions : Array(MacroExpansion),
       elapsed : Time::Span,
       excluded : Hash(String, String)
     record MacrosFailed, target : MacroTarget, reason : String, trace : String

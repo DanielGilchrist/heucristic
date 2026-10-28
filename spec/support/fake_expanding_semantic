@@ -1,0 +1,5 @@
+#!/bin/sh
+root="$2"
+cat <<JSON
+{"crystal":"test","elapsed_ms":1.0,"source":"","files":["$root/src/sample.cr","$root/src/crate.cr"],"sites":[],"expansions":[{"path":"$root/src/crate.cr","line":12,"column":5,"name":"make","source":"\"a\""}]}
+JSON

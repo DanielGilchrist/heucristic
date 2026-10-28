@@ -2,6 +2,7 @@ require "compiler/requires"
 require "json"
 require "./site"
 require "./header"
+require "./expansions"
 
 module Semantic
   class Dump
@@ -24,8 +25,10 @@ module Semantic
       program.wants_doc = false
       parser = Crystal::Parser.new(%(require "prelude"\n) + File.read(@entry))
       parser.filename = @entry
-      program.top_level_semantic(parser.parse)
+      node, _ = program.top_level_semantic(parser.parse)
       collect(program)
+      expansions = Expansions.new(program, @root)
+      node.accept(expansions)
       elapsed = Time.instant - started
       {
         crystal:    Crystal::VERSION,
@@ -33,6 +36,7 @@ module Semantic
         source:     @source.to_s,
         sites:      @sites,
         files:      files(program),
+        expansions: expansions.found,
       }.to_json(io)
     rescue error : Crystal::CodeError
       {

@@ -255,6 +255,7 @@ module Heucristic
           file = Index::Generated.merge(collected, event.sites, @workspace, @shims)
           @generated[event.target] = file
           @workspace.update(file)
+          @workspace.expand(event.target, event.expansions)
           @types.invalidate
           @receiver.invalidate
           sites = @macro_sites[path] = Hash(Int32, Index::MacroSite).new

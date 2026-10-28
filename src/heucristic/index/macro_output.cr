@@ -1,5 +1,6 @@
 require "json"
 require "./macro_site"
+require "./macro_expansion"
 
 module Heucristic
   module Index
@@ -9,6 +10,7 @@ module Heucristic
       source : String? = nil,
       sites : Array(MacroSite) = Array(MacroSite).new,
       files : Array(String) = Array(String).new,
+      expansions : Array(MacroExpansion) = Array(MacroExpansion).new,
       error : String? = nil,
       trace : String? = nil do
       include JSON::Serializable
