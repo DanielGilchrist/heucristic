@@ -7,12 +7,15 @@ require "./builtins"
 module Heucristic
   module Resolve
     class Descendants
+      @children : Hash(String, Array(String))? = nil
+
       def initialize(@workspace : Index::Workspace, @types : Types) : Nil
-        @children = nil.as(Hash(String, Array(String))?)
+        @below = Hash(String, Array(String)).new
       end
 
       def invalidate : Nil
         @children = nil
+        @below.clear
       end
 
       def extended?(name : String) : Bool
@@ -20,6 +23,10 @@ module Heucristic
       end
 
       def of(name : String) : Array(String)
+        @below[name] ||= collect(name)
+      end
+
+      private def collect(name : String) : Array(String)
         found = Array(String).new
         pending = children[name]?.try(&.dup) || Array(String).new
         while (next_one = pending.pop?)

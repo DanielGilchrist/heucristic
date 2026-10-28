@@ -80,6 +80,8 @@ module Heucristic
 
       private def bind(name : String, arguments : Array(Resolution)) : Array(Binding)
         type_vars = type_vars_of(name)
+        return Array(Binding).new if arguments.empty?
+
         splat = splat_index_of(name)
         return bind_positional(type_vars, arguments) unless splat && splat < type_vars.size
 

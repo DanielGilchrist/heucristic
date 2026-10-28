@@ -175,19 +175,8 @@ module Heucristic
         end
         return virtual_result(receiver, call, site) if defs.empty?
 
-        results = Array(Resolution).new(defs.size)
-        defs.each { |entry| results << return_type(entry, receiver, call.arguments, site) }
-        distinct = results.uniq
-        return distinct[0] if distinct.size == 1
-        if call.arguments.empty? && !call.block
-          annotated = distinct.reject do |result|
-            result.is_a?(Unknown) && result.reason.no_annotation?
-          end
-          return annotated[0] if annotated.size == 1
-        end
-        return union(results) if module?(receiver)
-
-        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
+        direct = overloads_result(defs, receiver, call, site)
+        dispatched(defs, direct, receiver, call, site)
       end
 
       def of_call(
@@ -259,6 +248,13 @@ module Heucristic
           special = tuple_special(entry, receiver, arguments, site)
           return special if special
         end
+        if receiver.is_a?(TypeRef) && receiver.labelled?
+          special = named_tuple_special(entry, receiver)
+          return special if special
+        end
+        if nil_asserted?(entry, receiver, arguments)
+          return TypeRef.of(:no_return)
+        end
         if entry.qualified.in?("Enumerable#zip", "Enumerable#zip?") && !site.block
           return zipped(receiver, arguments, entry.name == "zip?")
         end
@@ -291,6 +287,9 @@ module Heucristic
         in Syntax::Type
           scope = return_scope(entry, receiver, arguments, site)
           return scope if scope.is_a?(Unknown)
+          if (yielded = enum_each(entry, receiver, scope))
+            return yielded
+          end
 
           @types.resolve(restriction, scope)
         end
@@ -773,10 +772,7 @@ module Heucristic
 
         index = receiver.labels.index(key.value)
         member = index ? receiver.arguments[index]? : nil
-        if call.name == "[]?"
-          nil_type = TypeRef.of(:nil)
-          return member ? union([member, nil_type] of Resolution) : nil_type
-        end
+        return member || TypeRef.of(:nil) if call.name == "[]?"
 
         member || Unknown.new(:unresolved_name, "no key #{key.value.inspect} in #{receiver}")
       end
@@ -791,10 +787,7 @@ module Heucristic
         return unless index
 
         member = receiver.arguments[index]?
-        if call.name == "[]?"
-          nil_type = TypeRef.of(:nil)
-          return member ? union([member, nil_type] of Resolution) : nil_type
-        end
+        return member || TypeRef.of(:nil) if call.name == "[]?"
 
         member || Unknown.new(:unresolved_name, "#{receiver} has no element #{index}")
       end
@@ -1148,8 +1141,7 @@ module Heucristic
           in Flow::Truthy     then truthy(current, step.positive)
           in Flow::IsA        then narrow_is_a(current, step.types, step.positive, context)
           in Flow::RespondsTo then responding(current, step.method, step.positive, context)
-          in Flow::Declared
-            declared(Syntax::TypeReader.read(step.restriction), scope(context))
+          in Flow::Declared   then declared_step(step, name, context, visiting, locals)
           end
         end
       end
@@ -2088,7 +2080,7 @@ module Heucristic
           return
         end
 
-        inputs = restriction.inputs.map { |input| @types.resolve(input, scope) }
+        inputs = splatted(restriction.inputs.map { |input| @types.resolve(input, scope) }, block)
         locals = site.locals.dup
         block.args.each_with_index do |argument, index|
           input = inputs[index]?
@@ -2217,6 +2209,154 @@ module Heucristic
         return Unknown.new(:unsupported, type.source) if type.is_a?(Syntax::TypeReader::Unsupported)
 
         @types.resolve(type, scope)
+      end
+
+      private def splatted(inputs : Array(Resolution), block : Crystal::Block) : Array(Resolution)
+        return inputs unless inputs.size == 1 && block.args.size > 1
+
+        elements = Array(Resolution).new(block.args.size)
+        block.args.size.times do |index|
+          element = tuple_element(inputs[0], index)
+          return inputs unless element
+
+          elements << element
+        end
+        elements
+      end
+
+      private def overloads_result(
+        defs : Array(Index::Def),
+        receiver : Resolved,
+        call : Methods::Call,
+        site : Site,
+      ) : Resolution
+        results = Array(Resolution).new(defs.size)
+        defs.each { |entry| results << return_type(entry, receiver, call.arguments, site) }
+        distinct = results.uniq
+        return distinct[0] if distinct.size == 1
+        if call.arguments.empty? && !call.block
+          annotated = distinct.reject do |result|
+            result.is_a?(Unknown) && result.reason.no_annotation?
+          end
+          return annotated[0] if annotated.size == 1
+        end
+        return union(results) if module?(receiver)
+
+        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
+      end
+
+      private def dispatched(
+        defs : Array(Index::Def),
+        direct : Resolution,
+        receiver : Resolved,
+        call : Methods::Call,
+        site : Site,
+      ) : Resolution
+        return direct unless receiver.is_a?(TypeRef)
+
+        subclasses = @methods.concrete_subclasses(receiver, call.caller_path)
+        return direct if subclasses.empty?
+
+        key = "#{receiver}##{call.name}/#{call.arity}"
+        return Unknown.new(:cycle, key) if site.visiting.includes?(key)
+
+        virtual_only = @methods.abstract_class?(receiver.name)
+        selfish = defs.any? { |entry| self_typed?(entry) }
+        results = Array(Resolution).new
+        results << direct unless virtual_only
+        seen = Set(String).new
+        seen << definition_key(defs) unless virtual_only
+        inner = site.copy_with(visiting: site.visiting + [key])
+        subclasses.each do |below|
+          unless selfish || overridden?(below, receiver, call)
+            results << direct if seen.add?(definition_key(defs))
+            next
+          end
+
+          below_defs = @methods.lookup(below, call)
+          next if below_defs.empty?
+          next unless selfish || seen.add?(definition_key(below_defs))
+
+          result = overloads_result(below_defs, below, call, inner)
+          next if result.is_a?(Unknown) && result.reason.cycle? && result.detail == key
+
+          results << result
+        end
+        return direct if results.empty?
+
+        union(results)
+      end
+
+      private def definition_key(defs : Array(Index::Def)) : String
+        defs.map { |entry| "#{entry.path}:#{entry.name_span.start_line}" }.join(",")
+      end
+
+      private def self_typed?(entry : Index::Def) : Bool
+        restriction = entry.return_type
+        shim = @shims.find(entry)
+        restriction = shim.entry.return_type if shim && restriction.is_a?(Index::Unrestricted)
+        restriction.is_a?(Syntax::Type) && restriction.to_s.includes?("self")
+      end
+
+      private def named_tuple_special(entry : Index::Def, receiver : TypeRef) : Resolution?
+        case entry.qualified
+        when "NamedTuple#values" then TypeRef.of(:tuple, receiver.arguments)
+        when "NamedTuple#keys"
+          symbols = Array(Resolution).new(receiver.arguments.size) { TypeRef.of(:symbol) }
+          TypeRef.of(:tuple, symbols)
+        end
+      end
+
+      private def enum_each(entry : Index::Def, receiver : Resolved, scope : Scope) : Resolution?
+        return unless entry.qualified == "Enum.each" && receiver.is_a?(MetaRef)
+
+        enum_type = receiver.of
+        return unless enum_type.is_a?(TypeRef)
+
+        namespace = @workspace.namespaces(enum_type.name).find(&.is_a?(Index::EnumNamespace))
+        flags = namespace.is_a?(Index::EnumNamespace) && namespace.flags
+        members = @workspace.constants_of(enum_type.name).reject do |constant|
+          flags && constant.name.rpartition("::")[2].in?("None", "All")
+        end
+        return TypeRef.of(:nil) if members.empty?
+
+        scope.bound("U")
+      end
+
+      private def nil_asserted?(
+        entry : Index::Def,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+      ) : Bool
+        return false unless entry.qualified == "Spec::ObjectExtensions#should_not"
+        return false unless receiver.is_a?(TypeRef) && receiver.is?(:nil)
+
+        expectation = arguments[0]?
+        expectation.is_a?(TypeRef) && expectation.name == "Spec::BeNilExpectation"
+      end
+
+      private def declared_step(
+        step : Flow::Declared,
+        name : String,
+        context : Syntax::Context,
+        visiting : Array(String),
+        locals : Array(Binding),
+      ) : Resolution
+        restriction = declared(Syntax::TypeReader.read(step.restriction), scope(context))
+        value = step.value
+        return restriction unless value && restriction.is_a?(Resolved)
+
+        key = variable_key(name, context)
+        typed = type_of(value, context.at(step.within), visiting + [key], locals)
+        return restriction unless typed.is_a?(Resolved) && @methods.admits?(restriction, typed)
+
+        typed
+      end
+
+      private def overridden?(below : Resolved, receiver : TypeRef, call : Methods::Call) : Bool
+        return true unless below.is_a?(TypeRef)
+
+        @methods.defined_between?(below.name, receiver.name, call.name)
       end
     end
   end

@@ -11,7 +11,10 @@ module Heucristic
       record IsA, types : Array(Crystal::ASTNode), positive : Bool
       record RespondsTo, method : String, positive : Bool
       record Assigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
-      record Declared, restriction : Crystal::ASTNode
+      record Declared,
+        restriction : Crystal::ASTNode,
+        value : Crystal::ASTNode? = nil,
+        within : Array(Crystal::ASTNode) = Array(Crystal::ASTNode).new
       record OrAssigned, value : Crystal::ASTNode, within : Array(Crystal::ASTNode)
       record Reassigned,
         values : Array(Reassignment),
@@ -82,7 +85,7 @@ module Heucristic
         in Crystal::ExceptionHandler
           handler_branch(parent, child)
         in Crystal::Expressions
-          sequence(parent.expressions, child)
+          sequence(parent, child)
         in Crystal::When, Crystal::ASTNode
           nil
         end
@@ -110,13 +113,16 @@ module Heucristic
         end
       end
 
-      private def sequence(statements : Array(Crystal::ASTNode), child : Crystal::ASTNode) : Nil
+      private def sequence(block : Crystal::Expressions, child : Crystal::ASTNode) : Nil
+        statements = block.expressions
+        stop = statements.index(&.same?(child)) || statements.size
         facts = @facts
+        candidates = facts ? facts.mentioning_in(@name, block) : (0...statements.size).to_a
         declared = false
-        statements.each do |statement|
-          break if statement.same?(child)
-          next if facts && !facts.mentions?(@name, statement)
+        candidates.each do |index|
+          break if index >= stop
 
+          statement = statements[index]
           reassignments = reassignments_within(statement)
           captured = reassignments.all?(&.path.any?(Crystal::Block))
           guard(statement) if declared || reassignments.empty? || !captured
@@ -166,6 +172,11 @@ module Heucristic
           return unless var.is_a?(Crystal::Var) && var.name == @name
 
           @steps << Declared.new(statement.declared_type)
+        in Crystal::TypeDeclaration
+          var = statement.var
+          return unless var.is_a?(Crystal::Var) && var.name == @name
+
+          @steps << Declared.new(statement.declared_type, statement.value, within)
         in Crystal::OpAssign
           target = statement.target
           return unless target.is_a?(Crystal::Var) && target.name == @name && statement.op == "||"
@@ -257,12 +268,7 @@ module Heucristic
         facts = @facts
         return LocalAssignments.locate(statement, @name) unless facts
 
-        found = Array(Reassignment).new
-        facts.reassigned(@name).each do |item|
-          index = item.path.index(&.same?(statement))
-          found << Reassignment.new(item.value, item.path[(index + 1)..]) if index
-        end
-        found
+        facts.reassigned_within(@name, statement)
       end
 
       private def carried(body : Crystal::ASTNode) : Nil
@@ -275,10 +281,11 @@ module Heucristic
       private def defined_outside?(body : Crystal::ASTNode) : Bool
         facts = @facts
         return false unless facts
-        return true if parameter_in_prefix?
 
-        facts.reassigned(@name).any? do |item|
-          item.path.none?(&.same?(body)) && item.path.all? { |node| enclosing_scope?(node) }
+        facts.defined_outside?(@name, body) do
+          parameter_in_prefix? || facts.reassigned(@name).any? do |item|
+            item.path.none?(&.same?(body)) && item.path.all? { |node| enclosing_scope?(node) }
+          end
         end
       end
 

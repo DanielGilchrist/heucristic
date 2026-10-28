@@ -108,6 +108,7 @@ module Heucristic
         @private_paths = Hash(String, Array(String)).new
         @compiled = Compiled::NONE
         @descendants = Descendants.new(@workspace, @types)
+        @concrete = Hash(String, Array(String)).new
       end
 
       def compiled(map : Compiled) : Nil
@@ -119,6 +120,7 @@ module Heucristic
         @includers.clear
         @private_paths.clear
         @descendants.invalidate
+        @concrete.clear
       end
 
       def class_macros(receiver : Resolution, call : Call) : Array(Index::MacroDef)
@@ -152,10 +154,16 @@ module Heucristic
       end
 
       def virtual_receivers(receiver : Resolution, caller_path : String?) : Array(Resolved)
+        base = receiver.is_a?(MetaRef) ? receiver.of : receiver
+        return Array(Resolved).new unless base.is_a?(TypeRef) && abstract_class?(base.name)
+
+        concrete_subclasses(receiver, caller_path)
+      end
+
+      def concrete_subclasses(receiver : Resolution, caller_path : String?) : Array(Resolved)
         receivers = Array(Resolved).new
         base = receiver.is_a?(MetaRef) ? receiver.of : receiver
         return receivers unless base.is_a?(TypeRef) && base.arguments.empty?
-        return receivers unless abstract_class?(base.name)
 
         concrete_descendants(base.name).each do |descendant|
           next unless loaded?(descendant, caller_path)
@@ -167,7 +175,19 @@ module Heucristic
       end
 
       def concrete_descendants(type : String) : Array(String)
-        @descendants.of(type).reject { |descendant| abstract_class?(descendant) }
+        @concrete[type] ||= @descendants.of(type).reject { |below| abstract_class?(below) }
+      end
+
+      def defined_between?(below : String, base : String, name : String) : Bool
+        chain = @types.ancestors(below)
+        return true if chain.is_a?(Unknown)
+        return true if @workspace.defs_of(below).any?(&.name.==(name))
+
+        chain.each do |ancestor|
+          return false if ancestor == base
+          return true if @workspace.defs_of(ancestor).any?(&.name.==(name))
+        end
+        true
       end
 
       def abstract_class?(type : String) : Bool

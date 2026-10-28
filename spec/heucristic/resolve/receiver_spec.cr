@@ -367,8 +367,14 @@ describe Heucristic::Resolve::Receiver, "block results" do
       end
     end
 
+    class Shared(T)
+      def lock(& : T -> U) : U forall U
+      end
+    end
+
     class Walker
-      def run(roots : Array(String)) : Nil
+      def run(roots : Array(String), shared : Shared(Tuple(String, Int32))) : Nil
+        shared.lock { |name, count| name }.size
         roots.flat_map { |root| Dir.glob(root) }.size
         roots.flat_map { |root| root }.size
         roots.sum { |root| root.size }.size
@@ -386,6 +392,10 @@ describe Heucristic::Resolve::Receiver, "block results" do
   it "binds a free variable from a bare block result" do
     receiver_of_size(source, "roots.flat_map { |root| root }.size").should eq("Array(String)")
     receiver_of_size(source, "roots.sum { |root| root.size }.size").should eq("Int32")
+  end
+
+  it "splats a yielded tuple across the block parameters (crystal run: String)" do
+    receiver_of_size(source, "shared.lock { |name, count| name }.size").should eq("String")
   end
 
   it "leaves the variable free when the block result is unknown" do
@@ -2115,7 +2125,7 @@ describe Heucristic::Resolve::Receiver, "select" do
 end
 
 describe Heucristic::Resolve::Receiver, "named tuples" do
-  it "types a named tuple literal, an annotation with labels and access by symbol" do
+  it "types named tuple literals, labelled annotations and symbol access ([:age]? is Int32)" do
     source = <<-CR
       struct NamedTuple
         def [](key : Symbol)
@@ -2137,7 +2147,7 @@ describe Heucristic::Resolve::Receiver, "named tuples" do
       CR
     receiver_at(source, 10, 1).should eq("NamedTuple(name: String, age: Int32)")
     receiver_at(source, 12, 1).should eq("String")
-    receiver_at(source, 14, 1).should eq("Int32 | Nil")
+    receiver_at(source, 14, 1).should eq("Int32")
     receiver_at(source, 16, 3).should eq("NamedTuple(name: String, age: Int32)")
   end
 end
@@ -3130,5 +3140,143 @@ describe Heucristic::Resolve::Receiver, "overloads chosen with the receiver's ty
 
   it "moves past an ancestor whose restriction rejects the argument" do
     receiver_of_size(source, "(version == 1).size").should eq("String")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "dispatch and stdlib specials" do
+  source = <<-CR
+    class Node
+      def location : Nil
+      end
+    end
+
+    class Leaf < Node
+      def location : String
+      end
+    end
+
+    abstract class Shape
+      def area : Int32
+      end
+    end
+
+    class Square < Shape
+    end
+
+    class Circle < Shape
+      def area : Float64
+      end
+    end
+
+    class Stream
+      def close : Nil
+      end
+    end
+
+    class Wrapped < Stream
+      def initialize(@inner : Stream)
+      end
+
+      delegate close, to: @inner
+    end
+
+    struct Tuple(*T)
+      def types : T
+      end
+    end
+
+    struct NamedTuple
+      def values
+      end
+
+      def keys
+      end
+    end
+
+    struct Enum
+      def self.each(& : self -> U) : U? forall U
+      end
+    end
+
+    enum Color
+      Red
+      Green
+    end
+
+    module Spec
+      struct BeNilExpectation
+      end
+
+      module ObjectExtensions
+        def should_not(expectation) : self
+        end
+      end
+    end
+
+    class Object
+      include Spec::ObjectExtensions
+    end
+
+    class Runner
+      def run(
+        node : Node,
+        shape : Shape,
+        stream : Stream,
+        pair : Tuple(Int32, String),
+        bare : Tuple,
+      ) : Nil
+        node.location.size
+        shape.area.size
+        stream.close.size
+        pair[1]?.size
+        bare.types.size
+        named = {a: 1, b: "x"}
+        named.values.size
+        named.keys.size
+        Color.each { |color| 1 }.size
+        nil.should_not(Spec::BeNilExpectation.new).size
+        maybe : Int32? = nil
+        maybe.size
+      end
+    end
+    CR
+
+  it "unions the overrides of a subclass for a virtual receiver (crystal run: String | Nil)" do
+    receiver_of_size(source, "node.location.size").should eq("Nil | String")
+  end
+
+  it "keeps an inherited def beside an override when abstract (crystal run: Float64 | Int32)" do
+    receiver_of_size(source, "shape.area.size").should eq("Float64 | Int32")
+  end
+
+  it "drops a subclass that delegates back to the same virtual call (crystal run: Nil)" do
+    receiver_of_size(source, "stream.close.size").should eq("Nil")
+  end
+
+  it "types a tuple's []? with an in-range literal as the element (crystal run: String)" do
+    receiver_of_size(source, "pair[1]?.size").should eq("String")
+  end
+
+  it "leaves a bare Tuple's splat type variable unbound instead of the empty tuple" do
+    receiver_of_size(source, "bare.types.size").should eq("T")
+  end
+
+  it "types NamedTuple#values and #keys from the labels (crystal run: Tuple(Int32, String))" do
+    receiver_of_size(source, "named.values.size").should eq("Tuple(Int32, String)")
+    receiver_of_size(source, "named.keys.size").should eq("Tuple(Symbol, Symbol)")
+  end
+
+  it "types Enum.each on an enum with members as the block result (crystal run: Int32)" do
+    receiver_of_size(source, "Color.each { |color| 1 }.size").should eq("Int32")
+  end
+
+  it "types nil.should_not be_nil as NoReturn (crystal run: NoReturn)" do
+    receiver_of_size(source, "nil.should_not(Spec::BeNilExpectation.new).size").should eq(
+      "NoReturn"
+    )
+  end
+
+  it "types a declared local from its value (crystal run: maybe : Int32? = nil is Nil)" do
+    receiver_of_size(source, "maybe.size").should eq("Nil")
   end
 end
