@@ -88,6 +88,109 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
+  it "lists what each call passes an untyped parameter and suggests the restriction" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    client.open(URI_A, <<-CR)
+      class Greeter
+        def greet(name)
+          name
+        end
+      end
+
+      def run(greeter : Greeter) : Nil
+        greeter.greet("a")
+        greeter.greet(1)
+      end
+      CR
+    client.await_diagnostics
+
+    text = hover_text(client.hover(URI_A, 2, 4)).to_s
+    text.should contain("parameter name has no type restriction")
+    text.should contain("2 indexed calls to `Greeter#greet` pass `name`:")
+    text.should contain("a.cr:8` `String`")
+    text.should contain("a.cr:9` `Int32`")
+    text.should contain("Every call is typed: `name : String | Int32` states what they pass.")
+    client.shutdown
+  end
+
+  it "suggests no restriction while a call with an untyped receiver may reach the def" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    client.open(URI_A, <<-CR)
+      class Greeter
+        def greet(name)
+          name
+        end
+      end
+
+      def run(greeter : Greeter, other) : Nil
+        greeter.greet("a")
+        other.greet(1)
+      end
+      CR
+    client.await_diagnostics
+
+    text = hover_text(client.hover(URI_A, 2, 4)).to_s
+    text.should contain("1 indexed call to `Greeter#greet` passes `name`:")
+    text.should contain("1 other call to `greet` cannot be attributed")
+    text.should contain("No restriction is suggested while some calls are not attributed.")
+    client.shutdown
+  end
+
+  it "says when a call takes the default" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    client.open(URI_A, <<-CR)
+      class Greeter
+        def greet(name = "you")
+          name
+        end
+      end
+
+      def run(greeter : Greeter) : Nil
+        greeter.greet
+      end
+      CR
+    client.await_diagnostics
+
+    text = hover_text(client.hover(URI_A, 2, 4)).to_s
+    text.should contain("a.cr:8` `String` from the default")
+    text.should contain("Every call is typed: `name : String` states what they pass.")
+    client.shutdown
+  end
+
+  it "suggests no restriction while a call passes a value it cannot type" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    client.open(URI_A, <<-CR)
+      class Greeter
+        def greet(name)
+          name
+        end
+      end
+
+      def run(greeter : Greeter, other) : Nil
+        greeter.greet("a")
+        greeter.greet(other)
+      end
+      CR
+    client.await_diagnostics
+
+    text = hover_text(client.hover(URI_A, 2, 4)).to_s
+    text.should contain("a.cr:9` unknown (no annotation: parameter other has no type restriction)")
+    text.should contain("1 of 2 are not typed, so no restriction is suggested.")
+    client.shutdown
+  end
+
   it "explains a call it cannot resolve and gives no definition" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")
@@ -617,6 +720,33 @@ describe Heucristic::Server::Loop, "references" do
 
     from_call = client.references(URI_B, 0, 13, include_declaration: true).result.try(&.as_a?)
     from_call.try(&.size).should eq(4)
+    client.shutdown
+  end
+
+  it "counts a call through the base type as a use of an override" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    client.open(URI_A, <<-CR)
+      class Node
+        def location : Nil
+        end
+      end
+
+      class Leaf < Node
+        def location : Nil
+        end
+      end
+
+      def find(node : Node) : Nil
+        node.location
+      end
+      CR
+    client.await_diagnostics
+
+    found = client.references(URI_A, 6, 8).result.try(&.as_a?)
+    found.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([11])
     client.shutdown
   end
 

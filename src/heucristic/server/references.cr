@@ -2,20 +2,21 @@ require "lsprotocol"
 require "../index/workspace"
 require "../index/entry"
 require "../resolve/types"
-require "../resolve/methods"
 require "../resolve/receiver"
 require "../syntax/target"
 require "../syntax/variable_uses"
 require "../syntax/instance_var_uses"
 require "./uri"
+require "./reach"
 
 module Heucristic
   module Server
     class References
+      record Callers, uses : Array(Index::CallUse), untyped : Int32, capped : Bool
+
       def initialize(
         @workspace : Index::Workspace,
         @types : Resolve::Types,
-        @methods : Resolve::Methods,
         @receiver : Resolve::Receiver,
       ) : Nil
       end
@@ -32,12 +33,29 @@ module Heucristic
         found = Array(LSProtocol::Location).new
         entries.map(&.name).uniq!.each do |name|
           @workspace.call_uses(name).each do |use|
-            next unless resolves_to?(use, entries)
+            next unless reach(use, entries).reaches?
 
             add(found, use.sites, use.call.name_location, name.size)
           end
         end
         found
+      end
+
+      def callers(entries : Array(Index::Def), limit : Int32) : Callers
+        found = Array(Index::CallUse).new
+        untyped = 0
+        entries.map(&.name).uniq!.each do |name|
+          @workspace.call_uses(name).each do |use|
+            return Callers.new(found, untyped, true) if found.size >= limit
+
+            case reach(use, entries)
+            in .reaches?   then found << use
+            in .untyped?   then untyped += 1
+            in .elsewhere? then nil
+            end
+          end
+        end
+        Callers.new(found, untyped, false)
       end
 
       def of_names(entries : Array(Index::Entry)) : Array(LSProtocol::Location)
@@ -84,16 +102,20 @@ module Heucristic
         found
       end
 
-      private def resolves_to?(use : Index::CallUse, entries : Array(Index::Def)) : Bool
+      private def reach(use : Index::CallUse, entries : Array(Index::Def)) : Reach
         receiver = @receiver.of_call(use.call, use.context)
-        return false if receiver.is_a?(Resolve::Unknown)
+        if receiver.is_a?(Resolve::Unknown)
+          arity = use.call.args.size
+          return entries.any?(&.arity.accepts?(arity)) ? Reach::Untyped : Reach::Elsewhere
+        end
 
         shape = @receiver.shape_of(use.call, use.context)
-        @methods.lookup(receiver, shape).any? do |candidate|
+        reached = @receiver.implementations(receiver, shape).any? do |candidate|
           entries.any? do |entry|
             entry.path == candidate.path && entry.name_span == candidate.name_span
           end
         end
+        reached ? Reach::Reaches : Reach::Elsewhere
       end
 
       private def names?(use : Index::PathUse, qualified : String) : Bool

@@ -27,6 +27,7 @@ require "./progress"
 require "./options"
 require "./macros"
 require "./references"
+require "./parameter_hint"
 require "./symbols"
 require "./completion"
 require "./rename"
@@ -91,7 +92,8 @@ module Heucristic
         @types = Resolve::Types.new(@workspace)
         @methods = Resolve::Methods.new(@workspace, @types)
         @receiver = Resolve::Receiver.new(@workspace, @shims, @types, @methods)
-        @references = References.new(@workspace, @types, @methods, @receiver)
+        @references = References.new(@workspace, @types, @receiver)
+        @hints = ParameterHint.new(@workspace, @types, @receiver, @references)
         @symbols = Symbols.new(@workspace)
         @completion = Completion.new(@workspace, @types, @methods, @receiver)
         @rename = Rename.new
@@ -885,10 +887,14 @@ module Heucristic
       end
 
       private def answer_var(target : Syntax::OnVar, text : Document::Text) : Answer
-        note = typed(@receiver.variable(target.name, target.context))
+        resolution = @receiver.variable(target.name, target.context)
+        notes = [typed(resolution)]
+        if resolution.is_a?(Resolve::Unknown)
+          @hints.for(target.name, target.context, @root).try { |hint| notes << hint }
+        end
         spans = Array(Document::Span).new
         add_span(spans, text, introduced_at(target), target.name.size)
-        Answer.new(Array(Index::Entry).new, spans, [note], Array(String).new)
+        Answer.new(Array(Index::Entry).new, spans, notes, Array(String).new)
       end
 
       private def introduced_at(target : Syntax::OnVar) : Crystal::Location?
