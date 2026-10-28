@@ -326,6 +326,30 @@ module Heucristic
         end
       end
 
+      def implementations(receiver : Resolved, shape : Methods::Call) : Array(Index::Def)
+        found = @methods.dispatch(receiver, shape).dup
+        return found if found.empty? || !receiver.is_a?(TypeRef)
+
+        @methods.concrete_subclasses(receiver, shape.caller_path).each do |below|
+          next unless overridden?(below, receiver, shape)
+
+          found.concat(@methods.lookup(below, shape))
+        end
+        found.uniq!
+      end
+
+      def super_targets(call : Crystal::Call, context : Syntax::Context) : Array(Index::Def)
+        receiver = of_call(call, context)
+        definition = context.def_node
+        owner = context.owner
+        unless receiver.is_a?(Resolved) && definition && owner.is_a?(String)
+          return Array(Index::Def).new
+        end
+
+        shape = shape_of(call, context)
+        @methods.lookup_super(receiver, owner, parent_call(call, shape, definition))
+      end
+
       def invalidate : Nil
         @exit_answers.clear
         @facts.clear
@@ -440,11 +464,7 @@ module Heucristic
 
         return TypeRef.of(:nil) if Syntax::WellKnown::Initialize.named?(definition.name)
 
-        arity = call.has_parentheses? ? shape.arity : definition.args.size
-        parent_call = Methods::Call.new(
-          definition.name, arity, shape.block, shape.arguments, shape.named
-        )
-        defs = @methods.lookup_super(receiver, owner, parent_call)
+        defs = @methods.lookup_super(receiver, owner, parent_call(call, shape, definition))
         if defs.empty?
           return Unknown.new(:unresolved_name, "no `#{definition.name}` above #{owner}")
         end
@@ -2503,6 +2523,15 @@ module Heucristic
           expanded.isolated.assigned.each { |assigned| found[assigned] ||= call.name }
         end
         found
+      end
+
+      private def parent_call(
+        call : Crystal::Call,
+        shape : Methods::Call,
+        definition : Crystal::Def,
+      ) : Methods::Call
+        arity = call.has_parentheses? ? shape.arity : definition.args.size
+        Methods::Call.new(definition.name, arity, shape.block, shape.arguments, shape.named)
       end
     end
   end

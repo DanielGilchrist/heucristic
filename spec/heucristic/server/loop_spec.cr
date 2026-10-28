@@ -58,6 +58,36 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
+  it "jumps from super to the def it reaches and from a call to every override" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    client.open(URI_A, <<-CR)
+      class Node
+        def location : Nil
+        end
+      end
+
+      class Leaf < Node
+        def location : Nil
+          super
+        end
+      end
+
+      def find(node : Node) : Nil
+        node.location
+      end
+      CR
+    client.await_diagnostics
+
+    definition = client.definition(URI_A, 7, 4).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1])
+    definition = client.definition(URI_A, 12, 8).result.try(&.as_a?)
+    definition.try(&.map(&.["range"]["start"]["line"].as_i)).should eq([1, 6])
+    client.shutdown
+  end
+
   it "explains a call it cannot resolve and gives no definition" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")

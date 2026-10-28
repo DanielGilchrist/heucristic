@@ -794,7 +794,11 @@ module Heucristic
         end
 
         shape = @receiver.shape_of(call, target.context)
-        found = @methods.dispatch(receiver, shape)
+        found = if call.obj.nil? && Syntax::WellKnown::Super.named?(call.name)
+                  @receiver.super_targets(call, target.context)
+                else
+                  @receiver.implementations(receiver, shape)
+                end
         if found.empty?
           inherited = @methods.class_macros(receiver, shape)
           unless inherited.empty?
@@ -810,7 +814,7 @@ module Heucristic
           forwarded = @receiver.forwarded_receiver(receiver)
           if forwarded.is_a?(Resolve::Resolved)
             receiver = forwarded
-            found = @methods.dispatch(receiver, shape)
+            found = @receiver.implementations(receiver, shape)
           end
         end
         if found.empty?

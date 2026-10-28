@@ -73,6 +73,7 @@ module Score
     compiled = targets.try do |found|
       found.each_value.reduce(Set(String).new) { |all, files| all | files }
     end
+    main_files = targets.try(&.[Heucristic::Index::MacroTarget::Main]?)
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     methods.compiled(Heucristic::Resolve::Compiled.new(targets, shim_roots)) if targets
@@ -104,7 +105,7 @@ module Score
           next unless location
 
           result = receiver.result_of(call, site.context)
-          targets = targets_of(call, site.context, receiver, methods)
+          implemented = targets_of(call, site.context, receiver)
           here = "#{path.sub(root + "/", "")}:#{location.line_number}"
           if at == here || at == "#{here}:#{location.column_number}"
             puts "#{call.name} at #{at}: #{result}"
@@ -128,14 +129,14 @@ module Score
             puts "  def: #{site.context.def_node.try(&.name)}, blocks: #{site.context.blocks.size}"
           end
           outcomes << Outcome.new(
-            path, location.line_number, location.column_number, call.name, result, targets
+            path, location.line_number, location.column_number, call.name, result, implemented
           )
         end
       end
     end
 
     report(outcomes, elapsed, root)
-    verify_sample(outcomes, verify, main, root) if verify > 0 && main
+    verify_sample(outcomes, verify, main, root, main_files) if verify > 0 && main
     0
   end
 
@@ -312,14 +313,16 @@ module Score
     call : Crystal::Call,
     context : Heucristic::Syntax::Context,
     receiver : Heucristic::Resolve::Receiver,
-    methods : Heucristic::Resolve::Methods,
   ) : Array(String)
     typed = receiver.of_call(call, context)
     return Array(String).new if typed.is_a?(Heucristic::Resolve::Unknown)
 
-    methods.lookup(typed, receiver.shape_of(call, context)).map do |entry|
-      "#{entry.path}:#{entry.name_span.start_line + 1}"
-    end
+    found = if call.obj.nil? && Heucristic::Syntax::WellKnown::Super.named?(call.name)
+              receiver.super_targets(call, context)
+            else
+              receiver.implementations(typed, receiver.shape_of(call, context))
+            end
+    found.map { |entry| "#{entry.path}:#{entry.name_span.start_line + 1}" }
   end
 
   private def report(outcomes : Array(Outcome), elapsed : Time::Span, root : String) : Nil
@@ -349,6 +352,7 @@ module Score
     count : Int32,
     main : String,
     root : String,
+    main_files : Set(String)?,
   ) : Nil
     resolved = outcomes.select(&.result.is_a?(Heucristic::Resolve::Resolved))
     sample = resolved.sample(Math.min(count, resolved.size), Random.new(7))
@@ -366,7 +370,7 @@ module Score
           "tool", "implementations", "--no-color", "-f", "json", "-c", cursor,
           File.join(root, main),
         },
-        output: output, error: Process::Redirect::Close
+        output: output, error: Process::Redirect::Close, chdir: root
       )
       unless status.success?
         puts "  compiler failed at #{cursor.sub(root + "/", "")}"
@@ -376,18 +380,19 @@ module Score
       locations = compiler["implementations"]?.try(&.as_a?) || Array(JSON::Any).new
       theirs = locations.map { |impl| "#{impl["filename"]}:#{impl["line"]}" }
       where = cursor.sub(root + "/", "")
+      ours = in_target(outcome.targets, main_files, root)
       if theirs.empty?
         unseen += 1
         puts "  ? #{where} #{outcome.name}: compiler reports no implementation"
-      elsif same_targets?(theirs, outcome.targets)
+      elsif same_targets?(theirs, ours)
         agree += 1
-      elsif same_files?(theirs, outcome.targets)
+      elsif same_files?(theirs, ours)
         agree += 1
         puts "  ~ #{where} #{outcome.name}: same file, different line (macro-generated def)"
       else
         disagree += 1
         puts "  X #{where} #{outcome.name}"
-        puts "      ours:     #{outcome.targets.map(&.sub(root + "/", "")).join(", ")}"
+        puts "      ours:     #{ours.map(&.sub(root + "/", "")).join(", ")}"
         puts "      compiler: #{theirs.map(&.sub(root + "/", "")).join(", ")}"
       end
     end
@@ -501,8 +506,28 @@ module Score
     our_files = ours.map(&.rpartition(':')[0]).uniq!.sort!
     shimmed = our_files.all?(&.includes?("/shims/"))
     return true if shimmed && their_files.all?(&.ends_with?("/primitives.cr"))
+    return restates?(their_files, our_files) if shimmed
 
     their_files == our_files
+  end
+
+  private def restates?(their_files : Array(String), our_files : Array(String)) : Bool
+    our_files.all? do |shim|
+      their_files.any? { |file| File.basename(file) == File.basename(shim) }
+    end
+  end
+
+  private def in_target(
+    targets : Array(String),
+    files : Set(String)?,
+    root : String,
+  ) : Array(String)
+    return targets unless files
+
+    targets.select do |target|
+      path = target.rpartition(':')[0]
+      !path.starts_with?(root + "/") || files.includes?(path)
+    end
   end
 
   private def percent(part : Int32, whole : Int32) : String
