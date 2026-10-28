@@ -21,10 +21,12 @@ module ShimsCheck
     CHECKER = <<-'CR'
 
       def __heucristic_check(line : Int32, actual : T.class, expected : U.class) : Nil forall T, U
-        {% if T <= U %}
-          puts "#{line}\tok"
-        {% else %}
+        {% if !(T <= U) %}
           puts "#{line}\tmismatch\t#{T}\t#{U}"
+        {% elsif U.union_types.any? { |want| !T.union_types.any? { |have| have <= want } } %}
+          puts "#{line}\twider\t#{T}\t#{U}"
+        {% else %}
+          puts "#{line}\tok"
         {% end %}
       end
 
@@ -39,7 +41,12 @@ module ShimsCheck
 
     record Unresolved, line : Int32, source : String, reason : String
 
-    record Mismatch, line : Int32, source : String, compiler : String, heucristic : String
+    record Mismatch,
+      line : Int32,
+      source : String,
+      compiler : String,
+      heucristic : String,
+      wider : Bool
 
     record Resolver,
       receiver : Heucristic::Resolve::Receiver,
@@ -70,11 +77,10 @@ module ShimsCheck
       uncovered = uncovered_shims(shims, applicable, covered)
       verified = probes.size - mismatches.size
       puts "probes: #{probes.size + unresolved.size}, verified by the compiler: #{verified}"
-      contradicted = mismatches.map do |found|
-        "#{found.line}: #{found.source}  compiler: #{found.compiler}  " \
-        "heucristic: #{found.heucristic}"
-      end
+      contradicted = mismatches.reject(&.wider).map { |found| describe(found) }
       report("mismatches (the compiler's type is not within heucristic's)", contradicted)
+      widened = mismatches.select(&.wider).map { |found| describe(found) }
+      report("widened (heucristic adds union members the compiler never produces)", widened)
       report("probes heucristic cannot type", unresolved.map do |missing|
         "#{missing.line}: #{missing.source}  #{missing.reason}"
       end)
@@ -154,7 +160,11 @@ module ShimsCheck
         next if target.is_a?(Heucristic::Resolve::Unknown)
 
         shape = resolver.receiver.shape_of(site.call, site.context)
-        resolver.methods.dispatch(target, shape).each do |entry|
+        reached = resolver.methods.dispatch(target, shape).dup
+        resolver.methods.concrete_subclasses(target, shape.caller_path).each do |below|
+          reached.concat(resolver.methods.lookup(below, shape))
+        end
+        reached.each do |entry|
           shims.find(entry).try { |shim| covered << shim.entry.identity }
         end
       end
@@ -229,12 +239,13 @@ module ShimsCheck
       found = Array(Mismatch).new
       output.each_line do |line|
         fields = line.split('\t')
-        next unless fields[1]? == "mismatch"
+        kind = fields[1]?
+        next unless kind == "mismatch" || kind == "wider"
 
         probe = by_line[fields[0].to_i]?
         next unless probe
 
-        found << Mismatch.new(probe.line, probe.source, fields[2], fields[3])
+        found << Mismatch.new(probe.line, probe.source, fields[2], fields[3], kind == "wider")
       end
       found
     end
@@ -251,6 +262,10 @@ module ShimsCheck
         lines[first..last] = [head + check + tail]
       end
       lines.join
+    end
+
+    private def describe(found : Mismatch) : String
+      "#{found.line}: #{found.source}  compiler: #{found.compiler}  heucristic: #{found.heucristic}"
     end
 
     private def report(title : String, lines : Array(String)) : Nil
