@@ -268,7 +268,7 @@ module Heucristic
                   end
                 in UnionRef, TypeVar then Array(Index::Def).new
                 end
-        found.select { |entry| own?(entry, caller_path) }
+        found.reject! { |entry| !own?(entry, caller_path) }
       end
 
       def extends_itself?(type : String) : Bool
@@ -605,6 +605,8 @@ module Heucristic
         gathered = Array(Index::Def).new
         undecided = call.arguments.any?(Unknown)
         searched.each do |level|
+          next if candidates.none? { |entry| entry.owner == level }
+
           found = candidates.select do |entry|
             entry.owner == level && own?(entry, call.caller_path) && yield entry
           end

@@ -5,19 +5,23 @@ module Heucristic
     struct Compiled
       NONE = Compiled.new(Hash(Index::MacroTarget, Set(String)).new, Array(String).new)
 
+      @shim_prefixes : Array(String)
+
       def initialize(
         @targets : Hash(Index::MacroTarget, Set(String)),
-        @shim_roots : Array(String),
+        shim_roots : Array(String),
       ) : Nil
+        @shim_prefixes = shim_roots.map { |shim_root| shim_root + "/" }
       end
 
       def known?(path : String) : Bool
-        @targets.each_value.any?(&.includes?(path))
+        @targets.each_value { |files| return true if files.includes?(path) }
+        false
       end
 
       def loaded?(caller_path : String, path : String) : Bool
         return true unless known?(caller_path)
-        return true if @shim_roots.any? { |shim_root| path.starts_with?(shim_root + "/") }
+        return true if @shim_prefixes.any? { |prefix| path.starts_with?(prefix) }
 
         shared?(caller_path, path)
       end
@@ -25,7 +29,10 @@ module Heucristic
       def shared?(caller_path : String, path : String) : Bool
         return true if Index::MacroTarget.generated?(path)
 
-        @targets.each_value.any? { |files| files.includes?(caller_path) && files.includes?(path) }
+        @targets.each_value do |files|
+          return true if files.includes?(caller_path) && files.includes?(path)
+        end
+        false
       end
     end
   end
