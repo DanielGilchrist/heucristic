@@ -131,7 +131,7 @@ module Heucristic
           member
         end
 
-        scope = Resolve::Scope.new(context.owner, context.type_vars)
+        scope = Resolve::Scope.of(context)
         covered = Array(String).new
         node.whens.each do |branch|
           branch.conds.each do |cond|

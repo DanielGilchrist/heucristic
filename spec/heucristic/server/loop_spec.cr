@@ -1546,6 +1546,33 @@ describe Heucristic::Server::Loop, "call checks" do
     client.await_diagnostics(usage_uri, &.empty?)
     client.shutdown
   end
+
+  it "resolves a file-private type in the in branches of a case over a union" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    client.open(usage_uri, <<-CR)
+      private class Secret
+      end
+
+      def pick(value : Secret | String | Int32) : Nil
+        case value
+        in Secret, Int32
+          1
+        end
+      end
+      CR
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 1 }
+    reported = warnings.map do |warning|
+      {warning["range"]["start"]["line"].as_i, warning["code"].as_s, warning["message"].as_s}
+    end
+    reported.should eq([
+      {4, "non-exhaustive-case", "case is not exhaustive.\n\nMissing cases:\n - String"},
+    ])
+    client.shutdown
+  end
 end
 
 describe Heucristic::Server::Loop, "requires" do
