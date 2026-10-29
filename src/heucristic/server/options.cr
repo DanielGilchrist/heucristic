@@ -6,25 +6,27 @@ module Heucristic
       extend self
 
       def semantic(raw : JSON::Any?) : String?
-        raw.try(&.["semantic"]?).try(&.as_s?)
+        field(raw, "semantic").try(&.as_s?)
       end
 
       def compiler(raw : JSON::Any?) : String?
-        raw.try(&.["compiler"]?).try(&.as_s?)
+        field(raw, "compiler").try(&.as_s?)
       end
 
       def defines(raw : JSON::Any?) : Array(String)
-        listed = raw.try(&.["defines"]?).try(&.as_a?)
+        listed = field(raw, "defines").try(&.as_a?)
         return Array(String).new unless listed
 
         listed.compact_map(&.as_s?)
       end
 
       def stdlib?(raw : JSON::Any?) : Bool
-        return true unless raw
-
-        value = raw["stdlib"]?.try(&.as_bool?)
+        value = field(raw, "stdlib").try(&.as_bool?)
         value.nil? ? true : value
+      end
+
+      private def field(raw : JSON::Any?, name : String) : JSON::Any?
+        raw.try(&.as_h?).try(&.[name]?)
       end
     end
   end

@@ -212,6 +212,18 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
+  it "initializes when initializationOptions is not an object" do
+    client = LspClient.in_process
+    response = client.request_raw("initialize", {
+      "processId"             => nil,
+      "rootUri"               => "file:///tmp/heucristic-spec-empty",
+      "capabilities"          => Hash(String, String).new,
+      "initializationOptions" => [false],
+    })
+    response.result.try(&.["capabilities"]?).try(&.["hoverProvider"]?).should_not be_nil
+    client.shutdown
+  end
+
   it "resolves a constant through the enclosing namespaces and lists every reopening" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")
