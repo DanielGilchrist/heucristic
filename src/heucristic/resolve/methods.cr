@@ -208,6 +208,8 @@ module Heucristic
         any_member : Bool = false,
         receiver : Resolution? = nil,
       ) : Rejected?
+        return if call.arguments.all?(Unknown)
+
         positional = entry.parameters.select(&.kind.positional?)
         owner = entry.owner
         owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
@@ -628,6 +630,8 @@ module Heucristic
       end
 
       private def most_specific(found : Array(Index::Def), call : Call) : Array(Index::Def)
+        return found if found.size < 2
+
         fixed = found.reject(&.arity.splat)
         found = fixed unless fixed.empty?
         found.reject do |entry|
