@@ -61,9 +61,9 @@ module Heucristic
       CHECK_DELAY = 300.milliseconds
       MAIN        = Index::MacroTarget::Main.wire
 
-      getter root : String
+      @root : String
 
-      getter workspace : Index::Workspace
+      @workspace : Index::Workspace
 
       getter progress : Progress
 
@@ -97,7 +97,6 @@ module Heucristic
         @symbols = Symbols.new(@workspace)
         @completion = Completion.new(@workspace, @types, @methods, @receiver)
         @rename = Rename.new
-        @stopping = false
         @index_stdlib = true
         @source_paths = nil
         @progress = Progress.new(@transport, false)
