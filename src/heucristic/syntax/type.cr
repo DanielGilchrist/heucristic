@@ -160,6 +160,22 @@ module Heucristic
     end
 
     class SelfType
+      def self.within?(type : Type) : Bool
+        case type
+        in SelfType                           then true
+        in Named, Literal, TypeOf, Underscore then false
+        in Nilable, Splat                     then within?(type.inner)
+        in Metaclass                          then within?(type.of)
+        in Union                              then type.members.any? { |member| within?(member) }
+        in Generic
+          type.arguments.any? { |argument| within?(argument) } ||
+            type.named_arguments.any? { |argument| within?(argument.type) }
+        in Proc
+          output = type.output
+          type.inputs.any? { |input| within?(input) } || (!output.nil? && within?(output))
+        end
+      end
+
       def_equals_and_hash
 
       def to_s(io : IO) : Nil

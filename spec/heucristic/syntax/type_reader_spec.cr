@@ -49,3 +49,19 @@ describe Heucristic::Syntax::TypeReader do
     read("Hash(String, Int32)?").should_not eq(read("Hash(String, Int64)?"))
   end
 end
+
+private def mentions_self?(restriction : String) : Bool
+  type = read(restriction)
+  type.is_a?(Heucristic::Syntax::Type) && Heucristic::Syntax::SelfType.within?(type)
+end
+
+describe Heucristic::Syntax::SelfType do
+  it "finds self nested anywhere in a restriction" do
+    nested = {"self", "Array(self)?", "Hash(String, self.class)", "self -> Int32", "Int32 -> self"}
+    nested.each { |text| mentions_self?(text).should be_true }
+  end
+
+  it "does not find self inside a type's name" do
+    {"Myself", "Array(Itself)", "typeof(x)"}.each { |text| mentions_self?(text).should be_false }
+  end
+end

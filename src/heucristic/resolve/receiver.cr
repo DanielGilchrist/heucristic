@@ -2344,7 +2344,7 @@ module Heucristic
         restriction = entry.return_type
         shim = @shims.find(entry)
         restriction = shim.entry.return_type if shim && restriction.is_a?(Index::Unrestricted)
-        restriction.is_a?(Syntax::Type) && restriction.to_s.includes?("self")
+        restriction.is_a?(Syntax::Type) && Syntax::SelfType.within?(restriction)
       end
 
       private def named_tuple_special(entry : Index::Def, receiver : TypeRef) : Resolution?
