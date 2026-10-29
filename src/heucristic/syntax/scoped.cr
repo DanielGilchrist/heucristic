@@ -101,17 +101,17 @@ module Heucristic
         true
       end
 
-      protected def expansion_of(
-        node : Crystal::MacroIf,
-      ) : Index::MacroText::Expansion | Index::MacroText::Undecidable
-        Index::MacroText.expand(node)
-      end
-
       def end_visit(
         node : Crystal::ClassDef | Crystal::ModuleDef | Crystal::EnumDef | Crystal::LibDef,
       ) : Nil
         @enclosing.pop
         type_vars_of(node).size.times { @type_vars.pop }
+      end
+
+      protected def expansion_of(
+        node : Crystal::MacroIf,
+      ) : Index::MacroText::Expansion | Index::MacroText::Undecidable
+        Index::MacroText.expand(node)
       end
 
       protected def context : Context

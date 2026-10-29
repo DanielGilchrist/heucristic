@@ -26,11 +26,6 @@ module Heucristic
           new(name, arity, block, Array(Resolution).new, Array(String).new)
         end
 
-        def bound?(index : Int32) : Bool
-          precision = precisions[index]?
-          precision.nil? || precision.bound?
-        end
-
         def self.new(
           name : String,
           arity : Int32,
@@ -38,6 +33,11 @@ module Heucristic
           arguments : Array(Resolution),
         ) : Call
           new(name, arity, block, arguments, Array(String).new)
+        end
+
+        def bound?(index : Int32) : Bool
+          precision = precisions[index]?
+          precision.nil? || precision.bound?
         end
 
         def accepts?(entry : Index::Def) : Bool

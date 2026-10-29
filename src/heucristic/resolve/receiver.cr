@@ -50,6 +50,15 @@ module Heucristic
 
       FALSEY = {CoreType::Nil, CoreType::Bool, CoreType::Pointer}
 
+      COMPARISONS = {"<", "<=", ">", ">="}
+
+      def self.chained_comparison?(call : Crystal::Call) : Bool
+        return false unless COMPARISONS.includes?(call.name)
+
+        inner = call.obj
+        inner.is_a?(Crystal::Call) && COMPARISONS.includes?(inner.name) && inner.args.size == 1
+      end
+
       def initialize(
         @workspace : Index::Workspace,
         @shims : Index::Shims,
@@ -72,7 +81,7 @@ module Heucristic
         locals : Array(Binding) = Array(Binding).new,
         visiting : Array(String) = Array(String).new,
       ) : Resolution
-        return TypeRef.of(:bool) if chained_comparison?(call)
+        return TypeRef.of(:bool) if Receiver.chained_comparison?(call)
 
         receiver = of_call(call, context, locals, visiting)
         return receiver if receiver.is_a?(Unknown)
@@ -391,6 +400,19 @@ module Heucristic
         no_return?(entry, Array(String).new)
       end
 
+      def narrowing_steps(name : String, context : Syntax::Context) : Array(Flow::Step)
+        exits = exits_for(context, Array(String).new)
+        Flow.steps(name, context.ancestors, exits, facts_for(context))
+      end
+
+      def typed(node : Crystal::ASTNode, context : Syntax::Context) : Resolution
+        type_of(node, context, Array(String).new, Array(Binding).new)
+      end
+
+      def type_of(entry : Index::Constant) : Resolution
+        constant_type(entry, entry.name, Array(String).new)
+      end
+
       private def no_return?(entry : Index::Def, visiting : Array(String)) : Bool
         restriction = entry.return_type
         if restriction.is_a?(Index::Unrestricted)
@@ -412,26 +434,6 @@ module Heucristic
         callees = @methods.named_on(TypeRef.new(owner, Array(Resolution).new), tail)
         deeper = visiting + [entry.qualified]
         !callees.empty? && callees.all? { |callee| no_return?(callee, deeper) }
-      end
-
-      def narrowing_steps(name : String, context : Syntax::Context) : Array(Flow::Step)
-        exits = exits_for(context, Array(String).new)
-        Flow.steps(name, context.ancestors, exits, facts_for(context))
-      end
-
-      def self.chained_comparison?(call : Crystal::Call) : Bool
-        return false unless COMPARISONS.includes?(call.name)
-
-        inner = call.obj
-        inner.is_a?(Crystal::Call) && COMPARISONS.includes?(inner.name) && inner.args.size == 1
-      end
-
-      def typed(node : Crystal::ASTNode, context : Syntax::Context) : Resolution
-        type_of(node, context, Array(String).new, Array(Binding).new)
-      end
-
-      def type_of(entry : Index::Constant) : Resolution
-        constant_type(entry, entry.name, Array(String).new)
       end
 
       private def case_subject(
@@ -711,12 +713,6 @@ module Heucristic
         end
 
         declared(Syntax::TypeReader.read(output), scope(context))
-      end
-
-      COMPARISONS = {"<", "<=", ">", ">="}
-
-      private def chained_comparison?(call : Crystal::Call) : Bool
-        Receiver.chained_comparison?(call)
       end
 
       private def exits_for(context : Syntax::Context, visiting : Array(String)) : CallExits

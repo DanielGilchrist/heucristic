@@ -103,44 +103,6 @@ module Heucristic
         @progress = Progress.new(@transport, false)
       end
 
-      private def initialize_session(request : Protocol::Request) : Outcome
-        params = DecodedParams.decode(request.params, LSProtocol::InitializeParams)
-        return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
-
-        if (root_uri = params.root_uri)
-          path = Uri.to_path(root_uri.to_s)
-          @root = path if path.is_a?(String)
-        elsif (root_path = params.root_path)
-          @root = root_path
-        end
-        @index_stdlib = Options.stdlib?(params.initialization_options)
-        @semantic = Options.semantic(params.initialization_options)
-        @executable = Options.compiler(params.initialization_options)
-        defines = Options.defines(params.initialization_options)
-        @macros.defines(defines)
-        @compiler.defines(defines)
-        supported = params.capabilities.window.try(&.work_done_progress) || false
-        @progress = Progress.new(@transport, supported)
-
-        reply(request.id, LSProtocol::InitializeResult.new(
-          capabilities: LSProtocol::ServerCapabilities.new(
-            text_document_sync: LSProtocol::TextDocumentSyncOptions.new(
-              open_close: true,
-              change: LSProtocol::TextDocumentSyncKind::Incremental,
-              save: true,
-            ),
-            hover_provider: true,
-            definition_provider: true,
-            references_provider: true,
-            document_symbol_provider: true,
-            completion_provider: LSProtocol::CompletionOptions.new(trigger_characters: [".", ":"]),
-            rename_provider: true,
-            workspace_symbol_provider: true,
-          ),
-          server_info: LSProtocol::ServerInfo.new(name: "heucristic", version: VERSION),
-        ))
-      end
-
       def handle(request : Protocol::Request) : Outcome
         method = Protocol::Method.from_wire(request.method)
         unless method
@@ -327,6 +289,44 @@ module Heucristic
         @compiler_status = CompilerOff.new(event.reason)
         notify_compiler
         @compiler.finished(@root, @executable)
+      end
+
+      private def initialize_session(request : Protocol::Request) : Outcome
+        params = DecodedParams.decode(request.params, LSProtocol::InitializeParams)
+        return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
+
+        if (root_uri = params.root_uri)
+          path = Uri.to_path(root_uri.to_s)
+          @root = path if path.is_a?(String)
+        elsif (root_path = params.root_path)
+          @root = root_path
+        end
+        @index_stdlib = Options.stdlib?(params.initialization_options)
+        @semantic = Options.semantic(params.initialization_options)
+        @executable = Options.compiler(params.initialization_options)
+        defines = Options.defines(params.initialization_options)
+        @macros.defines(defines)
+        @compiler.defines(defines)
+        supported = params.capabilities.window.try(&.work_done_progress) || false
+        @progress = Progress.new(@transport, supported)
+
+        reply(request.id, LSProtocol::InitializeResult.new(
+          capabilities: LSProtocol::ServerCapabilities.new(
+            text_document_sync: LSProtocol::TextDocumentSyncOptions.new(
+              open_close: true,
+              change: LSProtocol::TextDocumentSyncKind::Incremental,
+              save: true,
+            ),
+            hover_provider: true,
+            definition_provider: true,
+            references_provider: true,
+            document_symbol_provider: true,
+            completion_provider: LSProtocol::CompletionOptions.new(trigger_characters: [".", ":"]),
+            rename_provider: true,
+            workspace_symbol_provider: true,
+          ),
+          server_info: LSProtocol::ServerInfo.new(name: "heucristic", version: VERSION),
+        ))
       end
 
       private def did_open(notification : Protocol::Notification) : Outcome

@@ -37,6 +37,14 @@ module Heucristic
         @checks.delete(uri)
       end
 
+      def for(uri : String) : Array(LSProtocol::Diagnostic)
+        errors = @compiler[uri]? || Array(LSProtocol::Diagnostic).new
+        warnings = (@checks[uri]? || Array(LSProtocol::Diagnostic).new).reject do |warning|
+          errors.any? { |error| error.range.start.line == warning.range.start.line }
+        end
+        (@syntax[uri]? || Array(LSProtocol::Diagnostic).new) + errors + warnings
+      end
+
       private def same?(
         previous : Array(LSProtocol::Diagnostic),
         current : Array(LSProtocol::Diagnostic),
@@ -46,14 +54,6 @@ module Heucristic
         previous.zip(current).all? do |before, after|
           before.message == after.message && before.range == after.range
         end
-      end
-
-      def for(uri : String) : Array(LSProtocol::Diagnostic)
-        errors = @compiler[uri]? || Array(LSProtocol::Diagnostic).new
-        warnings = (@checks[uri]? || Array(LSProtocol::Diagnostic).new).reject do |warning|
-          errors.any? { |error| error.range.start.line == warning.range.start.line }
-        end
-        (@syntax[uri]? || Array(LSProtocol::Diagnostic).new) + errors + warnings
       end
     end
   end

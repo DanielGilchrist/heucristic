@@ -14,20 +14,20 @@ class LspClient
   getter notifications : Channel(Heucristic::Protocol::Notification)
   getter requests : Channel(Heucristic::Protocol::Request)
 
-  def initialize(@input : IO, @output : IO) : Nil
-    @next_id = 0_i64
-    @responses = Channel(Heucristic::Protocol::Response).new(16)
-    @notifications = Channel(Heucristic::Protocol::Notification).new(256)
-    @requests = Channel(Heucristic::Protocol::Request).new(16)
-    spawn { pump }
-  end
-
   def self.in_process : LspClient
     client_reader, server_writer = IO.pipe
     server_reader, client_writer = IO.pipe
     server = Heucristic::Server::Loop.new(server_reader, server_writer)
     spawn { server.run }
     new(client_reader, client_writer)
+  end
+
+  def initialize(@input : IO, @output : IO) : Nil
+    @next_id = 0_i64
+    @responses = Channel(Heucristic::Protocol::Response).new(16)
+    @notifications = Channel(Heucristic::Protocol::Notification).new(256)
+    @requests = Channel(Heucristic::Protocol::Request).new(16)
+    spawn { pump }
   end
 
   def request(
