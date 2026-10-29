@@ -498,8 +498,7 @@ module Heucristic
         tree = @trees[document.uri]?
         return unless tree
 
-        path = Uri.to_path(document.uri)
-        path = document.uri if path.is_a?(Uri::NotAFile)
+        path = document_path(document)
         changed = @workspace.update(Index::Collector.collect(path, document.text, tree))
         @workspace.update_sites(Index::Sites.of(path, document.text, tree))
         @receiver.forget(path)
@@ -522,8 +521,7 @@ module Heucristic
         point = document.text.point(params.position)
         return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
 
-        path = Uri.to_path(document.uri)
-        path = document.uri if path.is_a?(Uri::NotAFile)
+        path = document_path(document)
         target = Syntax::Cursor.find(tree, point, path)
         return reply(request.id, nil) unless target
 
@@ -569,8 +567,7 @@ module Heucristic
         offset = document.text.offset(params.position)
         return reply(request.id, nil) if offset.is_a?(Document::OutOfRange)
 
-        path = Uri.to_path(document.uri)
-        path = document.uri if path.is_a?(Uri::NotAFile)
+        path = document_path(document)
         request_at = Completion::Request.new(document.text, offset, path, source_paths)
         items = @completion.complete(request_at)
         reply(request.id, LSProtocol::CompletionList.new(is_incomplete: false, items: items))
@@ -580,9 +577,7 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::DocumentSymbolParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        path = Uri.to_path(params.text_document.uri.to_s)
-        path = params.text_document.uri.to_s if path.is_a?(Uri::NotAFile)
-        reply(request.id, @symbols.in_document(path))
+        reply(request.id, @symbols.in_document(path_of(params.text_document.uri.to_s)))
       end
 
       private def workspace_symbols(request : Protocol::Request) : Outcome
@@ -604,8 +599,7 @@ module Heucristic
         point = document.text.point(params.position)
         return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
 
-        path = Uri.to_path(document.uri)
-        path = document.uri if path.is_a?(Uri::NotAFile)
+        path = document_path(document)
         target = Syntax::Cursor.find(tree, point, path)
         return reply(request.id, nil) unless target
 
@@ -694,8 +688,7 @@ module Heucristic
         point = document.text.point(position)
         return Answer.note("position is outside the document") if point.is_a?(Document::OutOfRange)
 
-        path = Uri.to_path(document.uri)
-        path = document.uri if path.is_a?(Uri::NotAFile)
+        path = document_path(document)
         case (target = Syntax::Cursor.find(tree, point, path))
         in Nil
           Answer.note("no def, call, constant, variable or instance variable under the cursor")
