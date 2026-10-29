@@ -128,6 +128,8 @@ module Heucristic
         untyped = 0
         passed.each do |item|
           value = item.value
+          next untyped += 1 if unknown_within?(value)
+
           case value
           in Resolve::Unknown  then untyped += 1
           in Resolve::UnionRef then value.members.each { |member| members << member.to_s }
@@ -159,6 +161,16 @@ module Heucristic
       private def listed(item : Passed) : String
         source = item.defaulted ? " from the default" : ""
         "- `#{item.where}` #{shown(item.value)}#{source}"
+      end
+
+      private def unknown_within?(value : Resolve::Resolution) : Bool
+        case value
+        in Resolve::Unknown  then true
+        in Resolve::TypeVar  then false
+        in Resolve::MetaRef  then unknown_within?(value.of)
+        in Resolve::UnionRef then value.members.any? { |member| unknown_within?(member) }
+        in Resolve::TypeRef  then value.arguments.any? { |argument| unknown_within?(argument) }
+        end
       end
     end
   end

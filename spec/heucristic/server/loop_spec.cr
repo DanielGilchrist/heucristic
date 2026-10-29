@@ -191,6 +191,30 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
+  it "suggests no restriction while a passed type holds an unknown argument" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    client.open(URI_A, <<-CR)
+      class Greeter
+        def greet(names)
+          names
+        end
+      end
+
+      def run(greeter : Greeter) : Nil
+        greeter.greet([] of Missing)
+      end
+      CR
+    client.await_diagnostics
+
+    text = hover_text(client.hover(URI_A, 2, 4)).to_s
+    text.should_not contain("Every call is typed")
+    text.should contain("1 of 1 are not typed, so no restriction is suggested.")
+    client.shutdown
+  end
+
   it "explains a call it cannot resolve and gives no definition" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")
