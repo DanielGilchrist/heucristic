@@ -755,11 +755,21 @@ module Heucristic
       private def answer_def(target : Syntax::OnDef) : Answer
         path = target.context.path
         entries = path ? @workspace.defs_at(path, target.node) : Array(Index::Def).new
+        entries = generated_defs(target) if entries.empty?
         if entries.empty?
           return Answer.note("this def is not indexed yet, the file may have a syntax error")
         end
 
         Answer.of(Array(Index::Entry).new(entries.size).concat(entries))
+      end
+
+      private def generated_defs(target : Syntax::OnDef) : Array(Index::Def)
+        node = target.node
+        @workspace.named(node.name).select do |entry|
+          Index::MacroTarget.generated?(entry.path) &&
+            entry.owner == target.context.owner &&
+            entry.receiver.metaclass? == !node.receiver.nil?
+        end
       end
 
       private def answer_call(target : Syntax::OnCall) : Answer
