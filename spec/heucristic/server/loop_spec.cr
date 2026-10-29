@@ -1379,8 +1379,12 @@ describe Heucristic::Server::Loop, "call checks" do
       end
       narrow_count = 3
       widen(narrow_count)
+      case Shop::BarColor::Green
+      in Color::Red then 1
+      in .green?    then 2
+      end
       CR
-    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 44 }
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size == 45 }
     warnings.all? { |warning| warning["severity"].as_i == 2 }.should be_true
     warnings.all? { |warning| warning["source"].as_s == "heucristic" }.should be_true
     reported = warnings.map do |warning|
@@ -1440,13 +1444,15 @@ describe Heucristic::Server::Loop, "call checks" do
       {138, "undefined-method", "undefined method 'gret' for Greeter"},
       {141, "undefined-on-member",
        "undefined method 'gret' for Shape (compile-time type is (Shape | Nil))"},
+      {147, "non-exhaustive-case",
+       "case is not exhaustive for enum Shop::BarColor.\n\nMissing members:\n - Red"},
     ])
 
     frames = [{file: "#{root}/src/usage.cr", line: 4, column: 9, size: 0, message: "boom"}]
     ENV["HEUCRISTIC_FAKE_ERRORS"] = frames.to_json
     client.save(usage_uri)
     merged = client.await_diagnostics(usage_uri) do |found|
-      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 44
+      found.any? { |entry| entry["source"].as_s == "crystal" } && found.size == 45
     end
     ENV.delete("HEUCRISTIC_FAKE_ERRORS")
     on_line = merged.select { |entry| entry["range"]["start"]["line"].as_i == 3 }

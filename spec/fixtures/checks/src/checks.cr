@@ -76,3 +76,14 @@ def build(& : ->) : Nil
   builder = Builder.new
   with builder yield
 end
+
+module Shop
+  enum BarColor
+    Red
+    Green
+  end
+end
+
+enum Color
+  Red
+end

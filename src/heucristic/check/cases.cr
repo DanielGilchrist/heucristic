@@ -43,7 +43,7 @@ module Heucristic
         resolved = @receiver.typed(subject, site.context)
         case resolved
         in Resolve::TypeRef
-          return enum_case(node, resolved, span, findings) unless resolved.is?(:bool)
+          return enum_case(node, resolved, site.context, span, findings) unless resolved.is?(:bool)
 
           bool_case(node, subject, site.context, span, findings)
         in Resolve::UnionRef
@@ -55,6 +55,7 @@ module Heucristic
       private def enum_case(
         node : Crystal::Case,
         resolved : Resolve::TypeRef,
+        context : Syntax::Context,
         span : Document::Span,
         findings : Array(Finding),
       ) : Nil
@@ -69,7 +70,8 @@ module Heucristic
         end
         return if members.empty?
 
-        covered = covered_members(node, resolved.name, members)
+        scope = Resolve::Scope.new(context.owner, context.type_vars)
+        covered = covered_members(node, resolved.name, members, scope)
         return unless covered
 
         missing = members.reject { |member| covered.includes?(member) }
@@ -187,11 +189,14 @@ module Heucristic
         node : Crystal::Case,
         enum_name : String,
         members : Array(String),
+        scope : Resolve::Scope,
       ) : Array(String)?
         covered = Array(String).new
         node.whens.each do |branch|
           branch.conds.each do |cond|
-            member = member_named(cond, enum_name, members)
+            next if foreign_member?(cond, enum_name, scope)
+
+            member = member_named(cond, enum_name, members, scope)
             return unless member
 
             covered << member
@@ -204,6 +209,7 @@ module Heucristic
         cond : Crystal::ASTNode,
         enum_name : String,
         members : Array(String),
+        scope : Resolve::Scope,
       ) : String?
         case cond
         in Crystal::Call
@@ -216,10 +222,29 @@ module Heucristic
           last = cond.names.last
           return unless members.includes?(last)
 
-          prefix = cond.names[0...-1].join("::")
-          prefix.empty? || enum_name.ends_with?(prefix) ? last : nil
+          return last if cond.names.size == 1
+
+          enum_of(cond, scope) == enum_name ? last : nil
         in Crystal::ASTNode then nil
         end
+      end
+
+      private def foreign_member?(
+        cond : Crystal::ASTNode,
+        enum_name : String,
+        scope : Resolve::Scope,
+      ) : Bool
+        return false unless cond.is_a?(Crystal::Path) && cond.names.size > 1
+
+        located = enum_of(cond, scope)
+        return false unless located.is_a?(String) && located != enum_name
+
+        namespaces = @workspace.namespaces(located)
+        !namespaces.empty? && namespaces.all?(Index::EnumNamespace)
+      end
+
+      private def enum_of(cond : Crystal::Path, scope : Resolve::Scope) : String | Resolve::Unknown
+        @types.locate_any(Syntax::Named.new(cond.names[0...-1], cond.global?), scope)
       end
     end
   end
