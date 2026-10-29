@@ -37,9 +37,7 @@ module Heucristic
                   end
         return if inside_lib?(site.context)
 
-        scope = Resolve::Scope.new(
-          site.context.owner, site.context.type_vars, Array(Resolve::Binding).new, site.context.path
-        )
+        scope = Resolve::Scope.of(site.context)
         named = Syntax::Named.new(path.names, path.global?)
         located = @types.locate_any(named, scope)
         return unless located.is_a?(Resolve::Unknown) && located.reason.unresolved_name?

@@ -1,4 +1,5 @@
 require "../index/owner"
+require "../syntax/context"
 require "./binding"
 
 module Heucristic
@@ -16,6 +17,10 @@ module Heucristic
 
       def self.of(namespace : String) : Scope
         new(namespace, Array(String).new, Array(Binding).new)
+      end
+
+      def self.of(context : Syntax::Context) : Scope
+        new(context.owner, context.type_vars, Array(Binding).new, context.path)
       end
 
       def bound(name : String) : Resolution?

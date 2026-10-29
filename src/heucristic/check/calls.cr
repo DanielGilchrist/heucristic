@@ -460,9 +460,7 @@ module Heucristic
         return receiver unless enclosing.is_a?(Crystal::Case) && branch.is_a?(Crystal::When)
         return receiver unless enclosing.exhaustive?
 
-        scope = Resolve::Scope.new(
-          context.owner, context.type_vars, Array(Resolve::Binding).new, context.path
-        )
+        scope = Resolve::Scope.of(context)
         remaining = receiver.members.dup
         enclosing.whens.each do |earlier|
           break if earlier.same?(branch)

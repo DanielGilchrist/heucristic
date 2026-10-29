@@ -712,7 +712,7 @@ module Heucristic
           )
         end
 
-        declared(Syntax::TypeReader.read(output), scope(context))
+        declared(Syntax::TypeReader.read(output), Scope.of(context))
       end
 
       private def exits_for(context : Syntax::Context, visiting : Array(String)) : CallExits
@@ -966,7 +966,7 @@ module Heucristic
       ) : Resolution
         return constant(node, context, visiting) if node.is_a?(Crystal::Path)
         evident = Index::Evident.type(node)
-        return declared(evident, scope(context)) if evident.is_a?(Syntax::Type)
+        return declared(evident, Scope.of(context)) if evident.is_a?(Syntax::Type)
 
         case node
         in Crystal::Var then variable(node.name, context, visiting, locals)
@@ -1212,7 +1212,7 @@ module Heucristic
       ) : Resolution
         targets = Array(TypeRef).new
         types.each do |type|
-          resolved = declared(Syntax::TypeReader.read(type), scope(context))
+          resolved = declared(Syntax::TypeReader.read(type), Scope.of(context))
           case resolved
           in TypeRef then targets << resolved
           in UnionRef
@@ -1327,7 +1327,7 @@ module Heucristic
           unless restriction
             return Unknown.new(:no_annotation, "parameter #{name} has no type restriction")
           end
-          typed = declared(Syntax::TypeReader.read(restriction), scope(context))
+          typed = declared(Syntax::TypeReader.read(restriction), Scope.of(context))
           return typed if typed.is_a?(Unknown)
           return typed unless definition.splat_index == definition.args.index(parameter)
 
@@ -1340,11 +1340,11 @@ module Heucristic
             return Unknown.new(:no_annotation, "block parameter #{name} has no type restriction")
           end
 
-          return declared(Syntax::TypeReader.read(restriction), scope(context))
+          return declared(Syntax::TypeReader.read(restriction), Scope.of(context))
         end
 
         if (declaration = facts.declaration(name))
-          return declared(Syntax::TypeReader.read(declaration.declared_type), scope(context))
+          return declared(Syntax::TypeReader.read(declaration.declared_type), Scope.of(context))
         end
 
         key = variable_key(name, context)
@@ -1529,7 +1529,7 @@ module Heucristic
         types = rescued.types
         return TypeRef.of(:exception) unless types
 
-        union(types.map { |type| declared(Syntax::TypeReader.read(type), scope(context)) })
+        union(types.map { |type| declared(Syntax::TypeReader.read(type), Scope.of(context)) })
       end
 
       private def union(resolutions : Array(Resolution)) : Resolution
@@ -1802,7 +1802,7 @@ module Heucristic
         context : Syntax::Context,
         visiting : Array(String),
       ) : Resolution
-        scope = scope(context)
+        scope = Scope.of(context)
         if path.names.size == 1 && !path.global? && scope.type_vars.includes?(path.names[0])
           return MetaRef.new(TypeVar.new(path.names[0]))
         end
@@ -2058,7 +2058,7 @@ module Heucristic
         name = node.name
         return CoreType::Array.type_name unless name
 
-        resolved = declared(Syntax::TypeReader.read(name), scope(context))
+        resolved = declared(Syntax::TypeReader.read(name), Scope.of(context))
         resolved.is_a?(TypeRef) ? resolved.name : CoreType::Array.type_name
       end
 
@@ -2176,7 +2176,7 @@ module Heucristic
         pointer.args.each_with_index do |argument, index|
           typed = Syntax::TypeReader.read(argument)
           arguments << if typed.is_a?(Syntax::Type)
-            @types.resolve(typed, scope(site.context))
+            @types.resolve(typed, Scope.of(site.context))
           else
             inputs[index]? || Unknown.new(:unsupported, "proc pointer argument #{argument}")
           end
@@ -2243,10 +2243,6 @@ module Heucristic
 
           Unify.bind(restriction, argument.value, free_vars, bindings, @types, scope)
         end
-      end
-
-      private def scope(context : Syntax::Context) : Scope
-        Scope.new(context.owner, context.type_vars, Array(Binding).new, context.path)
       end
 
       private def declared(type : Syntax::TypeReader::Outcome, scope : Scope) : Resolution
@@ -2386,7 +2382,7 @@ module Heucristic
         visiting : Array(String),
         locals : Array(Binding),
       ) : Resolution
-        restriction = declared(Syntax::TypeReader.read(step.restriction), scope(context))
+        restriction = declared(Syntax::TypeReader.read(step.restriction), Scope.of(context))
         value = step.value
         return restriction unless value && restriction.is_a?(Resolved)
 

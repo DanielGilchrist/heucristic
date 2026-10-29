@@ -47,9 +47,7 @@ module Heucristic
         return if read.is_a?(Syntax::SelfType)
 
         context = site.context
-        scope = Resolve::Scope.new(
-          context.owner, context.type_vars, Array(Resolve::Binding).new, context.path
-        )
+        scope = Resolve::Scope.of(context)
         expected = @types.resolve_lexically(read, scope)
         return unless Fit.new(@methods).checkable?(expected)
 

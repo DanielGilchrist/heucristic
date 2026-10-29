@@ -119,9 +119,7 @@ module Heucristic
       end
 
       private def names?(use : Index::PathUse, qualified : String) : Bool
-        scope = Resolve::Scope.new(
-          use.context.owner, use.context.type_vars, Array(Resolve::Binding).new, use.context.path
-        )
+        scope = Resolve::Scope.of(use.context)
         located = @types.locate_any(Syntax::Named.new(use.path.names, use.path.global?), scope)
         located == qualified
       end

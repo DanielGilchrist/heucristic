@@ -177,7 +177,7 @@ module Heucristic
                     scope_chain(target.context)
                   else
                     named = Syntax::Named.new(names, target.node.global?)
-                    located = @types.locate_any(named, scope(target.context))
+                    located = @types.locate_any(named, Resolve::Scope.of(target.context))
                     located.is_a?(String) ? [located] : Array(String).new
                   end
         parents.each do |parent|
@@ -245,12 +245,6 @@ module Heucristic
         in Index::AnnotationNamespace
           LSProtocol::CompletionItemKind::Interface
         end
-      end
-
-      private def scope(context : Syntax::Context) : Resolve::Scope
-        Resolve::Scope.new(
-          context.owner, context.type_vars, Array(Resolve::Binding).new, context.path
-        )
       end
 
       private def method_item(entry : Index::Def) : LSProtocol::CompletionItem

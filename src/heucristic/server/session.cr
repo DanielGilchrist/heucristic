@@ -851,9 +851,7 @@ module Heucristic
       private def answer_path(target : Syntax::OnPath) : Answer
         node = target.node
         context = target.context
-        scope = Resolve::Scope.new(
-          context.owner, context.type_vars, Array(Resolve::Binding).new, context.path
-        )
+        scope = Resolve::Scope.of(context)
         names = node.names[0, target.segment + 1]
         located = @types.locate_any(Syntax::Named.new(names, node.global?), scope)
         return Answer.note(located.to_s) if located.is_a?(Resolve::Unknown)
