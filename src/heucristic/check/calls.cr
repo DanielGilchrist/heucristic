@@ -390,7 +390,7 @@ module Heucristic
           target = mixin.target
           next unless target.is_a?(Syntax::Type)
 
-          resolved = @types.resolve_lexically(target, Resolve::Scope.of(Resolve::TypeRef::PROGRAM))
+          resolved = @types.resolve_lexically(target, Resolve::Scope::TOP)
           next unless resolved.is_a?(Resolve::TypeRef)
 
           found.concat(@methods.named_on(resolved, name))

@@ -6,7 +6,7 @@ module Heucristic
       name : String,
       arguments : Array(Resolution),
       labels : Array(String) = Array(String).new do
-      PROGRAM = "Program"
+      PROGRAM = "top-level"
 
       def self.program : TypeRef
         new(PROGRAM, Array(Resolution).new)

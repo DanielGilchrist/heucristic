@@ -1900,6 +1900,25 @@ describe Heucristic::Resolve::Receiver, "top-level scripts" do
     receiver_of_size(source, "count.size").should eq("Int32")
     receiver_of_size(source, "ex.size").should eq("Exception")
   end
+
+  it "keeps a top-level def apart from a class named Program (crystal run: Int32, String)" do
+    program = <<-CR
+      class Program
+        def run : String
+          "x"
+        end
+      end
+
+      def run : Int32
+        1
+      end
+
+      run.size
+      Program.new.run.size
+      CR
+    receiver_of_size(program, "run.size").should eq("Int32")
+    receiver_of_size(program, "Program.new.run.size").should eq("String")
+  end
 end
 
 describe Heucristic::Resolve::Receiver, "metaclasses of type variables" do
@@ -2098,7 +2117,7 @@ describe Heucristic::Resolve::Receiver, "loop and with-yield blocks" do
       end
       CR
     receiver_at(source, 15, 3).should eq("Builder")
-    receiver_at(source, 16, 3).should eq("Program")
+    receiver_at(source, 16, 3).should eq("top-level")
   end
 end
 
