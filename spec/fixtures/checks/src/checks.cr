@@ -87,3 +87,14 @@ end
 enum Color
   Red
 end
+
+private enum Mood
+  Up
+  Down
+end
+
+def moody : Int32
+  case Mood::Up
+  in Mood::Up then 1
+  end
+end

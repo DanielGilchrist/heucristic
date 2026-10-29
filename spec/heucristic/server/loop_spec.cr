@@ -1460,6 +1460,24 @@ describe Heucristic::Server::Loop, "call checks" do
     client.shutdown
   end
 
+  it "reports a non-exhaustive case over a file-private enum from the sweep" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic, compiler: compiler)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    checks_uri = "file://#{root}/src/checks.cr"
+    found = client.await_diagnostics(checks_uri, 60.seconds) do |published|
+      published.any?(&.["message"].as_s.includes?("enum Mood"))
+    end
+    missing = found.select(&.["message"].as_s.includes?("enum Mood"))
+    missing.map(&.["code"].as_s).should eq(["non-exhaustive-case"])
+    missing[0]["message"].as_s.should eq(
+      "case is not exhaustive for enum Mood.\n\nMissing members:\n - Down"
+    )
+    client.shutdown
+  end
+
   it "expands the spec tree's macros once a file under spec is opened" do
     client = LspClient.in_process
     client.initialize!(root, stdlib: true, semantic: semantic)

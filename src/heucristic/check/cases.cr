@@ -70,7 +70,9 @@ module Heucristic
         end
         return if members.empty?
 
-        scope = Resolve::Scope.new(context.owner, context.type_vars)
+        scope = Resolve::Scope.new(
+          context.owner, context.type_vars, Array(Resolve::Binding).new, context.path
+        )
         covered = covered_members(node, resolved.name, members, scope)
         return unless covered
 
