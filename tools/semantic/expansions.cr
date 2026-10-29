@@ -1,14 +1,14 @@
 require "compiler/requires"
-require "./expansion"
+require "../../src/heucristic/index/macro_expansion"
 
 module Semantic
   class Expansions < Crystal::Visitor
     record Target, found : Crystal::Macro, scope : Crystal::Type
 
-    getter found : Array(Expansion)
+    getter found : Array(Heucristic::Index::MacroExpansion)
 
     def initialize(@program : Crystal::Program, @root : String) : Nil
-      @found = Array(Expansion).new
+      @found = Array(Heucristic::Index::MacroExpansion).new
       @scopes = [@program] of Crystal::Type
       @defs = Array(Crystal::Def).new
       @files = Array(String).new
@@ -78,7 +78,9 @@ module Semantic
       source = expansion_source(target, call)
       return unless source
 
-      @found << Expansion.new(path, location.line_number, location.column_number, call.name, source)
+      @found << Heucristic::Index::MacroExpansion.new(
+        path, location.line_number, location.column_number, call.name, source
+      )
     end
 
     private def expansion_source(target : Target, call : Crystal::Call) : String?

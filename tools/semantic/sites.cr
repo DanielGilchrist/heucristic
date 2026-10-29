@@ -1,25 +1,13 @@
 require "compiler/requires"
-require "json"
+require "../../src/heucristic/index/macro_site"
 require "./generated"
 
 module Semantic
-  record Site,
-    line : Int32,
-    owner : String,
-    name : String,
-    metaclass : Bool,
-    macro_name : String,
-    macro_path : String?,
-    macro_line : Int32?,
-    expanded_path : String?,
-    expanded_line : Int32?,
-    expanded_column : Int32? do
-    include JSON::Serializable
-
-    def self.of(line : Int32, owner : String, item : Generated) : Site
+  module Sites
+    def self.of(line : Int32, owner : String, item : Generated) : Heucristic::Index::MacroSite
       macro_location = item.file.macro.location
       expanded = item.origin || real_location(item.file.expanded_location)
-      new(
+      Heucristic::Index::MacroSite.new(
         line,
         owner,
         item.definition.name,

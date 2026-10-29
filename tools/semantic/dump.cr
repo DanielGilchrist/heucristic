@@ -1,6 +1,6 @@
 require "compiler/requires"
-require "json"
-require "./site"
+require "../../src/heucristic/index/macro_output"
+require "./sites"
 require "./header"
 require "./expansions"
 
@@ -8,7 +8,7 @@ module Semantic
   class Dump
     def initialize(@entry : String, @root : String, @defines : Array(String)) : Nil
       @source = String::Builder.new
-      @sites = Array(Site).new
+      @sites = Array(Heucristic::Index::MacroSite).new
       @line = 0
     end
 
@@ -30,21 +30,21 @@ module Semantic
       expansions = Expansions.new(program, @root)
       node.accept(expansions)
       elapsed = Time.instant - started
-      {
-        crystal:    Crystal::VERSION,
+      Heucristic::Index::MacroOutput.new(
+        crystal: Crystal::VERSION,
         elapsed_ms: elapsed.total_milliseconds.round,
-        source:     @source.to_s,
-        sites:      @sites,
-        files:      files(program),
+        source: @source.to_s,
+        sites: @sites,
+        files: files(program),
         expansions: expansions.found,
-      }.to_json(io)
+      ).to_json(io)
     rescue error : Crystal::CodeError
-      {
+      Heucristic::Index::MacroOutput.new(
         error: error.to_s.lines.first?.try(&.strip) || error.class.name,
         trace: error.to_s,
-      }.to_json(io)
+      ).to_json(io)
     rescue error : Exception
-      {error: error.message || error.class.name}.to_json(io)
+      Heucristic::Index::MacroOutput.new(error: error.message || error.class.name).to_json(io)
     end
 
     private def collect(program : Crystal::Program) : Nil
@@ -232,7 +232,7 @@ module Semantic
       generated.each do |item|
         header = Header.def(item.definition, item.metaclass)
         header.each_line.with_index do |line, index|
-          @sites << Site.of(@line + 1, type.to_s, item) if index.zero?
+          @sites << Sites.of(@line + 1, type.to_s, item) if index.zero?
           emit("  #{line.chomp}")
         end
         emit("  end")
