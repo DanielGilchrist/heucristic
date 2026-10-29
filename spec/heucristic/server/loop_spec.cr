@@ -215,6 +215,30 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
+  it "does not attribute a parameter a splat argument fills to its default" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    client.open(URI_A, <<-CR)
+      class Greeter
+        def greet(first, last = 1)
+          last
+        end
+      end
+
+      def run(greeter : Greeter, pair : Tuple(String, String)) : Nil
+        greeter.greet(*pair)
+      end
+      CR
+    client.await_diagnostics
+
+    text = hover_text(client.hover(URI_A, 2, 4)).to_s
+    text.should_not contain("from the default")
+    text.should_not contain("Every call is typed")
+    client.shutdown
+  end
+
   it "explains a call it cannot resolve and gives no definition" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")

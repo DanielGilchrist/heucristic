@@ -64,7 +64,14 @@ module Heucristic
         return unless parameter.kind.positional?
 
         index = entry.parameters.select(&.kind.positional?).index(parameter)
-        index ? shape.arguments[index]? : nil
+        return unless index
+
+        splat = use.call.args.index(&.is_a?(Crystal::Splat))
+        if splat && index >= splat
+          detail = "a splat argument spreads into `#{parameter.name}`"
+          return Resolve::Unknown.new(:unsupported, detail)
+        end
+        shape.arguments[index]?
       end
 
       private def default(entry : Index::Def, parameter : Index::Parameter) : Resolve::Resolution
