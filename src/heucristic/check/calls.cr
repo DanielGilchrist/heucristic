@@ -7,6 +7,7 @@ require "../resolve/types"
 require "../syntax/type_reader"
 require "../resolve/scope"
 require "../resolve/receiver"
+require "./branch_types"
 require "./finding"
 require "./outcome"
 require "./skip"
@@ -460,41 +461,23 @@ module Heucristic
         return receiver unless enclosing.is_a?(Crystal::Case) && branch.is_a?(Crystal::When)
         return receiver unless enclosing.exhaustive?
 
-        scope = Resolve::Scope.of(context)
+        branch_types = BranchTypes.new(@types, Resolve::Scope.of(context))
         remaining = receiver.members.dup
         enclosing.whens.each do |earlier|
           break if earlier.same?(branch)
 
           earlier.conds.each do |cond|
-            covering = covering_type(cond, scope)
+            covering = branch_types.named_by(cond)
             next unless covering
 
             remaining.reject! do |member|
-              member.is_a?(Resolve::TypeRef) && covers?(covering, member.name)
+              member.is_a?(Resolve::TypeRef) && branch_types.covers?(covering, member.name)
             end
           end
         end
         return receiver if remaining.empty?
 
         remaining.size == 1 ? remaining[0] : Resolve::UnionRef.new(remaining)
-      end
-
-      private def covering_type(cond : Crystal::ASTNode, scope : Resolve::Scope) : String?
-        return CoreType::Nil.type_name if cond.is_a?(Crystal::NilLiteral)
-        return unless cond.is_a?(Crystal::Path) || cond.is_a?(Crystal::Generic)
-
-        read = Syntax::TypeReader.read(cond)
-        return unless read.is_a?(Syntax::Type)
-
-        resolved = @types.resolve_lexically(read, scope)
-        resolved.is_a?(Resolve::TypeRef) ? resolved.name : nil
-      end
-
-      private def covers?(covering : String, member : String) : Bool
-        return true if covering == member
-
-        chain = @types.ancestors(member)
-        !chain.is_a?(Resolve::Unknown) && chain.includes?(covering)
       end
 
       private def top_level(name : String, context : Syntax::Context) : Array(Index::Def)

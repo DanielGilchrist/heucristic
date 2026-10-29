@@ -4,8 +4,8 @@ require "../index/workspace"
 require "../resolve/receiver"
 require "../resolve/types"
 require "../resolve/scope"
-require "../syntax/type_reader"
 require "../core_type"
+require "./branch_types"
 require "./finding"
 require "./settled"
 
@@ -131,36 +131,20 @@ module Heucristic
           member
         end
 
-        scope = Resolve::Scope.of(context)
+        branch_types = BranchTypes.new(@types, Resolve::Scope.of(context))
         covered = Array(String).new
         node.whens.each do |branch|
           branch.conds.each do |cond|
-            covering = covering_type(cond, scope)
+            covering = branch_types.named_by(cond)
             return unless covering
 
-            members.each { |member| covered << member.name if covers?(covering, member.name) }
+            members.each do |member|
+              covered << member.name if branch_types.covers?(covering, member.name)
+            end
           end
         end
         missing = members.reject { |member| covered.includes?(member.name) }.map(&.to_s)
         report_missing(missing, span, findings)
-      end
-
-      private def covering_type(cond : Crystal::ASTNode, scope : Resolve::Scope) : String?
-        return CoreType::Nil.type_name if cond.is_a?(Crystal::NilLiteral)
-        return unless cond.is_a?(Crystal::Path | Crystal::Generic)
-
-        read = Syntax::TypeReader.read(cond)
-        return unless read.is_a?(Syntax::Type)
-
-        resolved = @types.resolve_lexically(read, scope)
-        resolved.is_a?(Resolve::TypeRef) ? resolved.name : nil
-      end
-
-      private def covers?(covering : String, member : String) : Bool
-        return true if covering == member
-
-        chain = @types.ancestors(member)
-        !chain.is_a?(Resolve::Unknown) && chain.includes?(covering)
       end
 
       private def plain_parameter?(subject : Crystal::ASTNode, context : Syntax::Context) : Bool
