@@ -85,7 +85,7 @@ module Heucristic
 
         macros = @workspace.macros(call.name)
         if !macros.empty? && call.obj.nil? && !method_named?(call.name, site.context)
-          return macro_call(call, macros, site.context, span, findings)
+          return macro_call(call, macros, span, findings)
         end
 
         known = Syntax::WellKnown.from_name(call.name)
@@ -95,7 +95,7 @@ module Heucristic
 
         receiver = @receiver.of_call(call, site.context)
         if call.obj.is_a?(Crystal::ImplicitObj)
-          receiver = narrowed_subject(receiver, call, site.context)
+          receiver = narrowed_subject(receiver, site.context)
         end
         return if abstract_instantiation(known, call, receiver, span, findings)
         return Skip::Unreachable if receiver.is_a?(Resolve::TypeRef) && receiver.is?(:no_return)
@@ -176,7 +176,6 @@ module Heucristic
       private def macro_call(
         call : Crystal::Call,
         macros : Array(Index::MacroDef),
-        context : Syntax::Context,
         span : Document::Span,
         findings : Array(Finding),
       ) : Skip?
@@ -450,7 +449,6 @@ module Heucristic
 
       private def narrowed_subject(
         receiver : Resolve::Resolution,
-        call : Crystal::Call,
         context : Syntax::Context,
       ) : Resolve::Resolution
         return receiver unless receiver.is_a?(Resolve::UnionRef)

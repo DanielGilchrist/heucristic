@@ -64,7 +64,7 @@ module Heucristic
         declared = entries.select(&.origin.declared?)
         return if declared.empty?
 
-        expected = declared_type(declared, owner)
+        expected = declared_type(declared)
         return unless expected
         fit = Fit.new(@methods)
         return if assign.value.is_a?(Crystal::NumberLiteral) && fit.numeric?(expected)
@@ -122,10 +122,7 @@ module Heucristic
           !@settled.extended?(owner) && @settled.generated_free?(owner)
       end
 
-      private def declared_type(
-        declared : Array(Index::InstanceVar),
-        owner : String,
-      ) : Resolve::Resolution?
+      private def declared_type(declared : Array(Index::InstanceVar)) : Resolve::Resolution?
         entry = declared[0]
         type = entry.type
         return unless type.is_a?(Syntax::Type)

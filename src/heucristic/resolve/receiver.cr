@@ -204,7 +204,7 @@ module Heucristic
         visiting : Array(String) = Array(String).new,
       ) : Resolution
         receiver = call.obj
-        return implicit_receiver(call, context, locals, visiting) unless receiver
+        return implicit_receiver(call, context) unless receiver
 
         type_of(receiver, context, visiting, locals)
       end
@@ -1577,12 +1577,7 @@ module Heucristic
         )
       end
 
-      private def implicit_receiver(
-        call : Crystal::Call,
-        context : Syntax::Context,
-        locals : Array(Binding),
-        visiting : Array(String),
-      ) : Resolution
+      private def implicit_receiver(call : Crystal::Call, context : Syntax::Context) : Resolution
         scope = yield_scope(context)
         return implicit_target(call, context) if scope.is_a?(Unscoped) || scope.is_a?(Unknown)
 
