@@ -235,7 +235,8 @@ module Heucristic
           return receiver.of
         end
         if Syntax::WellKnown::New.named?(entry.name) && receiver.is_a?(MetaRef)
-          proc_class = receiver.of.is_a?(TypeRef) && receiver.of.as(TypeRef).is?(:proc)
+          instance = receiver.of
+          proc_class = instance.is_a?(TypeRef) && instance.is?(:proc)
           if entry.return_type.is_a?(Index::Unrestricted) && (site.block.nil? || proc_class)
             return receiver.of
           end
@@ -1069,9 +1070,9 @@ module Heucristic
             return narrow(from_block, name, inner_steps, context, visiting, locals)
           end
         end
-        if (handler = enclosing_rescue(name, context))
+        if (enclosing = enclosing_rescue(name, context))
+          handler, rescued = enclosing
           inner_steps = Flow.steps(name, context.ancestors[handler..], exits, facts)
-          rescued = context.ancestors[handler].as(Crystal::Rescue)
           bound = rescued_type(rescued, context)
           return narrow(bound, name, inner_steps, context, visiting, locals)
         end
@@ -1518,8 +1519,14 @@ module Heucristic
         kept.empty? ? assignments : kept
       end
 
-      private def enclosing_rescue(name : String, context : Syntax::Context) : Int32?
-        context.ancestors.rindex { |node| node.is_a?(Crystal::Rescue) && node.name == name }
+      private def enclosing_rescue(
+        name : String,
+        context : Syntax::Context,
+      ) : {Int32, Crystal::Rescue}?
+        (context.ancestors.size - 1).downto(0) do |index|
+          node = context.ancestors[index]
+          return {index, node} if node.is_a?(Crystal::Rescue) && node.name == name
+        end
       end
 
       private def rescued_type(rescued : Crystal::Rescue, context : Syntax::Context) : Resolution
