@@ -753,28 +753,13 @@ module Heucristic
       end
 
       private def answer_def(target : Syntax::OnDef) : Answer
-        signature = Index::Signature.of(target.node)
-        owner = target.context.owner
-        entries = Array(Index::Entry).new
-        @workspace.named(target.node.name).each do |candidate|
-          next unless candidate.signature == signature
-          next unless candidate.owner == owner || candidate.owner == def_owner(target)
-
-          entries << candidate
-        end
+        path = target.context.path
+        entries = path ? @workspace.defs_at(path, target.node) : Array(Index::Def).new
         if entries.empty?
           return Answer.note("this def is not indexed yet, the file may have a syntax error")
         end
 
-        Answer.of(entries)
-      end
-
-      private def def_owner(target : Syntax::OnDef) : Index::Owner
-        receiver = target.node.receiver
-        owner = target.context.owner
-        return owner unless receiver.is_a?(Crystal::Path) && owner.is_a?(String)
-
-        "#{owner}::#{receiver}"
+        Answer.of(Array(Index::Entry).new(entries.size).concat(entries))
       end
 
       private def answer_call(target : Syntax::OnCall) : Answer

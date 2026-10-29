@@ -24,7 +24,7 @@ module Heucristic
         path = context.path
         return unless definition && path
 
-        entry = indexed(definition, context.owner, path)
+        entry = @workspace.defs_at(path, definition).first?
         return unless entry
 
         parameter = entry.parameters.find(&.name.==(name))
@@ -36,20 +36,6 @@ module Heucristic
         callers = @references.callers([entry], CALLERS)
         passed = callers.uses.map { |use| passed(use, entry, parameter, root) }
         render(name, entry, passed, callers)
-      end
-
-      private def indexed(
-        definition : Crystal::Def,
-        owner : Index::Owner,
-        path : String,
-      ) : Index::Def?
-        location = definition.name_location || definition.location
-        return unless location
-
-        line = (location.line_number - 1).to_u32
-        @workspace.defs_of(owner).find do |entry|
-          entry.path == path && entry.name == definition.name && entry.name_span.start_line == line
-        end
       end
 
       private def passed(

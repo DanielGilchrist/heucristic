@@ -212,6 +212,34 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
+  it "answers hover on the name of a def whose receiver is a constant" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    client.open(URI_A, <<-CR)
+      class Foo
+      end
+
+      def Foo.bar : Int32
+        1
+      end
+
+      module A
+        module B
+          def A::C.zap : Int32
+            2
+          end
+        end
+      end
+      CR
+    client.await_diagnostics
+
+    hover_text(client.hover(URI_A, 3, 9)).to_s.should contain("def self.bar : Int32")
+    hover_text(client.hover(URI_A, 9, 15)).to_s.should contain("def self.zap : Int32")
+    client.shutdown
+  end
+
   it "initializes when initializationOptions is not an object" do
     client = LspClient.in_process
     response = client.request_raw("initialize", {

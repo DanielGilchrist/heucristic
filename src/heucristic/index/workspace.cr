@@ -148,6 +148,16 @@ module Heucristic
         @defs[name]? || Array(Def).new
       end
 
+      def defs_at(path : String, node : Crystal::Def) : Array(Def)
+        location = node.name_location || node.location
+        return Array(Def).new unless location
+
+        line = (location.line_number - 1).to_u32
+        named(node.name).select do |entry|
+          entry.path == path && entry.name_span.start_line == line
+        end
+      end
+
       def defs_of(owner : Owner) : Array(Def)
         @defs_by_owner[owner_key(owner)]? || Array(Def).new
       end

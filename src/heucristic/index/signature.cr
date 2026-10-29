@@ -6,12 +6,6 @@ module Heucristic
     module Signature
       extend self
 
-      def of(node : Crystal::Def) : String
-        render(
-          node.receiver.try(&.to_s), node.name, parameters(node), Restrictions.of(node.return_type)
-        )
-      end
-
       def parameters(node : Crystal::Def | Crystal::Macro) : Array(Parameter)
         parameters = Array(Parameter).new(node.args.size + 2)
         splat_index = node.splat_index
