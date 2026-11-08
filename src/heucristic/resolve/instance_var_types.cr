@@ -53,7 +53,7 @@ module Heucristic
         entry : Index::Def,
         name : String,
         visiting : Array(Visit),
-        & : -> Scope | Unknown
+        & : -> _
       ) : Resolution
         owner = entry.owner
         if owner.is_a?(Index::TopLevel)

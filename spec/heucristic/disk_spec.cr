@@ -19,7 +19,8 @@ describe Heucristic::Disk do
     begin
       Dir.mkdir_p(root)
       File.write(File.join(root, "file"), "")
-      Heucristic::Disk.make_tree(File.join(root, "file", "x")).should be_a(Heucristic::Disk::Unwritable)
+      blocked = File.join(root, "file", "x")
+      Heucristic::Disk.make_tree(blocked).should be_a(Heucristic::Disk::Unwritable)
     ensure
       FileUtils.rm_rf(root)
     end
