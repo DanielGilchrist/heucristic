@@ -78,6 +78,20 @@ describe Heucristic::Check::Calls, "macro precedence" do
     codes(source).should be_empty
   end
 
+  it "lets a top-level macro that accepts the call beat a top-level def" do
+    source = <<-CR
+      macro key(name)
+      end
+
+      def key(name : String) : String
+        name
+      end
+
+      key(1)
+      CR
+    codes(source).should be_empty
+  end
+
   it "lets the def win when the macro's arity does not fit" do
     source = <<-CR
       class Keyed

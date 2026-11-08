@@ -759,7 +759,7 @@ module Heucristic
           return Answer.note("`#{call.name}` is syntax of #{owner}, not a method call")
         end
         macros = Index::MacroCall.like?(call, @workspace) ? @workspace.macros(call.name) : nil
-        if macros && !macros.empty?
+        if macros && !macros.empty? && !@receiver.macro_precedence(call, target.context).def?
           return Answer.macros(macros, macros.map { |definition| describe_macro(definition) })
         end
 

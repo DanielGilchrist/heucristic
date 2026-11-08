@@ -84,9 +84,12 @@ module Heucristic
         return Skip::NoLocation unless span.is_a?(Document::Span)
 
         macros = @workspace.macros(call.name)
-        if !macros.empty? && call.obj.nil? &&
-           (!method_named?(call.name, site.context) || macro_wins?(call, macros, site.context))
-          return macro_call(call, macros, span, findings)
+        if !macros.empty? && call.obj.nil?
+          precedence = @receiver.macro_precedence(call, site.context)
+          return Skip::MacroInvocation if precedence.undecided?
+          if precedence.macro? || !method_named?(call.name, site.context)
+            return macro_call(call, macros, span, findings)
+          end
         end
 
         known = Syntax::WellKnown.from_name(call.name)
@@ -183,36 +186,8 @@ module Heucristic
         return Skip::MacroInvocation unless macros.size == 1
         return Skip::MacroInvocation if call.args.any? { |arg| splat?(arg) } || call.block_arg
 
-        complaint = macro_complaint(call, macros[0])
+        complaint = macros[0].complaint(call)
         findings << Finding.new(:macro_argument, complaint, span) if complaint
-        nil
-      end
-
-      private def macro_complaint(call : Crystal::Call, definition : Index::MacroDef) : String?
-        positional = definition.parameters.select(&.kind.positional?)
-        named = call.named_args.try(&.map(&.name)) || Array(String).new
-        accepts_any = definition.parameters.any?(&.kind.double_splat?)
-        given = call.args.size
-        overflow = given > positional.size && !definition.arity.splat
-        return wrong_macro_arity(call, definition) if overflow
-
-        named.each do |name|
-          index = positional.index(&.external_name.==(name))
-          return "argument for parameter '#{name}' already specified" if index && index < given
-          next if index || definition.parameters.any? { |parameter| keyword?(parameter, name) }
-          return "no parameter named '#{name}'" unless accepts_any
-        end
-        definition.parameters.each do |parameter|
-          next unless parameter.kind.keyword? && parameter.default.nil?
-          next if named.includes?(parameter.external_name)
-
-          return "missing argument: #{parameter.external_name}"
-        end
-        positional.each_with_index do |parameter, index|
-          next if index < given || parameter.default || named.includes?(parameter.external_name)
-
-          return wrong_macro_arity(call, definition)
-        end
         nil
       end
 
@@ -224,54 +199,6 @@ module Heucristic
         return true if receiver.is_a?(Resolve::UnionRef) || receiver.is_a?(Resolve::TypeVar)
 
         !@methods.named_on(receiver, name).empty?
-      end
-
-      private def macro_wins?(
-        call : Crystal::Call,
-        macros : Array(Index::MacroDef),
-        context : Syntax::Context,
-      ) : Bool
-        return false if call.args.any? { |arg| splat?(arg) } || call.block_arg
-
-        accepting = macros.select { |definition| macro_complaint(call, definition).nil? }
-        return false if accepting.empty?
-
-        receiver = @receiver.of_call(Crystal::Call.new(nil, call.name), context)
-        return false if receiver.is_a?(Resolve::Unknown)
-
-        type = self_type(receiver)
-        return false unless type
-
-        levels = @methods.levels(type)
-        depth = accepting.compact_map { |definition| levels.index(definition.owner) }.min?
-        return false unless depth
-
-        nearer = levels[0, depth]
-        shape = @receiver.shape_of(call, context)
-        @methods.named_on(receiver, call.name).none? do |entry|
-          nearer.includes?(entry.owner) &&
-            (shape.copy_with(block: true).accepts?(entry) ||
-              shape.copy_with(block: false).accepts?(entry))
-        end
-      end
-
-      private def self_type(receiver : Resolve::Resolved) : String?
-        case receiver
-        in Resolve::TypeRef then receiver.name
-        in Resolve::MetaRef
-          of = receiver.of
-          of.is_a?(Resolve::TypeRef) ? of.name : nil
-        in Resolve::UnionRef, Resolve::TypeVar then nil
-        end
-      end
-
-      private def wrong_macro_arity(call : Crystal::Call, definition : Index::MacroDef) : String
-        "wrong number of arguments for macro '#{call.name}' " \
-        "(given #{call.args.size}, expected #{expected(definition.arity)})"
-      end
-
-      private def keyword?(parameter : Index::Parameter, name : String) : Bool
-        parameter.kind.keyword? && parameter.external_name == name
       end
 
       private def orphan(
@@ -580,7 +507,7 @@ module Heucristic
         fitting = defs.select(&.arity.accepts?(count))
         qualified = defs[0].qualified
         if fitting.empty?
-          expected = defs.map { |entry| expected(entry.arity) }.uniq!.join(", ")
+          expected = defs.map(&.arity.expected).uniq!.join(", ")
           message = String.build do |io|
             io << "wrong number of arguments for '" << qualified << "' (given " << count
             io << ", expected " << expected << ')'
@@ -679,13 +606,6 @@ module Heucristic
         return false if @workspace.namespaces(of.name).any?(Index::EnumNamespace)
 
         @settled.generated_free?(of.name)
-      end
-
-      private def expected(arity : Index::Arity) : String
-        return "#{arity.required}+" if arity.splat
-        return arity.required.to_s if arity.optional.zero?
-
-        "#{arity.required}..#{arity.required + arity.optional}"
       end
     end
   end

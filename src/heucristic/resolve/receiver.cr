@@ -7,6 +7,7 @@ require "../syntax/target"
 require "../syntax/type_reader"
 require "./types"
 require "./methods"
+require "./macro_precedence"
 require "./precision"
 require "./unify"
 require "./render"
@@ -28,6 +29,8 @@ module Heucristic
   module Resolve
     class Receiver
       DEPTH_LIMIT = 48
+
+      alias Verdict = MacroPrecedence::Verdict
 
       record Unscoped
 
@@ -65,6 +68,7 @@ module Heucristic
         @types : Types,
         @methods : Methods,
       ) : Nil
+        @precedence = MacroPrecedence.new(@workspace, @methods)
         @depth = 0
         @exit_answers = Hash(String, Hash(UInt64, Bool)).new
         @facts = Hash(UInt64, BodyFacts).new
@@ -82,6 +86,16 @@ module Heucristic
         visiting : Array(String) = Array(String).new,
       ) : Resolution
         return TypeRef.of(:bool) if Receiver.chained_comparison?(call)
+
+        case macro_precedence(call, context)
+        in .macro?
+          annotated = inside_annotation(call, context)
+          return annotated || macro_expansion(call, context, locals, visiting)
+        in .undecided?
+          detail = "`#{call.name}` is a macro or a def depending on arguments not known here"
+          return Unknown.new(:macro, detail)
+        in .def?
+        end
 
         receiver = of_call(call, context, locals, visiting)
         return receiver if receiver.is_a?(Unknown)
@@ -117,6 +131,16 @@ module Heucristic
 
         escaped = break_values(block, site)
         escaped.empty? ? outcome : union([outcome] + escaped)
+      end
+
+      def macro_precedence(
+        call : Crystal::Call,
+        context : Syntax::Context,
+      ) : MacroPrecedence::Verdict
+        return Verdict::Def if !call.obj.nil? || @workspace.macros(call.name).empty?
+        return Verdict::Undecided unless yield_scope(context).is_a?(Unscoped)
+
+        @precedence.verdict(call, implicit_self(context), context.path)
       end
 
       def forwarded_receiver(receiver : Resolved) : Resolution?
@@ -500,16 +524,12 @@ module Heucristic
         visiting : Array(String),
       ) : Resolution
         return outcome unless outcome.reason.unresolved_name?
-        if context.ancestors.any?(Crystal::Annotation)
-          detail = "`#{call.name}` sits inside an annotation, whose arguments only macros read"
-          return Unknown.new(:macro, detail)
-        end
+        annotated = inside_annotation(call, context)
+        return annotated if annotated
+
         inherited = @methods.class_macros(receiver, shape)
         if Index::MacroCall.like?(call, @workspace) || !inherited.empty?
-          expanded = expanded_result(call, context, locals, visiting)
-          return expanded if expanded
-
-          return Unknown.new(:macro, "`#{call.name}` is a macro; its expansion is not typed")
+          return macro_expansion(call, context, locals, visiting)
         end
         return outcome unless call.obj.nil?
 
@@ -518,6 +538,25 @@ module Heucristic
 
         detail = "`#{call.name}` sits inside the `#{owner.name}` macro, which decides what it means"
         Unknown.new(:macro, detail)
+      end
+
+      private def inside_annotation(call : Crystal::Call, context : Syntax::Context) : Unknown?
+        return unless context.ancestors.any?(Crystal::Annotation)
+
+        detail = "`#{call.name}` sits inside an annotation, whose arguments only macros read"
+        Unknown.new(:macro, detail)
+      end
+
+      private def macro_expansion(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        locals : Array(Binding),
+        visiting : Array(String),
+      ) : Resolution
+        expanded = expanded_result(call, context, locals, visiting)
+        return expanded if expanded
+
+        Unknown.new(:macro, "`#{call.name}` is a macro; its expansion is not typed")
       end
 
       private def blocky?(call : Crystal::Call) : Bool

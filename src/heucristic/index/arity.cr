@@ -19,6 +19,13 @@ module Heucristic
       def accepts?(count : Int32) : Bool
         count >= required && (splat || count <= required + optional)
       end
+
+      def expected : String
+        return "#{required}+" if splat
+        return required.to_s if optional.zero?
+
+        "#{required}..#{required + optional}"
+      end
     end
   end
 end
