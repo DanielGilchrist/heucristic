@@ -770,8 +770,8 @@ module Heucristic
 
       private def constructors(type : String, caller_path : String?) : Array(Index::Def)
         levels(type).each do |level|
-          declared = @workspace.named(Syntax::WellKnown::Initialize.method_name).select do |entry|
-            entry.receiver.instance? && entry.owner == level
+          declared = @workspace.defs_of(level).select do |entry|
+            entry.receiver.instance? && Syntax::WellKnown::Initialize.named?(entry.name)
           end
           return declared unless declared.empty?
         end
