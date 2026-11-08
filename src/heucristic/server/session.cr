@@ -537,19 +537,12 @@ module Heucristic
           params.new_name,
           target.is_a?(Syntax::OnInstanceVar),
           answer.entries.any?(Index::Namespace) || target.is_a?(Syntax::OnPath),
-        ) { |file| text_for(file) }
+        ) { |file| text_of(file) }
         if edit.is_a?(Rename::Invalid)
           return error(request.id, Protocol::Encoder::INVALID_REQUEST, edit.reason)
         end
 
         reply(request.id, edit)
-      end
-
-      private def text_for(path : String) : Document::Text?
-        open = @documents[Uri.from_path(path)]
-        return open.text unless open.is_a?(Document::Store::Missing)
-
-        @workspace.sites(path).try(&.text)
       end
 
       private def completion(request : Protocol::Request) : Outcome
