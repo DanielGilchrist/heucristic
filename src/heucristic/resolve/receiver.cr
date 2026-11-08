@@ -19,6 +19,7 @@ require "./unions"
 require "./narrowing"
 require "./block_inputs"
 require "./macro_expansions"
+require "./dispatch"
 require "./instance_var_types"
 require "./special"
 require "./local_assignments"
@@ -37,6 +38,7 @@ module Heucristic
   module Resolve
     class Receiver
       include BlockInputs::Typer
+      include Dispatch::Typer
 
       DEPTH_LIMIT = 48
 
@@ -136,8 +138,7 @@ module Heucristic
       end
 
       def forwarded_receiver(receiver : Resolved) : Resolution?
-        handler = missing_handler(receiver)
-        forward_receiver(handler, Array(Visit){DefVisit.new(handler.qualified)}) if handler
+        dispatch.forwarded_receiver(receiver)
       end
 
       def select_action(call : Crystal::Call, context : Syntax::Context) : Crystal::Call?
@@ -171,46 +172,6 @@ module Heucristic
           context.path,
           call.args.map { |argument| Precision.of(argument) },
         )
-      end
-
-      def result_of(receiver : Resolved, call : Methods::Call) : Resolution
-        result_of(receiver, call, Site::NONE)
-      end
-
-      def result_of(receiver : Resolved, call : Methods::Call, site : Site) : Resolution
-        if receiver.is_a?(UnionRef)
-          members = receiver.members.map do |member|
-            member.is_a?(Unknown) ? member : result_of(member, call, site)
-          end
-          return @unions.union(members)
-        end
-
-        if receiver.is_a?(TypeVar)
-          return Unknown.new(
-            :free_variable,
-            "#{receiver} is a type variable; `#{call.name}` depends on its instantiation",
-          )
-        end
-        return receiver if receiver.is_a?(TypeRef) && receiver.is?(:no_return)
-        if receiver.is_a?(MetaRef) && call.name == "|"
-          other = call.arguments[0]?
-          return UnionRef.new([receiver, other] of Resolution) if other.is_a?(MetaRef)
-        end
-
-        defs = @methods.lookup(receiver, call)
-        if defs.empty? && receiver.is_a?(MetaRef) && (variable = receiver.of).is_a?(TypeVar)
-          return Unknown.new(
-            :free_variable,
-            "#{variable} is a type variable; `#{call.name}` depends on its instantiation",
-          )
-        end
-        if defs.empty? && (forwarded = missing_forward(receiver, call, site))
-          return forwarded
-        end
-        return virtual_result(receiver, call, site) if defs.empty?
-
-        direct = overloads_result(defs, receiver, call, site)
-        dispatched(defs, direct, receiver, call, site)
       end
 
       def of_call(
@@ -302,7 +263,7 @@ module Heucristic
         return found if found.empty? || !receiver.is_a?(TypeRef)
 
         @methods.concrete_subclasses(receiver, shape.caller_path).each do |below|
-          next unless overridden?(below, receiver, shape)
+          next unless dispatch.overridden?(below, receiver, shape)
 
           found.concat(@methods.lookup(below, shape))
         end
@@ -319,6 +280,10 @@ module Heucristic
 
         shape = shape_of(call, context)
         @methods.lookup_super(receiver, owner, parent_call(call, shape, definition))
+      end
+
+      def dispatch : Dispatch
+        @dispatch ||= Dispatch.new(@workspace, @methods, @shims, @unions, self)
       end
 
       def invalidate : Nil
@@ -540,7 +505,7 @@ module Heucristic
         return @unions.union([@narrowing.falsey(current), value] of Resolution) if node.op == "&&"
         return current if current.is_a?(Unknown)
 
-        result_of(current, Methods::Call.new(node.op, 1, false, [value] of Resolution))
+        dispatch.result(current, Methods::Call.new(node.op, 1, false, [value] of Resolution))
       end
 
       private def hash_literal(
@@ -585,65 +550,6 @@ module Heucristic
 
       private def exits_for(context : Syntax::Context, visiting : Array(Visit)) : CallExits
         CallExits.new(@methods, implicit_self(context), self, context, visiting)
-      end
-
-      private def missing_forward(
-        receiver : Resolved,
-        call : Methods::Call,
-        site : Site,
-      ) : Resolution?
-        handler = missing_handler(receiver)
-        return unless handler
-        visit = DefVisit.new(handler.qualified)
-        return visit.cycle if site.visiting.includes?(visit)
-
-        visiting = site.visiting + [visit]
-        delegate = forward_receiver(handler, visiting)
-        return delegate if delegate.is_a?(Unknown)
-
-        result_of(delegate, call, Site.new(site.block, site.context, site.locals, visiting))
-      end
-
-      private def missing_handler(receiver : Resolved) : Index::Def?
-        return unless receiver.is_a?(TypeRef)
-
-        levels = @methods.levels(receiver.name)
-        @workspace.named(Index::MacroHook::MethodMissing.macro_name).find do |entry|
-          owner = entry.owner
-          !entry.forwards_to.nil? && owner.is_a?(String) && levels.includes?(owner)
-        end
-      end
-
-      private def forward_receiver(handler : Index::Def, visiting : Array(Visit)) : Resolution
-        target = handler.forwards_to
-        return Unknown.new(:unresolved_name, handler.qualified) unless target
-
-        owner = handler.owner
-        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
-        context = Syntax::Context.new(enclosing, Array(String).new, nil, handler.path, true)
-        type_of(target, context, visiting, Array(Binding).new)
-      end
-
-      private def virtual_result(
-        receiver : Resolved,
-        call : Methods::Call,
-        site : Site,
-      ) : Resolution
-        concrete = @methods.virtual_receivers(receiver, call.caller_path)
-        if concrete.empty?
-          return @methods.missing(call.name, receiver)
-        end
-
-        results = Array(Resolution).new(concrete.size)
-        concrete.each do |below|
-          if @methods.lookup(below, call).empty?
-            return Unknown.new(
-              :unresolved_name, "no `#{call.name}` on #{below}, a subclass of #{receiver}"
-            )
-          end
-          results << result_of(below, call, site)
-        end
-        @unions.union(results)
       end
 
       private def exit_answers(call : Crystal::Call) : Hash(UInt64, Bool)?
@@ -1505,7 +1411,7 @@ module Heucristic
         return delegate if delegate.is_a?(Unknown)
 
         shape = Methods::Call.new(entry.name, arguments.size, !site.block.nil?, arguments)
-        result_of(delegate, shape, Site.new(site.block, site.context, site.locals, visiting))
+        dispatch.result(delegate, shape, Site.new(site.block, site.context, site.locals, visiting))
       end
 
       private def return_scope(
@@ -1749,7 +1655,7 @@ module Heucristic
         return receiver if receiver.is_a?(Unknown)
 
         shape = Methods::Call.new(pointer.name, arguments.size, false, arguments)
-        result_of(receiver, shape, Site::NONE)
+        dispatch.result(receiver, shape)
       end
 
       private def bind_arguments(
@@ -1804,81 +1710,6 @@ module Heucristic
         end
       end
 
-      private def overloads_result(
-        defs : Array(Index::Def),
-        receiver : Resolved,
-        call : Methods::Call,
-        site : Site,
-      ) : Resolution
-        results = Array(Resolution).new(defs.size)
-        defs.each { |entry| results << return_type(entry, receiver, call.arguments, site) }
-        distinct = results.uniq
-        return distinct[0] if distinct.size == 1
-        if call.arguments.empty? && !call.block
-          annotated = distinct.reject do |result|
-            result.is_a?(Unknown) && result.reason.no_annotation?
-          end
-          return annotated[0] if annotated.size == 1
-        end
-        module_receiver = receiver.is_a?(TypeRef) && @workspace.module?(receiver.name)
-        return @unions.union(results) if module_receiver
-
-        Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
-      end
-
-      private def dispatched(
-        defs : Array(Index::Def),
-        direct : Resolution,
-        receiver : Resolved,
-        call : Methods::Call,
-        site : Site,
-      ) : Resolution
-        return direct unless receiver.is_a?(TypeRef)
-
-        subclasses = @methods.concrete_subclasses(receiver, call.caller_path)
-        return direct if subclasses.empty?
-
-        key = DispatchVisit.new(receiver, call.name, call.arity)
-        return key.cycle if site.visiting.includes?(key)
-
-        virtual_only = @methods.abstract_class?(receiver.name)
-        selfish = defs.any? { |entry| self_typed?(entry) }
-        results = Array(Resolution).new
-        results << direct unless virtual_only
-        seen = Set(String).new
-        seen << definition_key(defs) unless virtual_only
-        inner = site.copy_with(visiting: site.visiting + [key])
-        subclasses.each do |below|
-          unless selfish || overridden?(below, receiver, call)
-            results << direct if seen.add?(definition_key(defs))
-            next
-          end
-
-          below_defs = @methods.lookup(below, call)
-          next if below_defs.empty?
-          next unless selfish || seen.add?(definition_key(below_defs))
-
-          result = overloads_result(below_defs, below, call, inner)
-          next if result == key.cycle
-
-          results << result
-        end
-        return direct if results.empty?
-
-        @unions.union(results)
-      end
-
-      private def definition_key(defs : Array(Index::Def)) : String
-        defs.map { |entry| "#{entry.path}:#{entry.name_span.start_line}" }.join(",")
-      end
-
-      private def self_typed?(entry : Index::Def) : Bool
-        restriction = entry.return_type
-        shim = @shims.find(entry)
-        restriction = shim.entry.return_type if shim && restriction.is_a?(Index::Unrestricted)
-        restriction.is_a?(Syntax::Type) && Syntax::SelfType.within?(restriction)
-      end
-
       private def enum_each(receiver : Resolved, scope : Scope) : Resolution?
         return unless receiver.is_a?(MetaRef)
 
@@ -1918,12 +1749,6 @@ module Heucristic
         return restriction unless typed.is_a?(Resolved) && @methods.admits?(restriction, typed)
 
         typed
-      end
-
-      private def overridden?(below : Resolved, receiver : TypeRef, call : Methods::Call) : Bool
-        return true unless below.is_a?(TypeRef)
-
-        @methods.defined_between?(below.name, receiver.name, call.name)
       end
 
       private def parent_call(
@@ -1972,10 +1797,10 @@ module Heucristic
           return super_result(call, receiver, shape, site)
         end
 
-        outcome = result_of(receiver, shape, site)
+        outcome = dispatch.result(receiver, shape, site)
         if outcome.is_a?(Unknown) && outcome.reason.unresolved_name?
           if (action = select_action(call, context))
-            return result_of(receiver, shape_of(action, context, locals, visiting), site)
+            return dispatch.result(receiver, shape_of(action, context, locals, visiting), site)
           end
         end
         if outcome.is_a?(Unknown)

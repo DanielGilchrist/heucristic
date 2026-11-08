@@ -64,7 +64,7 @@ private def result_of(
   arity : Int32,
   block : Bool,
 ) : String
-  receiver.result_of(target, Heucristic::Resolve::Methods::Call.new(name, arity, block)).to_s
+  receiver.dispatch.result(target, Heucristic::Resolve::Methods::Call.new(name, arity, block)).to_s
 end
 
 describe Heucristic::Resolve::Receiver, "with shims" do
@@ -138,9 +138,9 @@ describe Heucristic::Resolve::Receiver, "typeof a parameter in a shim" do
 
     arguments = [int64] of Heucristic::Resolve::Resolution
     explicit = Heucristic::Resolve::Methods::Call.new("with_index", 1, false, arguments)
-    receiver.result_of(counter, explicit).to_s.should eq("Iterator(Tuple(String, Int64))")
+    receiver.dispatch.result(counter, explicit).to_s.should eq("Iterator(Tuple(String, Int64))")
     defaulted = Heucristic::Resolve::Methods::Call.new("with_index", 0, false)
-    receiver.result_of(counter, defaulted).to_s.should eq("Iterator(Tuple(String, Int32))")
+    receiver.dispatch.result(counter, defaulted).to_s.should eq("Iterator(Tuple(String, Int32))")
   end
 end
 
