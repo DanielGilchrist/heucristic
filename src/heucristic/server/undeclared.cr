@@ -1,3 +1,4 @@
+require "../crystal_version"
 require "../index/identity"
 require "../index/workspace"
 require "../resolve/builtins"
@@ -6,8 +7,9 @@ require "./answer"
 module Heucristic
   module Server
     class Undeclared
-      LISTED  = 5
-      IMPLIED = "# no declaration of its own, implied by the declarations nested in it"
+      LISTED   = 5
+      PROVIDED = "# provided by the compiler, no source file declares it"
+      IMPLIED  = "# no declaration of its own, implied by the declarations nested in it"
 
       def initialize(@workspace : Index::Workspace) : Nil
       end
@@ -37,6 +39,9 @@ module Heucristic
 
       private def provided(identity : Index::Public) : Answer
         name = identity.name
+        if Resolve::Builtins.constant?(name)
+          return Answer.described(fence(PROVIDED, constant(name)))
+        end
         unless Resolve::Builtins.includes?(name)
           return Answer.note("`#{name}` has no declaration of its own")
         end
@@ -45,6 +50,18 @@ module Heucristic
         Resolve::Builtins.summary(name).try { |summary| lines << "# #{summary}" }
         lines << builtin(name)
         Answer.described(fence(lines))
+      end
+
+      private def constant(name : String) : String
+        type = Resolve::Builtins.constant_type(name)
+        return name unless type
+
+        version = @workspace.crystal_version
+        if name == "Crystal::VERSION" && version.is_a?(CrystalVersion::Known)
+          "#{name} = #{version.value.to_s.inspect} # : #{type}"
+        else
+          "#{name} # : #{type}"
+        end
       end
 
       private def builtin(name : String) : String

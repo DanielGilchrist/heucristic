@@ -39,4 +39,15 @@ describe "hover and definition at editor positions" do
       client.definition(URI_A, 0, 13).result.try(&.raw).should be_nil
     end
   end
+
+  it "says a compiler constant is provided by the compiler and gives no definition" do
+    with_document("x = Crystal::VERSION\ny = Crystal::DESCRIPTION\n") do |client|
+      version = hover_text(client.hover(URI_A, 0, 13)).to_s
+      version.should contain("provided by the compiler")
+      version.should contain("Crystal::VERSION")
+      version.should contain("Crystal::VERSION = \"")
+      hover_text(client.hover(URI_A, 1, 15)).to_s.should contain("Crystal::DESCRIPTION")
+      client.definition(URI_A, 0, 13).result.try(&.raw).should be_nil
+    end
+  end
 end
