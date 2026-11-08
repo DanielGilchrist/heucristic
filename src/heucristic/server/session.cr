@@ -141,11 +141,7 @@ module Heucristic
         roots = [@root]
         return roots unless @index_stdlib
 
-        roots.concat(source_paths)
-      end
-
-      def source_paths : Array(String)
-        @sources.paths(@root)
+        roots.concat(@sources.paths(@root))
       end
 
       def shim_roots : Array(String)
@@ -438,7 +434,7 @@ module Heucristic
         return reply(request.id, nil) if offset.is_a?(Document::OutOfRange)
 
         path = @documents.path(document)
-        request_at = Completion::Request.new(document.text, offset, path, source_paths)
+        request_at = Completion::Request.new(document.text, offset, path, @sources.paths(@root))
         items = @completion.complete(request_at)
         reply(request.id, LSProtocol::CompletionList.new(is_incomplete: false, items: items))
       end

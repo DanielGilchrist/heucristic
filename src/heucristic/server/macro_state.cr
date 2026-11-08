@@ -14,6 +14,7 @@ require "../resolve/methods"
 require "../resolve/receiver"
 require "../resolve/types"
 require "../syntax"
+require "./macro_lookup"
 require "./macro_status"
 require "./macros"
 require "./notice"
@@ -24,6 +25,8 @@ require "./stage"
 module Heucristic
   module Server
     class MacroState
+      include MacroLookup
+
       def initialize(
         events : Channel(Index::Event),
         @transport : Protocol::Transport,

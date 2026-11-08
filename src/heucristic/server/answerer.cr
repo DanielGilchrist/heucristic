@@ -14,7 +14,7 @@ require "../resolve/types"
 require "../syntax"
 require "../syntax/target"
 require "./answer"
-require "./macro_state"
+require "./macro_lookup"
 require "./parameter_hint"
 require "./source_paths"
 require "./uri"
@@ -28,7 +28,7 @@ module Heucristic
         @methods : Resolve::Methods,
         @receiver : Resolve::Receiver,
         @hints : ParameterHint,
-        @macros : MacroState,
+        @macros : MacroLookup,
         @sources : SourcePaths,
       ) : Nil
       end
