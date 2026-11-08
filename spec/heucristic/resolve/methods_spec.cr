@@ -809,6 +809,52 @@ describe Heucristic::Resolve::Methods, "dispatch on union arguments" do
   end
 end
 
+describe Heucristic::Resolve::Methods, "dispatch on union receivers with union arguments" do
+  source = <<-CR
+    class Base
+      def same(other) : Bool
+      end
+    end
+
+    module Twice
+      def same(other : Text) : Bool
+      end
+    end
+
+    class Text < Base
+      include Twice
+
+      def same(other : Text) : Bool
+      end
+    end
+
+    class Blank < Base
+      def same(other : Blank) : Bool
+      end
+    end
+    CR
+
+  it "walks each member's overloads to full coverage (compiler: Time? == Time?)" do
+    tree = Heucristic::Syntax.parse(source, "a.cr")
+    raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+    workspace = Heucristic::Index::Workspace.new
+    workspace.update(
+      Heucristic::Index::Collector.collect(
+        "a.cr", Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+      )
+    )
+    types = Heucristic::Resolve::Types.new(workspace)
+    members = [type_ref("Text"), type_ref("Blank")] of Heucristic::Resolve::Resolution
+    either = Heucristic::Resolve::UnionRef.new(members)
+    call = call_shape("same", 1, false, [either] of Heucristic::Resolve::Resolution)
+    found = Heucristic::Resolve::Methods.new(workspace, types).dispatch(either, call)
+    found.map(&.qualified).sort!.should eq(
+      ["Base#same", "Blank#same", "Text#same", "Twice#same"]
+    )
+  end
+end
+
 METACLASS_SOURCE = <<-CR
   module Walkable
   end

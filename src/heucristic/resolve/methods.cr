@@ -160,6 +160,7 @@ module Heucristic
       def dispatch(receiver : Resolution, call : CallShape) : Array(Index::Def)
         found = lookup(receiver, call)
         return virtual_lookup(receiver, call) if found.empty?
+        return reached_by_member(receiver, call) if receiver.is_a?(UnionRef)
 
         reached(receiver, call, found)
       end
@@ -674,6 +675,12 @@ module Heucristic
         end
 
         first_level(type, call) { |entry| entry.receiver.metaclass? && call.accepts?(entry) }
+      end
+
+      private def reached_by_member(receiver : UnionRef, call : CallShape) : Array(Index::Def)
+        receiver.members.flat_map do |member|
+          reached(member, call, lookup(member, call))
+        end.uniq!
       end
 
       private def union_methods(receiver : UnionRef, call : CallShape) : Array(Index::Def)
