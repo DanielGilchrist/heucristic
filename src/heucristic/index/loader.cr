@@ -37,17 +37,22 @@ module Heucristic
         end
 
         files = Array(File).new(paths.size)
-        shims = Array(File).new(shim_paths.size)
+        shims_by_path = Hash(String, File).new(initial_capacity: shim_paths.size)
         sites = Array(Sites).new
         paths.size.times do |done|
           indexed = results.receive
           if indexed
             file = indexed.file
-            (shim_set.includes?(file.path) ? shims : files) << file
+            if shim_set.includes?(file.path)
+              shims_by_path[file.path] = file
+            else
+              files << file
+            end
             indexed.sites.try { |found| sites << found }
           end
           events.send(Advanced.new(done + 1, paths.size)) if (done + 1) % REPORT_EVERY == 0
         end
+        shims = shim_paths.compact_map { |path| shims_by_path[path]? }
         events.send(Finished.new(files, shims, sites, Time.instant - started))
       end
 
