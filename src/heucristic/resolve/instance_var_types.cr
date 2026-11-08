@@ -102,7 +102,7 @@ module Heucristic
           context = Syntax::Context.new(
             [level], @types.type_vars_of(level), entry.definition, entry.path
           )
-          guessed = @typer.type_of(expression, context, visiting, Array(Binding).new)
+          guessed = @typer.type_of(expression, Frame.new(context, Array(Binding).new, visiting))
           typed << guessed unless guessed.is_a?(Unknown)
         end
         return @unions.union(typed) unless typed.empty?

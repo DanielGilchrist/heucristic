@@ -15,6 +15,7 @@ require "./local_declarations"
 require "./body_facts"
 require "./memos"
 require "./visit"
+require "./frame"
 require "./unions"
 require "./narrowing"
 require "./block_inputs"
@@ -73,17 +74,25 @@ module Heucristic
 
       record Site,
         block : Crystal::Block?,
-        context : Syntax::Context,
-        locals : Array(Binding),
-        visiting : Array(Visit),
+        frame : Frame,
         named : Array(Binding) = Array(Binding).new,
         block_arg : Crystal::ASTNode? = nil do
         NONE = new(
           nil,
-          Syntax::Context.new(Array(Index::Identity).new, Array(String).new, nil),
-          Array(Binding).new,
-          Array(Visit).new,
+          Frame.of(Syntax::Context.new(Array(Index::Identity).new, Array(String).new, nil)),
         )
+
+        def context : Syntax::Context
+          frame.context
+        end
+
+        def locals : Array(Binding)
+          frame.locals
+        end
+
+        def visiting : Array(Visit)
+          frame.visiting
+        end
       end
 
       COMPARISONS = {"<", "<=", ">", ">="}
@@ -109,28 +118,22 @@ module Heucristic
         @depth_exhausted = 0
       end
 
-      def result_of(
-        call : Crystal::Call,
-        context : Syntax::Context,
-        locals : Array(Binding) = Array(Binding).new,
-        visiting : Array(Visit) = Array(Visit).new,
-      ) : Resolution
-        if locals.empty? && !visiting.empty? && Syntax::WellKnown::New.named?(call.name)
-          return constructed_result(call, context, visiting)
+      def result_of(call : Crystal::Call, frame : Frame) : Resolution
+        if frame.locals.empty? && !frame.visiting.empty? &&
+           Syntax::WellKnown::New.named?(call.name)
+          return constructed_result(call, frame.context, frame.visiting)
         end
 
-        unless locals.empty? && visiting.empty?
-          return computed_result(call, context, locals, visiting)
-        end
+        return computed_result(call, frame) unless frame.untracked?
 
-        key = CallKey.of(call, context)
+        key = CallKey.of(call, frame.context)
         cached = @memos.call_results[key]?
-        return cached.result if cached && cached.context.same_as?(context)
+        return cached.result if cached && cached.context.same_as?(frame.context)
 
         exhausted = @depth_exhausted
-        result = computed_result(call, context, locals, visiting)
+        result = computed_result(call, frame)
         if exhausted == @depth_exhausted && !unsettled?(result)
-          @memos.call_results[key] = CachedCall.new(call, context.copy, result)
+          @memos.call_results[key] = CachedCall.new(call, frame.context.copy, result)
         end
         result
       end
@@ -155,20 +158,19 @@ module Heucristic
         Crystal::Call.new(call.obj, select_action_name(call.name), call.args)
       end
 
-      def shape_of(
-        call : Crystal::Call,
-        context : Syntax::Context,
-        locals : Array(Binding) = Array(Binding).new,
-        visiting : Array(Visit) = Array(Visit).new,
-      ) : Methods::CallShape
+      def shape_of(call : Crystal::Call, context : Syntax::Context) : Methods::CallShape
+        shape_of(call, Frame.of(context))
+      end
+
+      def shape_of(call : Crystal::Call, frame : Frame) : Methods::CallShape
         arguments = Array(Methods::CallShape::Argument).new(call.args.size)
         call.args.each do |argument|
-          type = type_of(argument, context, visiting, locals)
+          type = type_of(argument, frame)
           arguments << Methods::CallShape::Argument.new(type, Precision.of(argument))
         end
         named = Array(Binding).new
         call.named_args.try &.each do |argument|
-          value = type_of(argument.value, context, visiting, locals)
+          value = type_of(argument.value, frame)
           named << Binding.new(argument.name, value)
         end
         Methods::CallShape.new(
@@ -178,20 +180,19 @@ module Heucristic
           arguments,
           named,
           call.obj.nil?,
-          context.path,
+          frame.context.path,
         )
       end
 
-      def of_call(
-        call : Crystal::Call,
-        context : Syntax::Context,
-        locals : Array(Binding) = Array(Binding).new,
-        visiting : Array(Visit) = Array(Visit).new,
-      ) : Resolution
-        receiver = call.obj
-        return implicit_receiver(call, context) unless receiver
+      def of_call(call : Crystal::Call, context : Syntax::Context) : Resolution
+        of_call(call, Frame.of(context))
+      end
 
-        type_of(receiver, context, visiting, locals)
+      def of_call(call : Crystal::Call, frame : Frame) : Resolution
+        receiver = call.obj
+        return implicit_receiver(call, frame.context) unless receiver
+
+        type_of(receiver, frame)
       end
 
       def yield_scope(context : Syntax::Context) : Resolution | Unscoped
@@ -211,7 +212,7 @@ module Heucristic
       end
 
       def variable(name : String, context : Syntax::Context) : Resolution
-        variable(name, context, Array(Visit).new, Array(Binding).new)
+        variable(name, Frame.of(context))
       end
 
       def instance_var(name : String, context : Syntax::Context) : Resolution
@@ -312,7 +313,7 @@ module Heucristic
         cached = answers.try(&.[call.object_id]?)
         return cached unless cached.nil?
 
-        receiver = of_call(call, context, Array(Binding).new, visiting)
+        receiver = of_call(call, Frame.new(context, Array(Binding).new, visiting))
         answer = yield receiver
         answers[call.object_id] = answer if answers && !unsettled?(receiver)
         answer
@@ -328,7 +329,7 @@ module Heucristic
       end
 
       def typed(node : Crystal::ASTNode, context : Syntax::Context) : Resolution
-        type_of(node, context, Array(Visit).new, Array(Binding).new)
+        type_of(node, Frame.of(context))
       end
 
       def type_of(entry : Index::Constant) : Resolution
@@ -341,6 +342,10 @@ module Heucristic
         visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
+        type_of(node, Frame.new(context, locals, visiting))
+      end
+
+      def type_of(node : Crystal::ASTNode, frame : Frame) : Resolution
         if @depth >= DEPTH_LIMIT
           @depth_exhausted += 1
           return Unknown.new(:too_deep, "typing `#{node}` needs more than #{DEPTH_LIMIT} steps")
@@ -348,7 +353,7 @@ module Heucristic
 
         @depth += 1
         begin
-          typed(node, context, visiting, locals)
+          typed(node, frame)
         ensure
           @depth -= 1
         end
@@ -386,11 +391,9 @@ module Heucristic
       end
 
       private def case_subject(
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        enclosing = context.ancestors.reverse_each.find { |node| node.is_a?(Crystal::Case) }
+        enclosing = frame.context.ancestors.reverse_each.find { |node| node.is_a?(Crystal::Case) }
         subject = enclosing.is_a?(Crystal::Case) ? enclosing.cond : nil
         unless subject
           return Unknown.new(:unsupported, "an implicit object outside a case")
@@ -399,7 +402,7 @@ module Heucristic
           subject = subject.expressions[0]
         end
 
-        type_of(subject, context, visiting, locals)
+        type_of(subject, frame)
       end
 
       private def super_result(
@@ -445,18 +448,16 @@ module Heucristic
 
       private def case_value(
         node : Crystal::Case,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         branches = Array(Resolution).new(node.whens.size + 1)
         node.whens.each do |branch|
-          inner = context.inside(node, branch).inside(branch.body)
-          branches << type_of(branch.body, inner, visiting, locals)
+          inner = frame.context.inside(node, branch).inside(branch.body)
+          branches << type_of(branch.body, frame.within(inner))
         end
         otherwise = node.else
         if otherwise
-          branches << type_of(otherwise, context.inside(node, otherwise), visiting, locals)
+          branches << type_of(otherwise, frame.inside(node, otherwise))
         elsif !node.exhaustive?
           branches << TypeRef.of(:nil)
         end
@@ -465,45 +466,39 @@ module Heucristic
 
       private def select_value(
         node : Crystal::Select,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         branches = Array(Resolution).new(node.whens.size + 1)
         node.whens.each do |branch|
-          inner = context.inside(node, branch).inside(branch.body)
-          branches << type_of(branch.body, inner, visiting, locals)
+          inner = frame.context.inside(node, branch).inside(branch.body)
+          branches << type_of(branch.body, frame.within(inner))
         end
         if (otherwise = node.else)
-          branches << type_of(otherwise, context.inside(node, otherwise), visiting, locals)
+          branches << type_of(otherwise, frame.inside(node, otherwise))
         end
         @unions.union(branches)
       end
 
       private def rescued_value(
         node : Crystal::ExceptionHandler,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         branches = Array(Resolution).new
         normal = node.else || node.body
-        branches << type_of(normal, context.inside(node, normal), visiting, locals)
+        branches << type_of(normal, frame.inside(node, normal))
         node.rescues.try &.each do |handler|
-          inner = context.inside(node, handler).inside(handler.body)
-          branches << type_of(handler.body, inner, visiting, locals)
+          inner = frame.context.inside(node, handler).inside(handler.body)
+          branches << type_of(handler.body, frame.within(inner))
         end
         @unions.union(branches)
       end
 
       private def op_assigned(
         node : Crystal::OpAssign,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        current = type_of(node.target, context, visiting, locals)
-        value = type_of(node.value, context, visiting, locals)
+        current = type_of(node.target, frame)
+        value = type_of(node.value, frame)
         if node.op == "||"
           present = @narrowing.truthy(current)
           return value if present.is_a?(TypeRef) && present.is?(:nil)
@@ -518,9 +513,7 @@ module Heucristic
 
       private def hash_literal(
         node : Crystal::HashLiteral,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         if node.entries.empty?
           return Unknown.new(:no_annotation, "an empty hash literal needs `of K => V`")
@@ -529,8 +522,8 @@ module Heucristic
         keys = Array(Resolution).new(node.entries.size)
         values = Array(Resolution).new(node.entries.size)
         node.entries.each do |entry|
-          keys << type_of(entry.key, context, visiting, locals)
-          values << type_of(entry.value, context, visiting, locals)
+          keys << type_of(entry.key, frame)
+          values << type_of(entry.value, frame)
         end
         key = @unions.union(keys)
         return key if key.is_a?(Unknown)
@@ -792,14 +785,12 @@ module Heucristic
       private def constructed(
         call : Crystal::Call,
         evident : Syntax::Type,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        written = @types.resolve(evident, Scope.of(context))
+        written = @types.resolve(evident, Scope.of(frame.context))
         return written unless Syntax::WellKnown::New.named?(call.name)
 
-        found = result_of(call, context, locals, visiting)
+        found = result_of(call, frame)
         return found unless found.is_a?(Unknown)
 
         found.reason.unresolved_name? || found.reason.free_variable? ? written : found
@@ -807,45 +798,43 @@ module Heucristic
 
       private def typed(
         node : Crystal::ASTNode,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        return constant(node, context, visiting) if node.is_a?(Crystal::Path)
+        return constant(node, frame.context, frame.visiting) if node.is_a?(Crystal::Path)
         evident = Index::Evident.type(node)
         if evident.is_a?(Syntax::Type)
-          return constructed(node, evident, context, visiting, locals) if node.is_a?(Crystal::Call)
-          return @types.resolve(evident, Scope.of(context))
+          return constructed(node, evident, frame) if node.is_a?(Crystal::Call)
+          return @types.resolve(evident, Scope.of(frame.context))
         end
 
         case node
-        in Crystal::Var then variable(node.name, context, visiting, locals)
+        in Crystal::Var then variable(node.name, frame)
         in Crystal::InstanceVar, Crystal::ClassVar
-          instance_var_types.of(node.name, context, visiting)
-        in Crystal::Call                then result_of(node, context, locals, visiting)
-        in Crystal::Path                then constant(node, context, visiting)
-        in Crystal::ImplicitObj         then case_subject(context, visiting, locals)
-        in Crystal::If, Crystal::Unless then branch_value(node, context, visiting, locals)
+          instance_var_types.of(node.name, frame.context, frame.visiting)
+        in Crystal::Call                then result_of(node, frame)
+        in Crystal::Path                then constant(node, frame.context, frame.visiting)
+        in Crystal::ImplicitObj         then case_subject(frame)
+        in Crystal::If, Crystal::Unless then branch_value(node, frame)
         in Crystal::Return, Crystal::Break, Crystal::Next
           TypeRef.of(:no_return)
-        in Crystal::Case             then case_value(node, context, visiting, locals)
-        in Crystal::Select           then select_value(node, context, visiting, locals)
-        in Crystal::ExceptionHandler then rescued_value(node, context, visiting, locals)
-        in Crystal::Assign           then type_of(node.value, context, visiting, locals)
-        in Crystal::OpAssign         then op_assigned(node, context, visiting, locals)
-        in Crystal::Yield            then yielded_result(context)
+        in Crystal::Case             then case_value(node, frame)
+        in Crystal::Select           then select_value(node, frame)
+        in Crystal::ExceptionHandler then rescued_value(node, frame)
+        in Crystal::Assign           then type_of(node.value, frame)
+        in Crystal::OpAssign         then op_assigned(node, frame)
+        in Crystal::Yield            then yielded_result(frame.context)
         in Crystal::SizeOf, Crystal::InstanceSizeOf, Crystal::AlignOf, Crystal::InstanceAlignOf
           TypeRef.of(:int32)
-        in Crystal::RangeLiteral      then range_value(node, context, visiting, locals)
-        in Crystal::Or                then or_value(node, context, visiting, locals)
-        in Crystal::And               then and_value(node, context, visiting, locals)
-        in Crystal::ArrayLiteral      then array_value(node, context, visiting, locals)
-        in Crystal::HashLiteral       then hash_literal(node, context, visiting, locals)
-        in Crystal::TupleLiteral      then tuple_value(node, context, visiting, locals)
-        in Crystal::NamedTupleLiteral then named_tuple_value(node, context, visiting, locals)
+        in Crystal::RangeLiteral      then range_value(node, frame)
+        in Crystal::Or                then or_value(node, frame)
+        in Crystal::And               then and_value(node, frame)
+        in Crystal::ArrayLiteral      then array_value(node, frame)
+        in Crystal::HashLiteral       then hash_literal(node, frame)
+        in Crystal::TupleLiteral      then tuple_value(node, frame)
+        in Crystal::NamedTupleLiteral then named_tuple_value(node, frame)
         in Crystal::Nop               then TypeRef.of(:nil)
-        in Crystal::TypeOf            then typeof_value(node, context, visiting, locals)
-        in Crystal::Expressions       then expressions_value(node, context, visiting, locals)
+        in Crystal::TypeOf            then typeof_value(node, frame)
+        in Crystal::Expressions       then expressions_value(node, frame)
         in Crystal::ASTNode
           Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
         end
@@ -853,72 +842,68 @@ module Heucristic
 
       private def variable(
         name : String,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        return implicit_self(context) if Syntax::WellKnown::SelfName.named?(name)
-        facts = facts_for(context)
-        if (assigner = macro_expansions.assigning(name, context, facts))
+        return implicit_self(frame.context) if Syntax::WellKnown::SelfName.named?(name)
+        facts = facts_for(frame.context)
+        if (assigner = macro_expansions.assigning(name, frame.context, facts))
           detail = "`#{name}` is assigned by the expansion of `#{assigner}`, " \
                    "which flow does not follow"
           return Unknown.new(:macro, detail)
         end
-        key = variable_key(name, context)
-        exits = exits_for(context, visiting + [key])
-        steps = Flow.steps(name, context.ancestors, exits, facts)
-        if (local = locals.find(&.name.==(name)))
+        key = variable_key(name, frame.context)
+        exits = exits_for(frame.context, frame.visiting + [key])
+        steps = Flow.steps(name, frame.context.ancestors, exits, facts)
+        if (local = frame.locals.find(&.name.==(name)))
           uncarried = steps.reject { |step| step.is_a?(Flow::Reassigned) && step.carried }
-          return narrow(local.value, name, uncarried, context, visiting, locals)
+          return narrow(local.value, name, uncarried, frame)
         end
-        return key.cycle if visiting.includes?(key)
+        return key.cycle if frame.visiting.includes?(key)
 
-        if (captured = captured(name, context, visiting, locals))
+        if (captured = captured(name, frame))
           return captured
         end
 
-        if (inner = shadowing_block(name, context))
-          from_block = block_parameter(name, context, locals, visiting + [key])
+        if (inner = shadowing_block(name, frame.context))
+          from_block = block_parameter(name, frame.visited(key))
           if from_block
-            inner_steps = Flow.steps(name, context.ancestors[inner..], exits, facts)
-            return narrow(from_block, name, inner_steps, context, visiting, locals)
+            inner_steps = Flow.steps(name, frame.context.ancestors[inner..], exits, facts)
+            return narrow(from_block, name, inner_steps, frame)
           end
         end
-        if (enclosing = enclosing_rescue(name, context))
+        if (enclosing = enclosing_rescue(name, frame.context))
           handler, rescued = enclosing
-          inner_steps = Flow.steps(name, context.ancestors[handler..], exits, facts)
-          bound = rescued_type(rescued, context)
-          return narrow(bound, name, inner_steps, context, visiting, locals)
+          inner_steps = Flow.steps(name, frame.context.ancestors[handler..], exits, facts)
+          bound = rescued_type(rescued, frame.context)
+          return narrow(bound, name, inner_steps, frame)
         end
 
-        base = declared_variable(name, context, visiting, locals, steps)
-        narrow(base, name, steps, context, visiting, locals)
+        base = declared_variable(name, frame, steps)
+        narrow(base, name, steps, frame)
       end
 
       private def captured(
         name : String,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution?
-        index = context.proc_index
-        definition = context.def_node
+        index = frame.context.proc_index
+        definition = frame.context.def_node
         return unless index && definition
         return if definition.args.any?(&.name.==(name))
-        return if shadowing_block(name, context).try(&.> index)
+        return if shadowing_block(name, frame.context).try(&.> index)
 
         inner = facts_of(definition.body)
         return unless inner.assigned(name).empty? && inner.declaration(name).nil?
         return if inner.rescued(name)
 
-        outer = context.outside_proc(index)
-        if reassigned_after?(name, context.ancestors[index], outer)
+        outer = frame.context.outside_proc(index)
+        if reassigned_after?(name, frame.context.ancestors[index], outer)
           return Unknown.new(
             :inference_needed, "#{name} is captured by a proc and reassigned after it"
           )
         end
 
-        variable(name, outer, visiting, locals)
+        variable(name, frame.within(outer))
       end
 
       private def reassigned_after?(
@@ -956,24 +941,22 @@ module Heucristic
         base : Resolution,
         name : String,
         steps : Array(Flow::Step),
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         steps.reduce(base) do |current, step|
           case step
           in Flow::Assigned
-            narrow_assigned(current, step, name, context, visiting, locals)
+            narrow_assigned(current, step, name, frame)
           in Flow::Branched
-            branched(current, step, name, context, visiting, locals)
+            branched(current, step, name, frame)
           in Flow::Reassigned
-            narrow_reassigned(current, step, name, context, visiting, locals)
+            narrow_reassigned(current, step, name, frame)
           in Flow::OrAssigned
-            narrow_or_assigned(current, step, name, context, visiting, locals)
+            narrow_or_assigned(current, step, name, frame)
           in Flow::Truthy, Flow::IsA, Flow::RespondsTo
-            @narrowing.apply(current, step, context)
+            @narrowing.apply(current, step, frame.context)
           in Flow::Declared
-            declared_step(step, name, context, visiting, locals)
+            declared_step(step, name, frame)
           end
         end
       end
@@ -985,51 +968,47 @@ module Heucristic
 
       private def declared_variable(
         name : String,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
         steps : Array(Flow::Step),
       ) : Resolution
-        definition = context.def_node
-        body = definition ? definition.body : context.ancestors.first?
+        definition = frame.context.def_node
+        body = definition ? definition.body : frame.context.ancestors.first?
         unless body
           return Unknown.new(:no_annotation, "#{name} is outside any method or script")
         end
 
         facts = facts_of(body)
         rescued = facts.rescued(name)
-        from_active_rescue(rescued, context) ||
-          from_parameter(name, definition, context) ||
-          from_block_arg(name, definition, context) ||
-          from_declaration(name, facts, context) ||
-          from_block_parameter(name, context, locals, visiting) ||
-          from_rescue(rescued, context) ||
-          from_assignments(name, facts, context, visiting, locals, steps)
+        from_active_rescue(rescued, frame.context) ||
+          from_parameter(name, definition, frame.context) ||
+          from_block_arg(name, definition, frame.context) ||
+          from_declaration(name, facts, frame.context) ||
+          from_block_parameter(name, frame) ||
+          from_rescue(rescued, frame.context) ||
+          from_assignments(name, facts, frame, steps)
       end
 
       private def branched(
         current : Resolution,
         step : Flow::Branched,
         name : String,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         return current if !step.assigns && (current.is_a?(TypeVar) || current.is_a?(Unknown))
 
-        exits = exits_for(context, visiting)
+        exits = exits_for(frame.context, frame.visiting)
         results = Array(Resolution).new(step.branches.size)
         step.branches.each do |branch|
           body = branch.body
-          entry = Flow.new(name, exits, facts_for(context))
+          entry = Flow.new(name, exits, facts_for(frame.context))
           next if body && entry.exits?(body, step.within)
 
           entry.collect(step.cond, branch.positive, step.within)
-          start = narrow(current, name, entry.steps, context, visiting, locals)
+          start = narrow(current, name, entry.steps, frame)
           if body && !body.is_a?(Crystal::Nop)
-            inner = Flow.new(name, exits, facts_for(context))
+            inner = Flow.new(name, exits, facts_for(frame.context))
             inner.walk(body, step.within + [body])
-            start = narrow(start, name, inner.steps, context, visiting, locals)
+            start = narrow(start, name, inner.steps, frame)
           end
           results << start
         end
@@ -1063,7 +1042,7 @@ module Heucristic
         return cached.result if cached && cached.context.same_as?(context)
 
         exhausted = @depth_exhausted
-        result = computed_result(call, context, Array(Binding).new, visiting)
+        result = computed_result(call, Frame.new(context, Array(Binding).new, visiting))
         if exhausted == @depth_exhausted && !unsettled?(result)
           stored = ConstructionKey.new(key.call, visiting.dup)
           @memos.constructions[stored] = CachedCall.new(call, context.copy, result)
@@ -1113,9 +1092,7 @@ module Heucristic
 
       private def elements(
         nodes : Array(Crystal::ASTNode),
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
         & : Resolution -> Resolution
       ) : Resolution
         if nodes.empty?
@@ -1123,7 +1100,7 @@ module Heucristic
         end
 
         typed = Array(Resolution).new(nodes.size)
-        nodes.each { |element| typed << type_of(element, context, visiting, locals) }
+        nodes.each { |element| typed << type_of(element, frame) }
         inner = @unions.union(typed)
         return inner if inner.is_a?(Unknown)
 
@@ -1260,23 +1237,21 @@ module Heucristic
       end
 
       private def break_values(block : Crystal::Block, site : Site) : Array(Resolution)
-        escape_values(Escapes.in(block).breaks, block, site.context, site.visiting, site.locals)
+        escape_values(Escapes.in(block).breaks, block, site.frame)
       end
 
       private def escape_values(
         found : Array(Escapes::Found),
         block : Crystal::Block,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Array(Resolution)
         found.map do |escape|
           exp = escape.node.exp
           next TypeRef.of(:nil).as(Resolution) unless exp
 
-          inside = context.inside(block)
+          inside = frame.context.inside(block)
           escape.ancestors.each { |ancestor| inside = inside.inside(ancestor) }
-          type_of(exp, inside.inside(escape.node, exp), visiting, locals)
+          type_of(exp, frame.within(inside.inside(escape.node, exp)))
         end
       end
 
@@ -1327,7 +1302,7 @@ module Heucristic
         return delegate if delegate.is_a?(Unknown)
 
         shape = Methods::CallShape.of_types(entry.name, arguments, !site.block.nil?)
-        dispatch.result(delegate, shape, Site.new(site.block, site.context, site.locals, visiting))
+        dispatch.result(delegate, shape, Site.new(site.block, site.frame.with_visiting(visiting)))
       end
 
       private def return_scope(
@@ -1435,11 +1410,9 @@ module Heucristic
 
       private def block_parameter(
         name : String,
-        context : Syntax::Context,
-        locals : Array(Binding),
-        visiting : Array(Visit),
+        frame : Frame,
       ) : Resolution?
-        context.blocks.reverse_each do |call|
+        frame.context.blocks.reverse_each do |call|
           block = call.block
           next unless block
           index = block.args.index(&.name.==(name))
@@ -1447,14 +1420,14 @@ module Heucristic
           index ||= unpacked.try(&.parameter_index)
           next unless index
 
-          outer = outside(call, context)
-          receiver = of_call(call, outer, locals, visiting)
+          outer = outside(call, frame.context)
+          receiver = of_call(call, frame.within(outer))
           return receiver if receiver.is_a?(Unknown)
 
           input = block_inputs.remembered(call, index) || begin
-            shape = shape_of(call, outer, locals, visiting)
+            shape = shape_of(call, frame.within(outer))
             computed = block_inputs.of(receiver, shape, index, block.args.size)
-            if locals.empty? && !unsettled?(computed)
+            if frame.locals.empty? && !unsettled?(computed)
               block_inputs.remember(call, index, computed)
             end
             computed
@@ -1519,8 +1492,9 @@ module Heucristic
         end
         body = block.body
         nexts = Escapes.in(block).nexts
-        results = escape_values(nexts, block, site.context, site.visiting, locals)
-        results << type_of(body, site.context.inside(block, body), site.visiting, locals)
+        inner = site.frame.with_locals(locals)
+        results = escape_values(nexts, block, inner)
+        results << type_of(body, inner.inside(block, body))
         Unify.bind(output, @unions.union(results), free_vars, bindings, @types, scope)
       end
 
@@ -1534,7 +1508,7 @@ module Heucristic
           return proc_pointer_result(passed, site, scope, restriction)
         end
 
-        proc = type_of(passed, site.context, site.visiting, site.locals)
+        proc = type_of(passed, site.frame)
         return proc if proc.is_a?(Unknown)
         if proc.is_a?(TypeRef) && proc.is?(:proc) && (output = proc.arguments.last?)
           return output
@@ -1649,16 +1623,15 @@ module Heucristic
       private def declared_step(
         step : Flow::Declared,
         name : String,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        restriction = @types.resolve(Syntax::TypeReader.read(step.restriction), Scope.of(context))
+        declared = Syntax::TypeReader.read(step.restriction)
+        restriction = @types.resolve(declared, Scope.of(frame.context))
         value = step.value
         return restriction unless value && restriction.is_a?(Resolved)
 
-        key = variable_key(name, context)
-        typed = type_of(value, context.at(step.within), visiting + [key], locals)
+        key = variable_key(name, frame.context)
+        typed = type_of(value, frame.at(step.within).visited(key))
         return restriction unless typed.is_a?(Resolved) && @methods.admits?(restriction, typed)
 
         typed
@@ -1675,23 +1648,21 @@ module Heucristic
 
       private def computed_result(
         call : Crystal::Call,
-        context : Syntax::Context,
-        locals : Array(Binding),
-        visiting : Array(Visit),
+        frame : Frame,
       ) : Resolution
         return TypeRef.of(:bool) if Receiver.chained_comparison?(call)
 
-        case macro_precedence(call, context)
+        case macro_precedence(call, frame.context)
         in .macro?
-          annotated = macro_expansions.inside_annotation(call, context)
-          return annotated || macro_expansions.expansion(call, context, locals, visiting)
+          annotated = macro_expansions.inside_annotation(call, frame.context)
+          return annotated || macro_expansions.expansion(call, frame)
         in .undecided?
           detail = "`#{call.name}` is a macro or a def depending on arguments not known here"
           return Unknown.new(:macro, detail)
         in .def?
         end
 
-        receiver = of_call(call, context, locals, visiting)
+        receiver = of_call(call, frame)
         return receiver if receiver.is_a?(Unknown)
         if receiver.is_a?(TypeRef) && receiver.is?(:tuple)
           element = tuple_element_at(receiver, call)
@@ -1702,9 +1673,9 @@ module Heucristic
           return element if element
         end
 
-        shape = shape_of(call, context, locals, visiting)
+        shape = shape_of(call, frame)
         site = Site.new(
-          call.block, context, locals, visiting, shape.named, call.block_arg
+          call.block, frame, shape.named, call.block_arg
         )
         if call.obj.nil? && Syntax::WellKnown::Super.named?(call.name)
           return super_result(call, receiver, shape, site)
@@ -1712,12 +1683,12 @@ module Heucristic
 
         outcome = dispatch.result(receiver, shape, site)
         if outcome.is_a?(Unknown) && outcome.reason.unresolved_name?
-          if (action = select_action(call, context))
-            return dispatch.result(receiver, shape_of(action, context, locals, visiting), site)
+          if (action = select_action(call, frame.context))
+            return dispatch.result(receiver, shape_of(action, frame), site)
           end
         end
         if outcome.is_a?(Unknown)
-          return macro_expansions.result(call, context, outcome, receiver, shape, locals, visiting)
+          return macro_expansions.result(call, frame, outcome, receiver, shape)
         end
 
         block = call.block
@@ -1741,144 +1712,117 @@ module Heucristic
 
       private def branch_value(
         node : Crystal::If | Crystal::Unless,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         branches = Array(Resolution).new(2)
-        branches << type_of(node.then, context.inside(node, node.then), visiting, locals)
-        branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
+        branches << type_of(node.then, frame.inside(node, node.then))
+        branches << type_of(node.else, frame.inside(node, node.else))
         @unions.union(branches)
       end
 
       private def range_value(
         node : Crystal::RangeLiteral,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         bounds = Array(Resolution).new(2)
-        bounds << type_of(node.from, context, visiting, locals)
-        bounds << type_of(node.to, context, visiting, locals)
+        bounds << type_of(node.from, frame)
+        bounds << type_of(node.to, frame)
         bounds.find(&.is_a?(Unknown)) || TypeRef.of(:range, bounds)
       end
 
       private def or_value(
         node : Crystal::Or,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        left = type_of(node.left, context.inside(node, node.left), visiting, locals)
-        right = type_of(node.right, context.inside(node, node.right), visiting, locals)
+        left = type_of(node.left, frame.inside(node, node.left))
+        right = type_of(node.right, frame.inside(node, node.right))
         @unions.union([@narrowing.truthy(left), right] of Resolution)
       end
 
       private def and_value(
         node : Crystal::And,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        left = type_of(node.left, context.inside(node, node.left), visiting, locals)
-        right = type_of(node.right, context.inside(node, node.right), visiting, locals)
+        left = type_of(node.left, frame.inside(node, node.left))
+        right = type_of(node.right, frame.inside(node, node.right))
         @unions.union([@narrowing.falsey(left), right] of Resolution)
       end
 
       private def array_value(
         node : Crystal::ArrayLiteral,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        collection = literal_collection(node, context)
-        elements(node.elements, context, visiting, locals) do |inner|
+        collection = literal_collection(node, frame.context)
+        elements(node.elements, frame) do |inner|
           TypeRef.new(collection, [inner] of Resolution)
         end
       end
 
       private def tuple_value(
         node : Crystal::TupleLiteral,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         members = Array(Resolution).new(node.elements.size)
-        node.elements.each { |element| members << type_of(element, context, visiting, locals) }
+        node.elements.each { |element| members << type_of(element, frame) }
         members.find(&.is_a?(Unknown)) || TypeRef.of(:tuple, members)
       end
 
       private def named_tuple_value(
         node : Crystal::NamedTupleLiteral,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         members = Array(Resolution).new(node.entries.size)
-        node.entries.each { |entry| members << type_of(entry.value, context, visiting, locals) }
+        node.entries.each { |entry| members << type_of(entry.value, frame) }
         unknown = members.find(&.is_a?(Unknown))
         unknown || TypeRef.new(CoreType::NamedTuple.identity, members, node.entries.map(&.key))
       end
 
       private def typeof_value(
         node : Crystal::TypeOf,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         members = Array(Resolution).new(node.expressions.size)
-        node.expressions.each { |inner| members << type_of(inner, context, visiting, locals) }
+        node.expressions.each { |inner| members << type_of(inner, frame) }
         members.find(&.is_a?(Unknown)) || @unions.metaclass_of(@unions.union(members))
       end
 
       private def expressions_value(
         node : Crystal::Expressions,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
         last = node.expressions.last?
         return TypeRef.of(:nil) unless last
 
-        type_of(last, context.inside(node, last), visiting, locals)
+        type_of(last, frame.inside(node, last))
       end
 
       private def narrow_assigned(
         current : Resolution,
         step : Flow::Assigned,
         name : String,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        key = variable_key(name, context)
-        at = context.at(step.within)
-        value_type(step.value, locals) ||
-          remember_value(
-            step.value,
-            type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
-            locals,
-          )
+        key = variable_key(name, frame.context)
+        bound = seeded(frame.locals, name, current)
+        seeded_frame = frame.at(step.within).visited(key).with_locals(bound)
+        value_type(step.value, frame.locals) ||
+          remember_value(step.value, type_of(step.value, seeded_frame), frame.locals)
       end
 
       private def narrow_reassigned(
         current : Resolution,
         step : Flow::Reassigned,
         name : String,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        key = variable_key(name, context)
+        key = variable_key(name, frame.context)
         values = Array(Resolution).new(step.values.size + 1)
         values << current unless step.definite
-        seeded_locals = seeded(locals, name, current)
+        seeded_frame = frame.visited(key).with_locals(seeded(frame.locals, name, current))
         step.values.each do |item|
-          at = context.at(step.within + item.path)
-          typed = value_type(item.value, locals) ||
-                  remember_value(
-                    item.value, type_of(item.value, at, visiting + [key], seeded_locals), locals
-                  )
+          inner = seeded_frame.at(step.within + item.path)
+          typed = value_type(item.value, frame.locals) ||
+                  remember_value(item.value, type_of(item.value, inner), frame.locals)
           values << (looped?(step, item) ? settled(name, current, item.value, typed) : typed)
         end
         @unions.union(values)
@@ -1888,18 +1832,13 @@ module Heucristic
         current : Resolution,
         step : Flow::OrAssigned,
         name : String,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Resolution
-        key = variable_key(name, context)
-        at = context.at(step.within)
-        typed = value_type(step.value, locals) ||
-                remember_value(
-                  step.value,
-                  type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
-                  locals,
-                )
+        key = variable_key(name, frame.context)
+        bound = seeded(frame.locals, name, current)
+        seeded_frame = frame.at(step.within).visited(key).with_locals(bound)
+        typed = value_type(step.value, frame.locals) ||
+                remember_value(step.value, type_of(step.value, seeded_frame), frame.locals)
         present = @narrowing.truthy(current)
         return typed if present.is_a?(TypeRef) && present.is?(:nil)
 
@@ -1970,22 +1909,18 @@ module Heucristic
 
       private def from_block_parameter(
         name : String,
-        context : Syntax::Context,
-        locals : Array(Binding),
-        visiting : Array(Visit),
+        frame : Frame,
       ) : Resolution?
-        key = variable_key(name, context)
-        return key.cycle if visiting.includes?(key)
+        key = variable_key(name, frame.context)
+        return key.cycle if frame.visiting.includes?(key)
 
-        block_parameter(name, context, locals, visiting + [key])
+        block_parameter(name, frame.visited(key))
       end
 
       private def from_assignments(
         name : String,
         facts : BodyFacts,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
         steps : Array(Flow::Step),
       ) : Resolution
         assignments = facts.assigned(name)
@@ -1998,13 +1933,13 @@ module Heucristic
           return TypeRef.of(:nil)
         end
 
-        assignments = same_block(assignments, facts.reassigned(name), context)
+        assignments = same_block(assignments, facts.reassigned(name), frame.context)
         assigned = Array(Resolution).new(assignments.size)
         deferred = Array(Crystal::ASTNode).new
-        key = variable_key(name, context)
+        key = variable_key(name, frame.context)
         assignments.each do |value|
-          typed = value_type(value, locals) ||
-                  remember_value(value, type_of(value, context, visiting + [key], locals), locals)
+          typed = value_type(value, frame.locals) ||
+                  remember_value(value, type_of(value, frame.visited(key)), frame.locals)
           if typed.is_a?(Unknown) && typed.reason.cycle?
             deferred << value
           else
@@ -2016,9 +1951,9 @@ module Heucristic
         seed = @unions.union(assigned)
         return Unknown.new(:cycle, name) if seed.is_a?(Unknown)
 
-        seeded_locals = seeded(locals, name, seed)
+        seeded_frame = frame.visited(key).with_locals(seeded(frame.locals, name, seed))
         deferred.each do |value|
-          typed = type_of(value, context, visiting + [key], seeded_locals)
+          typed = type_of(value, seeded_frame)
           assigned << settled(name, seed, value, typed)
         end
         @unions.union(assigned)

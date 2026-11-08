@@ -52,7 +52,7 @@ module Score
         location = call.name_location
         next unless location
 
-        result = @corpus.receiver.result_of(call, site.context)
+        result = @corpus.receiver.result_of(call, Heucristic::Resolve::Frame.of(site.context))
         if at && at.covers?(relative, location.line_number, location.column_number)
           explain(at, call, site, result)
         end

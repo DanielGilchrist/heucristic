@@ -3615,9 +3615,11 @@ describe Heucristic::Resolve::Receiver, "memo contexts that share a fingerprint"
     fingerprint.call(widened).should eq(fingerprint.call(narrowed))
 
     fresh = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
-    expected = fresh.result_of(target.node, widened).to_s
-    expected.should_not eq(receiver.result_of(target.node, narrowed).to_s)
-    receiver.result_of(target.node, widened).to_s.should eq(expected)
+    wide = Heucristic::Resolve::Frame.of(widened)
+    narrow = Heucristic::Resolve::Frame.of(narrowed)
+    expected = fresh.result_of(target.node, wide).to_s
+    expected.should_not eq(receiver.result_of(target.node, narrow).to_s)
+    receiver.result_of(target.node, wide).to_s.should eq(expected)
   end
 end
 

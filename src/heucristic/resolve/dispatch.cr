@@ -125,7 +125,7 @@ module Heucristic
         delegate = forward_receiver(handler, visiting)
         return delegate if delegate.is_a?(Unknown)
 
-        result(delegate, call, Receiver::Site.new(site.block, site.context, site.locals, visiting))
+        result(delegate, call, Receiver::Site.new(site.block, site.frame.with_visiting(visiting)))
       end
 
       private def missing_handler(receiver : Resolved) : Index::Def?
@@ -145,7 +145,7 @@ module Heucristic
         owner = handler.owner
         enclosing = owner.is_a?(Index::Identity) ? [owner] : Array(Index::Identity).new
         context = Syntax::Context.new(enclosing, Array(String).new, nil, handler.path, true)
-        @typer.type_of(target, context, visiting, Array(Binding).new)
+        @typer.type_of(target, Frame.new(context, Array(Binding).new, visiting))
       end
 
       private def virtual(
@@ -222,7 +222,7 @@ module Heucristic
         results << direct unless virtual_only
         seen = Set(DefinitionKey).new
         seen << DefinitionKey.of(defs) unless virtual_only
-        inner = site.copy_with(visiting: site.visiting + [key])
+        inner = site.copy_with(frame: site.frame.visited(key))
         subclasses.each do |below|
           unless selfish || overridden?(below, receiver, call)
             results << direct if seen.add?(DefinitionKey.of(defs))

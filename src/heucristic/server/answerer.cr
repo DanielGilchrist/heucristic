@@ -194,9 +194,7 @@ module Heucristic
           return Answer.note("no `#{call.name}` indexed on #{receiver}#{@macros.hint}")
         end
 
-        site = Resolve::Receiver::Site.new(
-          call.block, target.context, Array(Resolve::Binding).new, Array(Resolve::Visit).new
-        )
+        site = Resolve::Receiver::Site.new(call.block, Resolve::Frame.of(target.context))
         sections = found.map do |entry|
           describe_resolved(entry, receiver, shape.types, site, root)
         end

@@ -28,20 +28,19 @@ module Heucristic
 
       def result(
         call : Crystal::Call,
-        context : Syntax::Context,
+        frame : Frame,
         outcome : Unknown,
         receiver : Resolved,
         shape : Methods::CallShape,
-        locals : Array(Binding),
-        visiting : Array(Visit),
       ) : Resolution
+        context = frame.context
         return outcome unless outcome.reason.unresolved_name?
         annotated = inside_annotation(call, context)
         return annotated if annotated
 
         inherited = @methods.class_macros(receiver, shape)
         if Index::MacroCall.like?(call, @workspace) || !inherited.empty?
-          return expansion(call, context, locals, visiting)
+          return expansion(call, frame)
         end
         return outcome unless call.obj.nil?
 
@@ -59,13 +58,8 @@ module Heucristic
         Unknown.new(:macro, detail)
       end
 
-      def expansion(
-        call : Crystal::Call,
-        context : Syntax::Context,
-        locals : Array(Binding),
-        visiting : Array(Visit),
-      ) : Resolution
-        expanded = expanded_result(call, context, locals, visiting)
+      def expansion(call : Crystal::Call, frame : Frame) : Resolution
+        expanded = expanded_result(call, frame)
         return expanded if expanded
 
         Unknown.new(:macro, "`#{call.name}` is a macro; its expansion is not typed")
@@ -79,12 +73,8 @@ module Heucristic
         assigners[name]?
       end
 
-      private def expanded_result(
-        call : Crystal::Call,
-        context : Syntax::Context,
-        locals : Array(Binding),
-        visiting : Array(Visit),
-      ) : Resolution?
+      private def expanded_result(call : Crystal::Call, frame : Frame) : Resolution?
+        context = frame.context
         location = call.name_location
         path = context.path
         return unless location && path
@@ -93,7 +83,7 @@ module Heucristic
         return unless found && found.name == call.name
 
         key = ExpansionVisit.new(path, location.line_number, location.column_number, call.name)
-        return key.cycle if visiting.includes?(key)
+        return key.cycle if frame.visiting.includes?(key)
 
         expanded = expansion_of(call, found, context, path)
         if expanded.is_a?(Syntax::Broken)
@@ -106,9 +96,9 @@ module Heucristic
         last = statements.last?
         return TypeRef.of(:nil) unless last
 
-        inner = visiting + [key]
-        bound = bindings(statements, expanded.isolated, call, context, inner, locals)
-        @typer.type_of(last, context, inner, bound + locals)
+        inner = frame.visited(key)
+        bound = bindings(statements, expanded.isolated, call, inner)
+        @typer.type_of(last, inner.with_locals(bound + frame.locals))
       end
 
       private def expansion_of(
@@ -146,9 +136,7 @@ module Heucristic
         statements : Array(Crystal::ASTNode),
         isolated : Syntax::ExpansionLocals::Isolated,
         call : Crystal::Call,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
+        frame : Frame,
       ) : Array(Binding)
         bound = Array(Binding).new(isolated.names.size)
         isolated.nested.each do |name|
@@ -163,7 +151,7 @@ module Heucristic
           next unless target.is_a?(Crystal::Var)
           next if isolated.nested.includes?(target.name)
 
-          typed = @typer.type_of(statement.value, context, visiting, bound + locals)
+          typed = @typer.type_of(statement.value, frame.with_locals(bound + frame.locals))
           bound.unshift(Binding.new(target.name, typed))
         end
         bound

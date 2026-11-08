@@ -207,9 +207,10 @@ module Heucristic
         values = Array(Resolution).new(sites.size)
         visiting = Array(Visit){DefVisit.of(entry)}
         sites.each do |site|
+          frame = Frame.new(site.context, Array(Binding).new, visiting)
           exps = site.node.exps
           if exps.size == 1 && parameters > 1
-            packed = @typer.type_of(exps[0], site.context, visiting, Array(Binding).new)
+            packed = @typer.type_of(exps[0], frame)
             if packed.is_a?(TypeRef) && packed.is?(:tuple) && (element = packed.arguments[index]?)
               values << element
               next
@@ -219,7 +220,7 @@ module Heucristic
           unless expression
             return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values")
           end
-          values << @typer.type_of(expression, site.context, visiting, Array(Binding).new)
+          values << @typer.type_of(expression, frame)
         end
         scope = @typer.scope_of(entry, receiver, arguments)
         scope.is_a?(Unknown) ? @unions.union(values) : @unions.rebind(@unions.union(values), scope)

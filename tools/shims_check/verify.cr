@@ -198,7 +198,7 @@ module ShimsCheck
         inner = by_node[argument.object_id]?
         next unresolved << Unresolved.new(line, argument.to_s, "not a call") unless inner
 
-        typed = receiver.result_of(inner.call, inner.context)
+        typed = receiver.result_of(inner.call, Heucristic::Resolve::Frame.of(inner.context))
         text = typed.to_s
         start = call.location
         finish = call.end_location
