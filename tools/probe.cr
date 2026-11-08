@@ -1,15 +1,25 @@
 require "json"
 require "../spec/support/lsp_client"
+require "./probe/invocation"
+require "./probe/root"
 
 module Probe
   extend self
 
   def run(args : Array(String)) : Int32
-    binary, file, line, character, action = parse(args) || return usage
-    root = find_root(File.dirname(file))
+    invocation = Invocation.parse(args)
+    return invocation.report if invocation.is_a?(Invalid)
+
+    file = invocation.file
+    directory = File.dirname(file)
+    lookup = Roots.find(directory)
+    root = case lookup
+           in Root   then lookup.path
+           in NoRoot then directory
+           end
     uri = "file://#{file}"
 
-    process = Process.new(binary, input: :pipe, output: :pipe, error: :inherit)
+    process = Process.new(invocation.binary, input: :pipe, output: :pipe, error: :inherit)
     client = LspClient.new(process.output, process.input)
 
     client.initialize!(root, stdlib: true, progress: true)
@@ -22,33 +32,48 @@ module Probe
     diagnostics = client.await_diagnostics
     puts "diagnostics: #{diagnostics.params.try(&.["diagnostics"]).to_pretty_json}"
 
-    if action.in?("hover", "both")
-      puts "hover: #{client.hover(uri, line, character).result.to_pretty_json}"
-    end
-    if action.in?("definition", "both")
-      puts "definition: #{client.definition(uri, line, character).result.to_pretty_json}"
-    end
-    if action == "references"
-      found = client.references(uri, line, character, true).result
-      puts "references: #{found.to_pretty_json}"
-    end
-    if action == "complete"
-      puts "completion: #{client.completion(uri, line, character).result.to_pretty_json}"
-    end
-    if action.starts_with?("rename:")
-      edit = client.rename(uri, line, character, action.lchop("rename:"))
-      puts "rename: #{(edit.result || edit.error).to_pretty_json}"
-    end
-    if action == "symbols"
-      puts "symbols: #{client.document_symbols(uri).result.to_pretty_json}"
-    end
-    if action.starts_with?("workspace:")
-      query = action.lchop("workspace:")
-      puts "workspace symbols: #{client.workspace_symbols(query).result.to_pretty_json}"
-    end
+    query(client, uri, invocation)
 
     client.shutdown
     process.wait.exit_code
+  end
+
+  private def query(client : LspClient, uri : String, invocation : Invocation) : Nil
+    line = invocation.line
+    character = invocation.character
+    action = invocation.action
+    case action
+    in Hover      then print_hover(client, uri, line, character)
+    in Definition then print_definition(client, uri, line, character)
+    in Both
+      print_hover(client, uri, line, character)
+      print_definition(client, uri, line, character)
+    in References
+      found = client.references(uri, line, character, true).result
+      puts "references: #{found.to_pretty_json}"
+    in Complete
+      puts "completion: #{client.completion(uri, line, character).result.to_pretty_json}"
+    in Rename
+      edit = client.rename(uri, line, character, action.name)
+      puts "rename: #{(edit.result || edit.error).to_pretty_json}"
+    in Symbols
+      puts "symbols: #{client.document_symbols(uri).result.to_pretty_json}"
+    in Workspace
+      puts "workspace symbols: #{client.workspace_symbols(action.query).result.to_pretty_json}"
+    end
+  end
+
+  private def print_hover(client : LspClient, uri : String, line : Int32, character : Int32) : Nil
+    puts "hover: #{client.hover(uri, line, character).result.to_pretty_json}"
+  end
+
+  private def print_definition(
+    client : LspClient,
+    uri : String,
+    line : Int32,
+    character : Int32,
+  ) : Nil
+    puts "definition: #{client.definition(uri, line, character).result.to_pretty_json}"
   end
 
   private def await_macros(client : LspClient) : Heucristic::Protocol::Notification
@@ -67,36 +92,6 @@ module Probe
       break if notification.params.try(&.["value"]?.try(&.["kind"]?)) == "end"
     end
     client.await_notification(Heucristic::Server::Notice::Indexed, 30.seconds)
-  end
-
-  private def parse(args : Array(String)) : {String, String, Int32, Int32, String}?
-    return unless args.size >= 2
-
-    binary = ENV.fetch("HEUCRISTIC_BIN", File.join(Dir.current, "bin", "heucristic"))
-    file = File.expand_path(args[0])
-    position = args[1].split(':')
-    return unless position.size == 2
-
-    line = position[0].to_i32?
-    character = position[1].to_i32?
-    return unless line && character
-
-    {binary, file, line - 1, character - 1, args[2]? || "both"}
-  end
-
-  private def find_root(directory : String) : String
-    current = directory
-    until File.exists?(File.join(current, "shard.yml")) || current == "/"
-      current = File.dirname(current)
-    end
-    current == "/" ? directory : current
-  end
-
-  private def usage : Int32
-    STDERR.puts "usage: probe <file.cr> <line>:<column> [hover|definition|both|references|" \
-                "complete|rename:<name>|symbols|workspace:<query>]"
-    STDERR.puts "positions are 1-based; HEUCRISTIC_BIN overrides the server binary"
-    1
   end
 end
 
