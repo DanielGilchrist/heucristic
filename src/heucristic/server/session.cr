@@ -459,7 +459,7 @@ module Heucristic
         Check::Cases.new(@workspace, @types, @receiver, settled).run(sites, findings)
         Check::Abstracts.new(@workspace, @methods, settled).run(path, findings)
         Check::Generics.new(@workspace, @types, settled, @root).run(sites, findings)
-        Check::Controls.new.run(sites, findings)
+        Check::Controls.new(@workspace).run(sites, findings)
         Check::Paths.new(@workspace, @types, settled).run(sites, findings)
         Check::Returns.new(@types, @methods, @receiver, settled).run(sites, findings)
         ivars = Check::InstanceVars.new(@workspace, @types, @methods, @receiver, settled)

@@ -192,7 +192,7 @@ module Score
           Heucristic::Check::Cases.new(workspace, types, receiver, settled).run(sites, findings)
           Heucristic::Check::Abstracts.new(workspace, methods, settled).run(sites.path, findings)
           Heucristic::Check::Generics.new(workspace, types, settled, root).run(sites, findings)
-          Heucristic::Check::Controls.new.run(sites, findings)
+          Heucristic::Check::Controls.new(workspace).run(sites, findings)
           Heucristic::Check::Paths.new(workspace, types, settled).run(sites, findings)
           Heucristic::Check::Returns.new(types, methods, receiver, settled).run(sites, findings)
           Heucristic::Check::InstanceVars.new(workspace, types, methods, receiver, settled)

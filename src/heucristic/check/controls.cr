@@ -1,10 +1,15 @@
 require "compiler/crystal/syntax"
 require "../index/sites"
+require "../index/workspace"
 require "./finding"
+require "./macro_arguments"
 
 module Heucristic
   module Check
     struct Controls
+      def initialize(@workspace : Index::Workspace) : Nil
+      end
+
       def run(sites : Index::Sites, findings : Array(Finding)) : Nil
         sites.controls.each { |site| check(site, sites.text, findings) }
       end
@@ -25,6 +30,7 @@ module Heucristic
                   end
         return unless message
         return if site.context.ancestors.any?(Crystal::ProcLiteral)
+        return if MacroArguments.within?(site.context.ancestors, @workspace)
         location = node.location
         return unless location
 
