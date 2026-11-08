@@ -15,6 +15,7 @@ require "./local_declarations"
 require "./body_facts"
 require "./memos"
 require "./unions"
+require "./special"
 require "./local_assignments"
 require "./variable_references"
 require "./flow"
@@ -251,77 +252,22 @@ module Heucristic
         site : Site = Site::NONE,
       ) : Resolution
         receiver = owning(entry, receiver)
-        if Syntax::WellKnown::Initialize.named?(entry.name) && receiver.is_a?(MetaRef)
-          return receiver.of
-        end
-        if Syntax::WellKnown::New.named?(entry.name) && receiver.is_a?(MetaRef)
-          instance = receiver.of
-          proc_class = instance.is_a?(TypeRef) && instance.is?(:proc)
-          if entry.return_type.is_a?(Index::Unrestricted) && (site.block.nil? || proc_class)
-            return receiver.of
-          end
-        end
-        if entry.qualified == "Object#class"
-          return MetaRef.new(receiver) if receiver.is_a?(TypeRef)
-          return receiver if receiver.is_a?(MetaRef)
-        end
-        if entry.qualified == "Enum#value" && receiver.is_a?(TypeRef)
-          return enum_base(receiver)
-        end
-        if entry.qualified == "Array#compact" && receiver.is_a?(TypeRef)
-          return compacted(receiver)
-        end
-        if entry.qualified == "Proc#call" && receiver.is_a?(TypeRef)
-          return receiver.arguments.last? || Unknown.new(:unsupported, "a proc without a signature")
-        end
-        if receiver.is_a?(TypeRef) && receiver.is?(:tuple)
-          special = tuple_special(entry, receiver, arguments, site)
-          return special if special
-        end
-        if receiver.is_a?(TypeRef) && receiver.labelled?
-          special = named_tuple_special(entry, receiver)
-          return special if special
-        end
-        if nil_asserted?(entry, receiver, arguments)
-          return TypeRef.of(:no_return)
-        end
-        if entry.qualified.in?("Enumerable#zip", "Enumerable#zip?") && !site.block
-          return zipped(receiver, arguments, entry.name == "zip?")
-        end
-        if entry.qualified == "Enumerable#to_h" && !site.block && receiver.is_a?(TypeRef)
-          return pairs_to_hash(receiver)
+        constructed = constructed_type(entry, receiver, site)
+        return constructed if constructed
+
+        special = Special.for(entry)
+        if special
+          answer = special_type(special, entry, receiver, arguments, site)
+          return answer if answer
         end
 
         case (restriction = entry.return_type)
         in Index::Unrestricted
-          shim = @shims.find(entry)
-          return return_type(shim.entry, receiver, arguments, site) if shim
-          if entry.name == "loop" && entry.owner.is_a?(Index::TopLevel) && (looped = site.block)
-            return loop_result(looped, site)
-          end
-          if receiver.is_a?(TypeRef) && arguments.empty? && !site.block
-            known = Syntax::WellKnown.from_name(entry.name)
-            return receiver if known && known.copies?
-          end
-          if (target = entry.forwards_to)
-            return forwarded(entry, target, arguments, site)
-          end
-          if (read = entry.reads)
-            value = read_instance_var(entry, read.name, receiver, arguments, site)
-            return read.asserted ? truthy(value, true) : value
-          end
-
-          Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
+          unrestricted_type(entry, special, receiver, arguments, site)
         in Syntax::TypeReader::Unsupported
           Unknown.new(:unsupported, restriction.source)
         in Syntax::Type
-          scope = return_scope(entry, receiver, arguments, site)
-          return scope if scope.is_a?(Unknown)
-          if (yielded = enum_each(entry, receiver, scope))
-            return yielded
-          end
-
-          @types.resolve(restriction, scope)
+          restricted_type(restriction, entry, special, receiver, arguments, site)
         end
       end
 
@@ -842,27 +788,126 @@ module Heucristic
         member || Unknown.new(:unresolved_name, "#{receiver} has no element #{index}")
       end
 
-      private def tuple_special(
+      private def constructed_type(
         entry : Index::Def,
-        receiver : TypeRef,
+        receiver : Resolved,
+        site : Site,
+      ) : Resolution?
+        return unless receiver.is_a?(MetaRef)
+
+        if Syntax::WellKnown::Initialize.named?(entry.name)
+          return receiver.of
+        end
+        return unless Syntax::WellKnown::New.named?(entry.name)
+
+        instance = receiver.of
+        proc_class = instance.is_a?(TypeRef) && instance.is?(:proc)
+        return unless entry.return_type.is_a?(Index::Unrestricted)
+
+        receiver.of if site.block.nil? || proc_class
+      end
+
+      private def special_type(
+        special : Special,
+        entry : Index::Def,
+        receiver : Resolved,
         arguments : Array(Resolution),
         site : Site,
       ) : Resolution?
-        members = receiver.arguments
-        return if members.empty?
-
-        qualified = entry.qualified
-        if qualified == "Tuple#first" || qualified == "Tuple#last"
-          member = entry.name == "first" ? members.first? : members.last?
-          return member || Unknown.new(:no_annotation, "#{receiver} has no elements")
+        case special
+        in .object_class?  then class_of(receiver)
+        in .enum_value?    then enum_base(receiver) if receiver.is_a?(TypeRef)
+        in .array_compact? then compacted(receiver) if receiver.is_a?(TypeRef)
+        in .proc_call?
+          if receiver.is_a?(TypeRef)
+            receiver.arguments.last? || Unknown.new(:unsupported, "a proc without a signature")
+          end
+        in .tuple_first?           then tuple_members(receiver).try(&.first?)
+        in .tuple_last?            then tuple_members(receiver).try(&.last?)
+        in .tuple_first_or_nil?    then nilable_member(tuple_members(receiver).try(&.first?))
+        in .tuple_last_or_nil?     then nilable_member(tuple_members(receiver).try(&.last?))
+        in .tuple_map?             then tuple_mapped(entry, receiver, arguments, site)
+        in .named_tuple_values?    then labelled_values(receiver)
+        in .named_tuple_keys?      then labelled_keys(receiver)
+        in .should_not?            then TypeRef.of(:no_return) if nil_asserted?(receiver, arguments)
+        in .enumerable_zip?        then zipped(receiver, arguments, false) unless site.block
+        in .enumerable_zip_or_nil? then zipped(receiver, arguments, true) unless site.block
+        in .enumerable_to_h?
+          pairs_to_hash(receiver) if receiver.is_a?(TypeRef) && !site.block
+        in .enum_each?, .loop? then nil
         end
-        if qualified == "Tuple#first?" || qualified == "Tuple#last?"
-          member = entry.name == "first?" ? members.first? : members.last?
-          return unless member
+      end
 
-          return @unions.union([member, TypeRef.of(:nil)] of Resolution)
+      private def unrestricted_type(
+        entry : Index::Def,
+        special : Special?,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+        site : Site,
+      ) : Resolution
+        shim = @shims.find(entry)
+        return return_type(shim.entry, receiver, arguments, site) if shim
+
+        looped = site.block
+        return loop_result(looped, site) if special.try(&.loop?) && looped
+
+        if receiver.is_a?(TypeRef) && arguments.empty? && !site.block
+          known = Syntax::WellKnown.from_name(entry.name)
+          return receiver if known && known.copies?
         end
-        return unless qualified == "Tuple#map"
+        if (target = entry.forwards_to)
+          return forwarded(entry, target, arguments, site)
+        end
+        if (read = entry.reads)
+          value = read_instance_var(entry, read.name, receiver, arguments, site)
+          return read.asserted ? truthy(value, true) : value
+        end
+
+        Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
+      end
+
+      private def restricted_type(
+        restriction : Syntax::Type,
+        entry : Index::Def,
+        special : Special?,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+        site : Site,
+      ) : Resolution
+        scope = return_scope(entry, receiver, arguments, site)
+        return scope if scope.is_a?(Unknown)
+
+        if special.try(&.enum_each?) && (yielded = enum_each(receiver, scope))
+          return yielded
+        end
+
+        @types.resolve(restriction, scope)
+      end
+
+      private def class_of(receiver : Resolved) : Resolution?
+        case receiver
+        in TypeRef           then MetaRef.new(receiver)
+        in MetaRef           then receiver
+        in UnionRef, TypeVar then nil
+        end
+      end
+
+      private def tuple_members(receiver : Resolved) : Array(Resolution)?
+        receiver.arguments if receiver.is_a?(TypeRef) && receiver.is?(:tuple)
+      end
+
+      private def nilable_member(member : Resolution?) : Resolution?
+        @unions.union([member, TypeRef.of(:nil)] of Resolution) if member
+      end
+
+      private def tuple_mapped(
+        entry : Index::Def,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+        site : Site,
+      ) : Resolution?
+        members = tuple_members(receiver)
+        return if members.nil? || members.empty?
 
         scope = return_scope(entry, receiver, arguments, site)
         return scope if scope.is_a?(Unknown)
@@ -871,6 +916,17 @@ module Heucristic
         return unless mapped
 
         TypeRef.of(:tuple, Array(Resolution).new(members.size, mapped))
+      end
+
+      private def labelled_values(receiver : Resolved) : Resolution?
+        TypeRef.of(:tuple, receiver.arguments) if receiver.is_a?(TypeRef) && receiver.labelled?
+      end
+
+      private def labelled_keys(receiver : Resolved) : Resolution?
+        return unless receiver.is_a?(TypeRef) && receiver.labelled?
+
+        symbols = Array(Resolution).new(receiver.arguments.size) { TypeRef.of(:symbol) }
+        TypeRef.of(:tuple, symbols)
       end
 
       private def zipped(
@@ -2282,17 +2338,8 @@ module Heucristic
         restriction.is_a?(Syntax::Type) && Syntax::SelfType.within?(restriction)
       end
 
-      private def named_tuple_special(entry : Index::Def, receiver : TypeRef) : Resolution?
-        case entry.qualified
-        when "NamedTuple#values" then TypeRef.of(:tuple, receiver.arguments)
-        when "NamedTuple#keys"
-          symbols = Array(Resolution).new(receiver.arguments.size) { TypeRef.of(:symbol) }
-          TypeRef.of(:tuple, symbols)
-        end
-      end
-
-      private def enum_each(entry : Index::Def, receiver : Resolved, scope : Scope) : Resolution?
-        return unless entry.qualified == "Enum.each" && receiver.is_a?(MetaRef)
+      private def enum_each(receiver : Resolved, scope : Scope) : Resolution?
+        return unless receiver.is_a?(MetaRef)
 
         enum_type = receiver.of
         return unless enum_type.is_a?(TypeRef)
@@ -2307,12 +2354,7 @@ module Heucristic
         scope.bound("U")
       end
 
-      private def nil_asserted?(
-        entry : Index::Def,
-        receiver : Resolved,
-        arguments : Array(Resolution),
-      ) : Bool
-        return false unless entry.qualified == "Spec::ObjectExtensions#should_not"
+      private def nil_asserted?(receiver : Resolved, arguments : Array(Resolution)) : Bool
         return false unless receiver.is_a?(TypeRef) && receiver.is?(:nil)
 
         expectation = arguments[0]?
