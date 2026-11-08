@@ -292,7 +292,7 @@ module Heucristic
         if (rescued = rescue_variable(target, text))
           spans << rescued
         else
-          add_span(spans, text, introduced_at(target), target.name.size)
+          add_span(spans, text, introduced_at(target.name, target.context), target.name.size)
         end
         Answer.new(Array(Index::Entry).new, spans, notes, Array(String).new)
       end
@@ -307,15 +307,14 @@ module Heucristic
         text.span_of(target.name, location, RESCUE_KEYWORD.size)
       end
 
-      private def introduced_at(target : Syntax::OnVar) : Crystal::Location?
-        name = target.name
-        target.context.blocks.reverse_each do |call|
+      private def introduced_at(name : String, context : Syntax::Context) : Crystal::Location?
+        context.blocks.reverse_each do |call|
           argument = call.block.try(&.args.find(&.name.==(name)))
           return argument.location if argument
         end
 
-        definition = target.context.def_node
-        body = definition ? definition.body : target.context.ancestors.first?
+        definition = context.def_node
+        body = definition ? definition.body : context.ancestors.first?
         return unless body
         if definition && (parameter = definition.args.find(&.name.==(name)))
           return parameter.location
@@ -327,7 +326,11 @@ module Heucristic
           return declaration.var.location
         end
 
-        Resolve::LocalAssignments.first_target(body, name).try(&.location)
+        found = Resolve::LocalAssignments.first_target(body, name).try(&.location)
+        return found if found
+
+        index = context.proc_index
+        introduced_at(name, context.outside_proc(index)) if index
       end
 
       private def answer_instance_var(target : Syntax::OnInstanceVar) : Answer

@@ -75,4 +75,12 @@ describe "hover and definition at editor positions" do
       starts(client.definition(URI_A, 5, 3)).should eq([{4, 7}])
     end
   end
+
+  it "jumps from a variable captured by a proc literal to the enclosing def's declaration" do
+    source = "def run(user_id : Int32)\n  window = 1\n  -> : Int32 { window + user_id }\nend\n"
+    with_document(source) do |client|
+      starts(client.definition(URI_A, 2, 15)).should eq([{1, 2}])
+      starts(client.definition(URI_A, 2, 24)).should eq([{0, 8}])
+    end
+  end
 end
