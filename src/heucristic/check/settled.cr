@@ -28,11 +28,11 @@ module Heucristic
       end
 
       def type?(name : String) : Bool
-        @settled_types[name] ||= settled_type?(name)
+        @settled_types.fetch(name) { @settled_types[name] = settled_type?(name) }
       end
 
       def declared?(name : String) : Bool
-        @declared_types[name] ||= declared_type?(name)
+        @declared_types.fetch(name) { @declared_types[name] = declared_type?(name) }
       end
 
       def namespace?(name : String) : Bool
@@ -152,9 +152,9 @@ module Heucristic
       private def unsettled_file?(path : String) : Bool
         return false unless @dirty.includes?(path)
 
-        @unsettled_files[path] ||= begin
+        @unsettled_files.fetch(path) do
           sites = @workspace.sites(path)
-          sites.nil? || MacroUses.any?(sites, @workspace)
+          @unsettled_files[path] = sites.nil? || MacroUses.any?(sites, @workspace)
         end
       end
     end
