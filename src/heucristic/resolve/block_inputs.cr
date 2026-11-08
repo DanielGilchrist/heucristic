@@ -9,6 +9,7 @@ require "./memos"
 require "./methods"
 require "./resolution"
 require "./scope"
+require "./typer"
 require "./types"
 require "./unions"
 require "./visit"
@@ -17,12 +18,7 @@ module Heucristic
   module Resolve
     class BlockInputs
       module Typer
-        abstract def type_of(
-          node : Crystal::ASTNode,
-          context : Syntax::Context,
-          visiting : Array(Visit),
-          locals : Array(Binding),
-        ) : Resolution
+        include Resolve::Typer
 
         abstract def scope_of(
           entry : Index::Def,

@@ -11,7 +11,7 @@ module Heucristic
       getter call_results : Hash(Receiver::CallKey, Receiver::CachedCall)
       getter block_inputs : Hash({UInt64, Int32}, Resolution)
       getter yield_scopes : Hash(UInt64, Resolution | Receiver::Unscoped)
-      getter expanded : Hash(UInt64, Receiver::Expanded | Syntax::Broken)
+      getter expanded : Hash(UInt64, MacroExpansions::Expanded | Syntax::Broken)
       getter macro_assigned : Hash(UInt64, Hash(String, String))
 
       def initialize : Nil
@@ -21,7 +21,7 @@ module Heucristic
         @call_results = Hash(Receiver::CallKey, Receiver::CachedCall).new
         @block_inputs = Hash({UInt64, Int32}, Resolution).new
         @yield_scopes = Hash(UInt64, Resolution | Receiver::Unscoped).new
-        @expanded = Hash(UInt64, Receiver::Expanded | Syntax::Broken).new
+        @expanded = Hash(UInt64, MacroExpansions::Expanded | Syntax::Broken).new
         @macro_assigned = Hash(UInt64, Hash(String, String)).new
       end
 
