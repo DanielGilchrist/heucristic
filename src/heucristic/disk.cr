@@ -48,14 +48,14 @@ module Heucristic
       Unwritable.new(path, error.message || error.class.name)
     end
 
-    def make_tree(path : String, attempts : Int32 = 3) : Unwritable?
-      Dir.mkdir_p(path)
-      nil
-    rescue error : File::Error
-      return if Dir.exists?(path)
-      return make_tree(path, attempts - 1) if attempts > 1
-
-      Unwritable.new(path, error.message || error.class.name)
+    def make_tree(path : String) : Unwritable?
+      loop do
+        before = missing_levels(path)
+        attempt = mkdir_p(path)
+        return unless attempt
+        return if Dir.exists?(path)
+        return attempt unless missing_levels(path) < before
+      end
     end
 
     def write(path : String, contents : String) : Unwritable?
@@ -66,6 +66,25 @@ module Heucristic
       nil
     rescue error : IO::Error
       Unwritable.new(path, error.message || error.class.name)
+    end
+
+    private def mkdir_p(path : String) : Unwritable?
+      Dir.mkdir_p(path)
+      nil
+    rescue error : File::Error
+      Unwritable.new(path, error.message || error.class.name)
+    end
+
+    private def missing_levels(path : String) : Int32
+      levels = 0
+      current = path
+      until Dir.exists?(current)
+        levels += 1
+        parent = File.dirname(current)
+        break if parent == current
+        current = parent
+      end
+      levels
     end
   end
 end
