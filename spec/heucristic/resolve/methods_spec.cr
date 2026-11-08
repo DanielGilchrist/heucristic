@@ -295,6 +295,20 @@ describe Heucristic::Resolve::Methods do
     lookup_meta(source, "Lone", "new", 1).should be_empty
   end
 
+  it "does not reach an extended new on a class with no initialize (compiler: Lone)" do
+    source = <<-CR
+      module Factory
+        def new : String
+        end
+      end
+
+      class Lone
+        extend Factory
+      end
+      CR
+    lookup_meta(source, "Lone", "new", 0).should eq(["Lone.new"])
+  end
+
   it "does not extend a class's metaclass with the extend self of a module it includes" do
     source = <<-CR
       module Checks
