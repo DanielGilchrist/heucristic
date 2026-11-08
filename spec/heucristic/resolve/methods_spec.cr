@@ -110,6 +110,43 @@ describe Heucristic::Resolve::Methods, "compiled targets" do
   end
 end
 
+private def hidden_meta : Heucristic::Resolve::MetaRef
+  type = Heucristic::Resolve::TypeRef.new("Hidden", Array(Heucristic::Resolve::Resolution).new)
+  Heucristic::Resolve::MetaRef.new(type)
+end
+
+private def builds(methods : Heucristic::Resolve::Methods, caller_path : String) : Array(String)
+  methods.named_on(hidden_meta, "build", caller_path).map(&.signature)
+end
+
+private def private_generated_methods(*declared : {String, String}) : Heucristic::Resolve::Methods
+  workspace = Heucristic::Index::Workspace.new
+  declared.each do |path, _|
+    source = "private struct Hidden\nend\n"
+    tree = Heucristic::Syntax.parse(source, path)
+    raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+    workspace.update(
+      Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+    )
+  end
+  generated = Heucristic::Index::MacroTarget::Spec.generated_path
+  source = declared.map { |_, type| "struct Hidden\n  def self.build : #{type}\n  end\nend\n" }.join
+  sites = declared.map_with_index do |(path, _), index|
+    Heucristic::Index::MacroSite.new(
+      index * 4 + 2, "Hidden", "build", true, "make", nil, nil, nil, nil, nil, path
+    )
+  end.to_a
+  tree = Heucristic::Syntax.parse(source, generated)
+  raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+  text = Heucristic::Document::Text.new(source)
+  collected = Heucristic::Index::Collector.collect(generated, text, tree)
+  shims = Heucristic::Index::Shims.new
+  workspace.update(Heucristic::Index::Generated.merge(collected, sites, workspace, shims))
+  Heucristic::Resolve::Methods.new(workspace, Heucristic::Resolve::Types.new(workspace))
+end
+
 describe Heucristic::Resolve::Methods, "file-private types" do
   it "answers a file-private type's methods only from the calling file" do
     workspace = Heucristic::Index::Workspace.new
@@ -130,6 +167,24 @@ describe Heucristic::Resolve::Methods, "file-private types" do
     methods.named_on(ends, "local", "a.cr").map(&.path).should eq(["a.cr"])
     methods.named_on(ends, "local", "b.cr").map(&.path).should eq(["b.cr"])
     methods.named_on(ends, "local").map(&.path).should eq(["a.cr", "b.cr"])
+  end
+
+  it "answers a macro-generated def of a file-private type from the declaring file" do
+    methods = private_generated_methods({"a.cr", "Int32"})
+    builds(methods, "a.cr").should eq(["def self.build : Int32"])
+  end
+
+  it "builds the default constructor of same-named file-private types in each file" do
+    methods = private_generated_methods({"a.cr", "Int32"}, {"b.cr", "String"})
+    ["a.cr", "b.cr"].each do |caller_path|
+      methods.named_on(hidden_meta, "new", caller_path).map(&.path).should eq([caller_path])
+    end
+  end
+
+  it "keeps the generated defs of same-named file-private types apart" do
+    methods = private_generated_methods({"a.cr", "Int32"}, {"b.cr", "String"})
+    builds(methods, "a.cr").should eq(["def self.build : Int32"])
+    builds(methods, "b.cr").should eq(["def self.build : String"])
   end
 end
 

@@ -10,6 +10,7 @@ module Semantic
       @source = String::Builder.new
       @sites = Array(Heucristic::Index::MacroSite).new
       @line = 0
+      @private_files = Hash(Crystal::Type, String).new.compare_by_identity
     end
 
     def write(io : IO) : Nil
@@ -118,11 +119,17 @@ module Semantic
     private def all_types(program : Crystal::Program) : Array(Crystal::Type)
       found = Array(Crystal::Type).new
       pending = [program] of Crystal::Type
+      program.file_modules.each do |filename, file_module|
+        @private_files[file_module] = filename
+        pending << file_module
+      end
       while (container = pending.pop?)
         next unless container.is_a?(Crystal::ModuleType)
 
+        declaring = @private_files[container]?
         container.types?.try &.each_value do |type|
           found << type
+          @private_files[type] = declaring if declaring
           pending << type
         end
       end
@@ -232,7 +239,7 @@ module Semantic
       generated.each do |item|
         header = Header.def(item.definition, item.metaclass)
         header.each_line.with_index do |line, index|
-          @sites << Sites.of(@line + 1, type.to_s, item) if index.zero?
+          @sites << Sites.of(@line + 1, type.to_s, item, @private_files[type]?) if index.zero?
           emit("  #{line.chomp}")
         end
         emit("  end")

@@ -4,7 +4,12 @@ require "./generated"
 
 module Semantic
   module Sites
-    def self.of(line : Int32, owner : String, item : Generated) : Heucristic::Index::MacroSite
+    def self.of(
+      line : Int32,
+      owner : String,
+      item : Generated,
+      private_to : String?,
+    ) : Heucristic::Index::MacroSite
       macro_location = item.file.macro.location
       expanded = item.origin || real_location(item.file.expanded_location)
       Heucristic::Index::MacroSite.new(
@@ -18,6 +23,7 @@ module Semantic
         expanded.try(&.original_filename),
         expanded.try(&.line_number),
         expanded.try(&.column_number),
+        private_to,
       )
     end
 

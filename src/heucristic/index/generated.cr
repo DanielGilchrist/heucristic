@@ -14,9 +14,16 @@ module Heucristic
       def merge(file : File, sites : Array(MacroSite), workspace : Workspace, shims : Shims) : File
         macros = Hash(Int32, String).new
         sites.each { |site| macros[site.line] = site.macro_name }
+        privately = Hash(Int32, String).new
+        sites.each { |site| site.private_to.try { |path| privately[site.line] = path } }
         kept = file.defs.reject do |entry|
-          constructor?(entry.name) || known?(entry, workspace, shims) ||
+          constructor?(entry.name) ||
+            known?(entry, workspace, shims, privately[entry.name_span.start_line.to_i + 1]?) ||
             synthesized?(entry, macros, workspace)
+        end
+        kept.map! do |entry|
+          path = privately[entry.name_span.start_line.to_i + 1]?
+          path ? entry.copy_with(private_path: path) : entry
         end
         macros_kept = file.macros.reject do |entry|
           workspace.macros(entry.name).any? do |existing|
@@ -61,12 +68,18 @@ module Heucristic
         !synthesized.nil? && (synthesized.record? || synthesized.delegate?)
       end
 
-      private def known?(entry : Def, workspace : Workspace, shims : Shims) : Bool
+      private def known?(
+        entry : Def,
+        workspace : Workspace,
+        shims : Shims,
+        private_to : String?,
+      ) : Bool
         return true if shims.find(entry)
 
         identity = entry.identity
         workspace.named(entry.name).any? do |existing|
-          existing.path != entry.path && existing.identity == identity
+          existing.path != entry.path && existing.identity == identity &&
+            (private_to.nil? || existing.path == private_to)
         end
       end
     end

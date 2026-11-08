@@ -12,7 +12,8 @@ module Heucristic
       macro_line : Int32?,
       expanded_path : String?,
       expanded_line : Int32?,
-      expanded_column : Int32? do
+      expanded_column : Int32?,
+      private_to : String? = nil do
       include JSON::Serializable
 
       def provenance(root : String) : String

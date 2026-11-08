@@ -279,7 +279,7 @@ module Heucristic
 
       def own?(entry : Index::Def, caller_path : String?) : Bool
         return true unless caller_path
-        return false unless reachable?(entry, caller_path)
+        return false unless reachable?(entry, caller_path) && entry.visible_from?(caller_path)
 
         owner = entry.owner
         return true unless owner.is_a?(String)
@@ -287,7 +287,7 @@ module Heucristic
         privately = private_paths(owner)
         return true unless privately.includes?(caller_path)
 
-        entry.path == caller_path
+        entry.path == caller_path || entry.private_path == caller_path
       end
 
       def levels(type : String) : Array(String)
@@ -546,8 +546,10 @@ module Heucristic
         declared = @workspace.named(initialize).any? { |entry| searched.includes?(entry.owner) }
         return Array(Index::Def).new if declared
 
-        declared = @workspace.namespaces(type).select(Index::ClassNamespace)
         caller_path = call.caller_path
+        declared = @workspace.namespaces(type).select(Index::ClassNamespace).select do |candidate|
+          candidate.private_path.nil? || candidate.private_path == caller_path
+        end
         entry = declared.find { |candidate| loaded_for?(caller_path, candidate.path) }
         entry ||= declared.first?
         return Array(Index::Def).new unless entry
