@@ -335,13 +335,25 @@ module Heucristic
 
       private def answer_instance_var(target : Syntax::OnInstanceVar) : Answer
         note = typed(@receiver.instance_var(target.name, target.context))
+        entries = declared_instance_vars(target)
+        Answer.new(entries, Array(Document::Span).new, [note], Array(String).new)
+      end
+
+      private def declared_instance_vars(target : Syntax::OnInstanceVar) : Array(Index::Entry)
         entries = Array(Index::Entry).new
-        if (owner = target.context.owner).is_a?(Index::Identity)
-          @workspace.instance_vars_of(owner).each do |declared|
+        owner = target.context.owner
+        return entries unless owner.is_a?(Index::Identity)
+
+        levels = [owner]
+        chain = @types.ancestors(owner)
+        levels.concat(chain) unless chain.is_a?(Resolve::Unknown)
+        levels.each do |level|
+          @workspace.instance_vars_of(level).each do |declared|
             entries << declared if declared.name == target.name
           end
+          return entries unless entries.empty?
         end
-        Answer.new(entries, Array(Document::Span).new, [note], Array(String).new)
+        entries
       end
 
       private def typed(resolution : Resolve::Resolution) : String

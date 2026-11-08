@@ -83,4 +83,22 @@ describe "hover and definition at editor positions" do
       starts(client.definition(URI_A, 2, 24)).should eq([{0, 8}])
     end
   end
+
+  it "jumps from an instance variable to the declaration in an ancestor" do
+    source = <<-CR
+      class Base
+        def initialize(@name : String)
+        end
+      end
+
+      class Child < Base
+        def show
+          @name
+        end
+      end
+      CR
+    with_document(source) do |client|
+      starts(client.definition(URI_A, 7, 5)).try(&.map(&.[0])).should eq([1])
+    end
+  end
 end
