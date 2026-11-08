@@ -698,3 +698,36 @@ describe Heucristic::Index::Collector, "instance variable name spans" do
     covered.should eq(%w[@declared made @param @plain @on_selected @assigned @late])
   end
 end
+
+describe Heucristic::Index::Collector, "lib declaration name spans" do
+  it "covers the name, not the keyword, of every declaration inside a lib" do
+    source = <<-CR
+      lib Native
+        struct Event
+          len : UInt32
+        end
+
+        union Wide
+          a : Int32
+        end
+
+        enum Mode
+          Fast
+        end
+
+        alias Count = Int32
+        type Handle = Int32
+        fun poll(fd : Int32) : Int32
+      end
+      CR
+    lines = source.lines
+    file = index(source)
+    polls = file.defs.select(&.name.==("poll"))
+    spans = file.namespaces.map(&.name_span) + file.aliases.map(&.name_span)
+    spans += polls.map(&.name_span)
+    covered = spans.map do |span|
+      lines[span.start_line.to_i][span.start_character.to_i...span.end_character.to_i]
+    end
+    covered.sort.should eq(%w[Count Event Handle Mode Native Wide poll])
+  end
+end

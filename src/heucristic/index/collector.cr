@@ -142,7 +142,11 @@ module Heucristic
       def visit(node : Crystal::CStructOrUnionDef) : Bool
         path = Crystal::Path.new([node.name]).at(node.location)
         name = enter(path, node)
-        with_span(path) do |span|
+        keyword = node.union? ? "union" : "struct"
+        node.location.try do |location|
+          span = @text.span_of(node.name, location, keyword.size)
+          next unless span
+
           @namespaces << ClassNamespace.new(
             identity: name,
             path: @path,
