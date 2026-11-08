@@ -97,7 +97,7 @@ module Heucristic
         shim = @shims.find(entry)
         return unless shim
 
-        shimmed = shim.entry.parameters.find(&.kind.block?).try(&.restriction)
+        shimmed = shim.parameters.find(&.kind.block?).try(&.restriction)
         shimmed.is_a?(Syntax::Proc) ? shimmed : nil
       end
 

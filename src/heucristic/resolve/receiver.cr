@@ -358,7 +358,7 @@ module Heucristic
         restriction = entry.return_type
         if restriction.is_a?(Index::Unrestricted)
           shim = @shims.find(entry)
-          restriction = shim.entry.return_type if shim
+          restriction = shim.return_type if shim
         end
         if restriction.is_a?(Syntax::Named) && restriction.names == [CoreType::NoReturn.type_name]
           return true
@@ -657,7 +657,7 @@ module Heucristic
         site : Site,
       ) : Resolution
         shim = @shims.find(entry)
-        return return_type(shim.entry, receiver, arguments, site) if shim
+        return return_type(shim, receiver, arguments, site) if shim
 
         looped = site.block
         return loop_result(looped, site) if special.try(&.loop?) && looped

@@ -168,7 +168,7 @@ module ShimsCheck
           reached.concat(resolver.methods.lookup(below, shape))
         end
         reached.each do |entry|
-          shims.find(entry).try { |shim| covered << shim.entry.identity }
+          shims.find(entry).try { |shim| covered << shim.identity }
         end
       end
       covered
@@ -210,11 +210,11 @@ module ShimsCheck
     ) : Array(String)
       uncovered = Array(String).new
       shims.each do |shim|
-        identity = shim.entry.identity
+        identity = shim.identity
         next unless applicable.includes?(identity)
         next if covered.includes?(identity) || UNPROBEABLE.has_key?(identity)
 
-        uncovered << "#{identity}  (#{File.basename(shim.entry.path)})"
+        uncovered << "#{identity}  (#{File.basename(shim.path)})"
       end
       uncovered
     end

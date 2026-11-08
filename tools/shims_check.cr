@@ -50,18 +50,18 @@ module ShimsCheck
       end
     end
     shims.each do |shim|
-      target = stdlib[shim.entry.identity]?
-      target ||= by_shape[shim.entry.shape]?.try do |candidates|
+      target = stdlib[shim.identity]?
+      target ||= by_shape[shim.shape]?.try do |candidates|
         candidates.find { |candidate| shims.find(candidate) == shim }
       end
-      if target.nil? && !indexed_owner?(shim.entry, finished.files, shim_roots)
-        absent << "#{shim.entry.identity}  (#{shim.entry.path})"
+      if target.nil? && !indexed_owner?(shim, finished.files, shim_roots)
+        absent << "#{shim.identity}  (#{shim.path})"
       elsif target.nil?
-        orphans << "#{shim.entry.identity}  (#{shim.entry.path})"
-      elsif typed?(target) && !adds_block_type?(shim.entry, target)
-        redundant << "#{shim.entry.identity}  stdlib says : #{target.return_type} (#{target.path})"
+        orphans << "#{shim.identity}  (#{shim.path})"
+      elsif typed?(target) && !adds_block_type?(shim, target)
+        redundant << "#{shim.identity}  stdlib says : #{target.return_type} (#{target.path})"
       end
-      applicable << shim.entry.identity if target
+      applicable << shim.identity if target
     end
 
     puts "shims: #{shims.size} from #{shim_roots.join(", ")}"

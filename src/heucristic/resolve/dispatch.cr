@@ -219,7 +219,7 @@ module Heucristic
       private def self_typed?(entry : Index::Def) : Bool
         restriction = entry.return_type
         shim = @shims.find(entry)
-        restriction = shim.entry.return_type if shim && restriction.is_a?(Index::Unrestricted)
+        restriction = shim.return_type if shim && restriction.is_a?(Index::Unrestricted)
         restriction.is_a?(Syntax::Type) && Syntax::SelfType.within?(restriction)
       end
     end

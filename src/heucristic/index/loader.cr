@@ -16,9 +16,9 @@ module Heucristic
 
       def load(roots : Array(String), shim_roots : Array(String), events : Channel(Event)) : Nil
         started = Time.instant
-        shim_paths = glob(shim_roots).reject { |path| generated?(path) }
-        generated = glob(shim_roots).select { |path| generated?(path) }
-        paths = glob(roots).reject { |path| shim_paths.includes?(path) } + shim_paths + generated
+        generated, shim_paths = glob(shim_roots).partition { |path| generated?(path) }
+        shim_set = shim_paths.to_set
+        paths = glob(roots).reject { |path| shim_set.includes?(path) } + shim_paths + generated
         events.send(Started.new(paths.size))
 
         results = Channel(Indexed?).new(paths.size + 1)
@@ -37,7 +37,7 @@ module Heucristic
           indexed = results.receive
           if indexed
             file = indexed.file
-            (shim_paths.includes?(file.path) ? shims : files) << file
+            (shim_set.includes?(file.path) ? shims : files) << file
             indexed.sites.try { |found| sites << found }
           end
           events.send(Advanced.new(done + 1, paths.size)) if (done + 1) % REPORT_EVERY == 0

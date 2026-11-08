@@ -43,9 +43,9 @@ describe Heucristic::Index::Shims do
     stdlib = collect("enumerable.cr", STDLIB)
 
     compact_map = stdlib.defs.find!(&.name.==("compact_map"))
-    shims.find(compact_map).try(&.entry.return_type.to_s).should eq("Array(U)")
+    shims.find(compact_map).try(&.return_type.to_s).should eq("Array(U)")
     join = stdlib.defs.find!(&.name.==("join"))
-    shims.find(join).try(&.entry.return_type.to_s).should eq("String")
+    shims.find(join).try(&.return_type.to_s).should eq("String")
   end
 
   it "keys on the parameter list so a changed signature no longer matches" do
@@ -102,7 +102,7 @@ describe Heucristic::Resolve::Receiver, "with shims" do
       CR
     stdlib = collect("math.cr", stdlib_source)
 
-    shims.find(stdlib.defs[0]).try(&.entry.return_type.to_s).should eq("T | U")
+    shims.find(stdlib.defs[0]).try(&.return_type.to_s).should eq("T | U")
     shims.find(stdlib.defs[1]).should be_nil
   end
 end
