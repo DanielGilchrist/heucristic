@@ -7,7 +7,7 @@ require "../index/synthesized"
 require "../protocol/message"
 require "../protocol/encoder"
 require "../protocol/transport"
-require "../document/store"
+require "./open_documents"
 require "../syntax"
 require "../syntax/cursor"
 require "../index/workspace"
@@ -85,11 +85,9 @@ module Heucristic
         @compiler_status = CompilerPending.new
         @executable = nil
         @published = Published.new
-        @dirty = Set(String).new
         @check_generations = Hash(String, Int32).new
         @sweep = 0
-        @documents = Document::Store.new
-        @trees = Hash(String, Crystal::ASTNode).new
+        @documents = OpenDocuments.new
         @workspace = Index::Workspace.new
         @shims = Index::Shims.new
         @types = Resolve::Types.new(@workspace)
@@ -239,7 +237,7 @@ module Heucristic
             note = event.excluded.note(@root)
             notify_target_macros(event.target, Stage::Done, note, file.defs.size)
           end
-          @documents.each { |document| want_loose_macros(document_path(document)) }
+          @documents.each { |document| want_loose_macros(@documents.path(document)) }
         end
         sweep
         @macros.finished(@root, @semantic, event.target)
@@ -271,7 +269,9 @@ module Heucristic
       def compiler_finished(event : Index::CompilerFinished) : Nil
         frame = placed_frame(event.errors)
         batch = compiler_batch(frame)
-        @published.compiler(batch).each { |uri| publish(uri, version_of(uri), @published.for(uri)) }
+        @published.compiler(batch).each do |uri|
+          publish(uri, @documents.version(uri), @published.for(uri))
+        end
         @compiler_status = CompilerDone.new(
           batch.size,
           event.elapsed.total_milliseconds.round,
@@ -341,8 +341,8 @@ module Heucristic
         document = @documents.open(
           text_document.uri.to_s, text_document.version, text_document.text
         )
-        want_spec_macros(document_path(document))
-        want_loose_macros(document_path(document))
+        want_spec_macros(@documents.path(document))
+        want_loose_macros(@documents.path(document))
         analyse(document, Immediacy::Now)
       end
 
@@ -373,7 +373,6 @@ module Heucristic
         )
         case document
         in Document::Open
-          @dirty << document_path(document)
           analyse(document, Immediacy::AfterPause)
         in Document::Store::Missing then Silence.new
         in Document::OutOfRange
@@ -388,21 +387,19 @@ module Heucristic
 
         uri = params.text_document.uri.to_s
         @documents.close(uri)
-        @trees.delete(uri)
-        @dirty.delete(path_of(uri))
         @check_generations.delete(uri)
         @published.forget(uri)
         publish(uri, nil, @published.for(uri))
       end
 
       private def analyse(document : Document::Open, immediacy : Immediacy) : Outcome
-        path = document_path(document)
+        path = @documents.path(document)
         tree = Syntax.parse(document.text.source, path)
         case tree
         in Syntax::Broken
           @published.syntax(document.uri, Diagnostics.for(tree, document.text))
         in Crystal::ASTNode
-          @trees[document.uri] = tree
+          @documents.parsed(document.uri, tree)
           index_document(document)
           @published.syntax(document.uri, Diagnostics.none)
           case immediacy
@@ -427,17 +424,8 @@ module Heucristic
         document = @documents[uri]
         return unless document.is_a?(Document::Open)
 
-        changed = @published.checks(uri, check(path_of(uri)))
+        changed = @published.checks(uri, check(@documents.path_of(uri)))
         publish(uri, document.version, @published.for(uri)) if changed
-      end
-
-      private def document_path(document : Document::Open) : String
-        path_of(document.uri)
-      end
-
-      private def path_of(uri : String) : String
-        path = Uri.to_path(uri)
-        path.is_a?(Uri::NotAFile) ? uri : path
       end
 
       private def check(path : String) : Array(LSProtocol::Diagnostic)
@@ -451,22 +439,16 @@ module Heucristic
           @types,
           @methods.descendants,
           @macro_status.is_a?(MacrosDone),
-          @dirty,
+          @documents.dirty,
           compiled_files,
           @root,
           shim_roots,
-          open_paths,
+          @documents.paths,
         )
         return Diagnostics.none if settled.uncompiled_file?(path)
 
         suite = Check::Suite.new(@workspace, @types, @methods, @receiver, settled, @root)
         suite.findings(sites).map { |finding| Diagnostics.warning(finding) }
-      end
-
-      private def open_paths : Set(String)
-        paths = Set(String).new
-        @documents.each { |document| paths << document_path(document) }
-        paths
       end
 
       private def shimmed?(path : String) : Bool
@@ -484,17 +466,17 @@ module Heucristic
 
             uri = Uri.from_path(path)
             changed = @published.checks(uri, check(path))
-            publish(uri, version_of(uri), @published.for(uri)) if changed
+            publish(uri, @documents.version(uri), @published.for(uri)) if changed
             Fiber.yield
           end
         end
       end
 
       private def index_document(document : Document::Open) : Nil
-        tree = @trees[document.uri]?
+        tree = @documents.tree(document.uri)
         return unless tree
 
-        path = document_path(document)
+        path = @documents.path(document)
         changed = @workspace.update(Index::Collector.collect(path, document.text, tree))
         @workspace.update_sites(Index::Sites.of(path, document.text, tree))
         @receiver.forget(path)
@@ -511,13 +493,13 @@ module Heucristic
 
         uri = params.text_document.uri.to_s
         document = @documents[uri]
-        tree = @trees[uri]?
+        tree = @documents.tree(uri)
         return reply(request.id, nil) if document.is_a?(Document::Store::Missing) || tree.nil?
 
         point = document.text.point(params.position)
         return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
 
-        path = document_path(document)
+        path = @documents.path(document)
         target = Syntax::Cursor.find(tree, point, path)
         return reply(request.id, nil) unless target
 
@@ -556,7 +538,7 @@ module Heucristic
         offset = document.text.offset(params.position)
         return reply(request.id, nil) if offset.is_a?(Document::OutOfRange)
 
-        path = document_path(document)
+        path = @documents.path(document)
         request_at = Completion::Request.new(document.text, offset, path, source_paths)
         items = @completion.complete(request_at)
         reply(request.id, LSProtocol::CompletionList.new(is_incomplete: false, items: items))
@@ -566,7 +548,7 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::DocumentSymbolParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        reply(request.id, @symbols.in_document(path_of(params.text_document.uri.to_s)))
+        reply(request.id, @symbols.in_document(@documents.path_of(params.text_document.uri.to_s)))
       end
 
       private def workspace_symbols(request : Protocol::Request) : Outcome
@@ -582,13 +564,13 @@ module Heucristic
 
         uri = params.text_document.uri.to_s
         document = @documents[uri]
-        tree = @trees[uri]?
+        tree = @documents.tree(uri)
         return reply(request.id, nil) if document.is_a?(Document::Store::Missing) || tree.nil?
 
         point = document.text.point(params.position)
         return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
 
-        path = document_path(document)
+        path = @documents.path(document)
         target = Syntax::Cursor.find(tree, point, path)
         return reply(request.id, nil) unless target
 
@@ -671,13 +653,13 @@ module Heucristic
       private def answer_at(uri : String, position : LSProtocol::Position) : Answer
         document = @documents[uri]
         return Answer.note("document is not open") if document.is_a?(Document::Store::Missing)
-        tree = @trees[uri]?
+        tree = @documents.tree(uri)
         return Answer.note("the file has never parsed, fix the syntax error first") unless tree
 
         point = document.text.point(position)
         return Answer.note("position is outside the document") if point.is_a?(Document::OutOfRange)
 
-        path = document_path(document)
+        path = @documents.path(document)
         case (target = Syntax::Cursor.find(tree, point, path))
         in Nil
           Answer.note("no def, call, constant, variable or instance variable under the cursor")
@@ -919,7 +901,7 @@ module Heucristic
         params = DecodedParams.decode(notification.params, LSProtocol::DidSaveTextDocumentParams)
         return Silence.new if params.is_a?(DecodedParams::Invalid)
 
-        @dirty.delete(path_of(params.text_document.uri.to_s))
+        @documents.saved(params.text_document.uri.to_s)
         @macros.start(@root, @semantic, :main)
         @macros.start(@root, @semantic, :spec) if @spec_wanted
         @macros.start(@root, @semantic, :loose) unless @loose.empty?
@@ -999,15 +981,7 @@ module Heucristic
       end
 
       private def text_of(path : String) : Document::Text?
-        document = @documents[Uri.from_path(path)]
-        return document.text if document.is_a?(Document::Open)
-
-        @workspace.sites(path).try(&.text)
-      end
-
-      private def version_of(uri : String) : Int32?
-        document = @documents[uri]
-        document.is_a?(Document::Open) ? document.version : nil
+        @documents.text(path) || @workspace.sites(path).try(&.text)
       end
 
       private def notify_macros : Nil
