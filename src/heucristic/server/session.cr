@@ -34,6 +34,7 @@ require "./rename"
 require "../index/sites"
 require "./compiler_state"
 require "./notice"
+require "./indexed_payload"
 require "./published"
 require "./immediacy"
 require "../check/suite"
@@ -162,11 +163,9 @@ module Heucristic
         @documents.each { |document| index_document(document) }
         @transport.send(Protocol::Encoder.notification(
           Notice::Indexed.method,
-          {
-            files:      @workspace.size,
-            shims:      @shims.size,
-            elapsed_ms: event.elapsed.total_milliseconds.round,
-          },
+          IndexedPayload.new(
+            @workspace.size, @shims.size, event.elapsed.total_milliseconds.round
+          ),
         ))
         @macros.indexed(@root, @semantic)
         @compiler.start(@root, @executable)

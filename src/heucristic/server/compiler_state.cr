@@ -74,49 +74,7 @@ module Heucristic
       end
 
       private def notify : Nil
-        payload = case (status = @status)
-                  in CompilerPending
-                    {
-                      status:     Stage::Pending.wire,
-                      errors:     0,
-                      elapsed_ms: 0.0,
-                      reason:     nil,
-                      file:       nil,
-                      line:       nil,
-                      message:    nil,
-                    }
-                  in CompilerDone
-                    {
-                      status:     Stage::Done.wire,
-                      errors:     status.errors,
-                      elapsed_ms: status.elapsed_ms,
-                      reason:     nil,
-                      file:       status.file,
-                      line:       status.line,
-                      message:    status.message,
-                    }
-                  in CompilerBroken
-                    {
-                      status:     Stage::Failed.wire,
-                      errors:     0,
-                      elapsed_ms: 0.0,
-                      reason:     status.reason,
-                      file:       nil,
-                      line:       nil,
-                      message:    nil,
-                    }
-                  in CompilerOff
-                    {
-                      status:     Stage::Unavailable.wire,
-                      errors:     0,
-                      elapsed_ms: 0.0,
-                      reason:     status.reason,
-                      file:       nil,
-                      line:       nil,
-                      message:    nil,
-                    }
-                  end
-        @transport.send(Protocol::Encoder.notification(Notice::Compiler.method, payload))
+        @transport.send(Protocol::Encoder.notification(Notice::Compiler.method, @status.payload))
       end
 
       private def placed_frame(

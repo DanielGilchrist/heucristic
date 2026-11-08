@@ -24,8 +24,6 @@ require "./stage"
 module Heucristic
   module Server
     class MacroState
-      MAIN = Index::MacroTarget::Main.wire
-
       def initialize(
         events : Channel(Index::Event),
         @transport : Protocol::Transport,
@@ -201,41 +199,7 @@ module Heucristic
       end
 
       private def notify : Nil
-        payload = case (status = @status)
-                  in MacrosPending
-                    {
-                      status:     Stage::Pending.wire,
-                      defs:       0,
-                      elapsed_ms: 0.0,
-                      reason:     nil,
-                      target:     MAIN,
-                    }
-                  in MacrosDone
-                    {
-                      status:     Stage::Done.wire,
-                      defs:       status.defs,
-                      elapsed_ms: status.elapsed_ms,
-                      reason:     status.note,
-                      target:     MAIN,
-                    }
-                  in MacrosStale
-                    {
-                      status:     Stage::Stale.wire,
-                      defs:       status.defs,
-                      elapsed_ms: 0.0,
-                      reason:     status.reason,
-                      target:     MAIN,
-                    }
-                  in MacrosOff
-                    {
-                      status:     Stage::Unavailable.wire,
-                      defs:       0,
-                      elapsed_ms: 0.0,
-                      reason:     status.reason,
-                      target:     MAIN,
-                    }
-                  end
-        @transport.send(Protocol::Encoder.notification(Notice::Macros.method, payload))
+        @transport.send(Protocol::Encoder.notification(Notice::Macros.method, @status.payload))
       end
 
       private def notify_target(
@@ -244,13 +208,7 @@ module Heucristic
         reason : String?,
         defs : Int32,
       ) : Nil
-        payload = {
-          status:     stage.wire,
-          defs:       defs,
-          elapsed_ms: 0.0,
-          reason:     reason,
-          target:     target.wire,
-        }
+        payload = MacrosPayload.new(stage, defs, 0.0, reason, target)
         @transport.send(Protocol::Encoder.notification(Notice::Macros.method, payload))
       end
     end
