@@ -1,5 +1,6 @@
 require "json"
 require "./macro_site"
+require "./reopening"
 require "./macro_expansion"
 
 module Heucristic
@@ -9,6 +10,7 @@ module Heucristic
       elapsed_ms : Float64? = nil,
       source : String? = nil,
       sites : Array(MacroSite) = Array(MacroSite).new,
+      reopenings : Array(Reopening) = Array(Reopening).new,
       files : Array(String) = Array(String).new,
       expansions : Array(MacroExpansion) = Array(MacroExpansion).new,
       error : String? = nil,

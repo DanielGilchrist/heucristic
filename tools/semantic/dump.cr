@@ -9,6 +9,7 @@ module Semantic
     def initialize(@entry : String, @root : String, @defines : Array(String)) : Nil
       @source = String::Builder.new
       @sites = Array(Heucristic::Index::MacroSite).new
+      @reopenings = Array(Heucristic::Index::Reopening).new
       @line = 0
       @private_files = Hash(Crystal::Type, String).new.compare_by_identity
     end
@@ -36,6 +37,7 @@ module Semantic
         elapsed_ms: elapsed.total_milliseconds.round,
         source: @source.to_s,
         sites: @sites,
+        reopenings: @reopenings,
         files: files(program),
         expansions: expansions.found,
       ).to_json(io)
@@ -239,6 +241,7 @@ module Semantic
       macros : Array(Crystal::Macro),
       declared_by_macro : Bool,
     ) : Nil
+      @reopenings << Heucristic::Index::Reopening.new(type.to_s, @private_files[type]?)
       emit(declared_by_macro ? Header.declare(type) : Header.reopen(type))
       if declared_by_macro && type.is_a?(Crystal::EnumType)
         type.types?.try &.each do |name, member|

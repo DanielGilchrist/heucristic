@@ -41,6 +41,7 @@ module Heucristic
         @opaque = Table(Identity, OpaqueBody).new
         @aliases_by_owner = Table(Owner, Alias).new
         @sites = Hash(String, Sites).new
+        @private_counts = Hash(String, Int32).new
         @call_uses = Table(String, CallUse).new
         @path_uses = Table(String, PathUse).new
         @expansions = Hash(MacroTarget, Hash(MacroExpansion::Key, MacroExpansion)).new
@@ -159,6 +160,10 @@ module Heucristic
         @namespaces.entries(identity)
       end
 
+      def private_to?(path : String) : Bool
+        @private_counts.has_key?(path)
+      end
+
       def module?(identity : Identity) : Bool
         namespaces(identity).any?(ModuleNamespace)
       end
@@ -226,6 +231,17 @@ module Heucristic
         @macros_by_owner.entries(owner)
       end
 
+      private def track(identity : Identity, change : Change) : Nil
+        return unless identity.is_a?(FilePrivate)
+
+        count = @private_counts.fetch(identity.path, 0) + (change.add? ? 1 : -1)
+        if count > 0
+          @private_counts[identity.path] = count
+        else
+          @private_counts.delete(identity.path)
+        end
+      end
+
       private def each_enclosing(identity : Identity, & : Identity ->) : Nil
         current = identity.parent
         while current.is_a?(Identity)
@@ -241,17 +257,20 @@ module Heucristic
           change.apply(@defs_by_owner, entry.owner, entry, path)
         end
         file.namespaces.each do |entry|
+          track(entry.identity, change)
           change.apply(@namespaces, entry.identity, entry, path)
           each_enclosing(entry.identity) { |prefix| change.apply(@enclosing, prefix, entry, path) }
         end
         file.mixins.each { |entry| change.apply(@mixins, entry.owner, entry, path) }
         file.instance_vars.each { |entry| change.apply(@instance_vars, entry.owner, entry, path) }
         file.aliases.each do |entry|
+          track(entry.identity, change)
           change.apply(@aliases, entry.identity, entry, path)
           change.apply(@aliases_by_owner, entry.identity.parent, entry, path)
         end
         file.opaque.each { |entry| change.apply(@opaque, entry.owner, entry, path) }
         file.constants.each do |entry|
+          track(entry.identity, change)
           change.apply(@constants, entry.identity, entry, path)
           change.apply(@constants_by_owner, entry.identity.parent, entry, path)
         end

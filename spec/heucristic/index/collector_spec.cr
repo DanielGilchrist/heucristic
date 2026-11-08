@@ -652,6 +652,13 @@ describe Heucristic::Index::Collector, "file-private identity" do
     file.instance_vars.map(&.owner.private?).should eq([true])
   end
 
+  it "does not tag a private type nested in a public one as file-private" do
+    file = index("class Outer\n  private class Hidden\n  end\nend\n")
+    file.namespaces.map { |entry| {entry.name, entry.identity.private?} }.should eq(
+      [{"Outer", false}, {"Outer::Hidden", false}]
+    )
+  end
+
   it "records the file a private identity belongs to" do
     entry = index(source).namespaces[0]
     entry.identity.should eq(Heucristic::Index::FilePrivate.new("Foo", "a.cr"))

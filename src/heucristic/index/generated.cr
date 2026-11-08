@@ -1,6 +1,7 @@
 require "./file"
 require "./macro_site"
 require "./private_owners"
+require "./reopening"
 require "./shims"
 require "./workspace"
 require "./accessor"
@@ -20,6 +21,7 @@ module Heucristic
       def merge(
         file : File,
         sites : Array(MacroSite),
+        reopenings : Array(Reopening),
         workspace : Workspace,
         shims : Shims,
         loaded : LoadedFiles,
@@ -28,7 +30,7 @@ module Heucristic
         sites.each { |site| macros[site.line] = site.macro_name }
         privately = Hash(Int32, String).new
         sites.each { |site| site.private_to.try { |path| privately[site.line] = path } }
-        privates = PrivateOwners.of(sites)
+        privates = PrivateOwners.of(sites, reopenings)
         kept = Array(Def).new(file.defs.size)
         file.defs.each do |original|
           line = original.name_span.start_line.to_i + 1
@@ -48,13 +50,27 @@ module Heucristic
         File.new(
           file.path,
           kept,
-          file.namespaces.map { |item| item.copy_with(identity: privates.retarget(item.identity)) },
-          file.mixins.map { |item| item.copy_with(owner: privates.retarget(item.owner)) },
-          file.instance_vars.map { |item| item.copy_with(owner: privates.retarget(item.owner)) },
-          file.aliases.map { |item| item.copy_with(identity: privates.retarget(item.identity)) },
-          file.constants.map { |item| item.copy_with(identity: privates.retarget(item.identity)) },
-          macros_kept.map { |item| item.copy_with(owner: privates.retarget(item.owner)) },
-          file.opaque.map { |item| item.copy_with(owner: privates.retarget(item.owner)) },
+          file.namespaces.compact_map do |item|
+            privates.retarget(item.identity).try { |identity| item.copy_with(identity: identity) }
+          end,
+          file.mixins.compact_map do |item|
+            privates.retarget(item.owner).try { |owner| item.copy_with(owner: owner) }
+          end,
+          file.instance_vars.compact_map do |item|
+            privates.retarget(item.owner).try { |owner| item.copy_with(owner: owner) }
+          end,
+          file.aliases.compact_map do |item|
+            privates.retarget(item.identity).try { |identity| item.copy_with(identity: identity) }
+          end,
+          file.constants.compact_map do |item|
+            privates.retarget(item.identity).try { |identity| item.copy_with(identity: identity) }
+          end,
+          macros_kept.compact_map do |item|
+            privates.retarget(item.owner).try { |owner| item.copy_with(owner: owner) }
+          end,
+          file.opaque.compact_map do |item|
+            privates.retarget(item.owner).try { |owner| item.copy_with(owner: owner) }
+          end,
         )
       end
 

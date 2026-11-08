@@ -1,5 +1,7 @@
 require "./resolution"
 require "../index/identity"
+require "../index/owner"
+require "../index/receiver"
 
 module Heucristic
   module Resolve
@@ -9,9 +11,20 @@ module Heucristic
       end
     end
 
-    record DefVisit, qualified : String do
+    record DefVisit, owner : Index::Owner, receiver : Index::Receiver, name : String do
+      def self.of(entry : Index::Def) : DefVisit
+        new(entry.owner, entry.receiver, entry.name)
+      end
+
       def cycle : Unknown
-        Unknown.new(:cycle, qualified)
+        Unknown.new(:cycle, label)
+      end
+
+      private def label : String
+        case (current = owner)
+        in Index::TopLevel then name
+        in Index::Identity then "#{current}#{receiver.metaclass? ? "." : "#"}#{name}"
+        end
       end
     end
 

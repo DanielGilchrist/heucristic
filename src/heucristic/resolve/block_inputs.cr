@@ -205,7 +205,7 @@ module Heucristic
         end
 
         values = Array(Resolution).new(sites.size)
-        visiting = Array(Visit){DefVisit.new(entry.qualified)}
+        visiting = Array(Visit){DefVisit.of(entry)}
         sites.each do |site|
           exps = site.node.exps
           if exps.size == 1 && parameters > 1

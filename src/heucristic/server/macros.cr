@@ -181,6 +181,7 @@ module Heucristic
           target,
           source,
           parsed.sites,
+          parsed.reopenings,
           parsed.files,
           parsed.expansions,
           Time.instant - started,

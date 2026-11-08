@@ -258,7 +258,7 @@ module Heucristic
       ) : Nil
         case namespace
         in Index::TopLevel
-          yield Index::FilePrivate.new(name, path) if path
+          yield Index::FilePrivate.new(name, path) if path && @workspace.private_to?(path)
           yield Index::Public.new(name)
         in Index::Identity
           yield namespace.child(name)

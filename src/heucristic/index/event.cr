@@ -20,6 +20,7 @@ module Heucristic
       target : MacroTarget,
       source : String,
       sites : Array(MacroSite),
+      reopenings : Array(Reopening),
       files : Array(String),
       expansions : Array(MacroExpansion),
       elapsed : Time::Span,

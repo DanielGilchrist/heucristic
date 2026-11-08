@@ -88,7 +88,7 @@ module Heucristic
 
       def forwarded_receiver(receiver : Resolved) : Resolution?
         handler = missing_handler(receiver)
-        forward_receiver(handler, Array(Visit){DefVisit.new(handler.qualified)}) if handler
+        forward_receiver(handler, Array(Visit){DefVisit.of(handler)}) if handler
       end
 
       def overridden?(below : Resolved, receiver : TypeRef, call : Methods::Call) : Bool
@@ -118,7 +118,7 @@ module Heucristic
       ) : Resolution?
         handler = missing_handler(receiver)
         return unless handler
-        visit = DefVisit.new(handler.qualified)
+        visit = DefVisit.of(handler)
         return visit.cycle if site.visiting.includes?(visit)
 
         visiting = site.visiting + [visit]

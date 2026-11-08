@@ -57,7 +57,7 @@ module Heucristic
       end
 
       private def provable?(path : Crystal::Path, scope : Resolve::Scope) : Bool
-        return false if @workspace.lib?(Index::Public.new(path.names[0]))
+        return false if lib_named?(path.names[0], scope.path)
         return enclosing_settled?(scope) if path.names.size == 1
 
         head = @types.locate_any(Syntax::Named.new(path.names[0...-1], path.global?), scope)
@@ -65,6 +65,12 @@ module Heucristic
         return false if @workspace.lib?(head)
 
         @settled.namespace?(head)
+      end
+
+      private def lib_named?(name : String, path : String?) : Bool
+        return true if @workspace.lib?(Index::Public.new(name))
+
+        !path.nil? && @workspace.lib?(Index::FilePrivate.new(name, path))
       end
 
       private def enclosing_settled?(scope : Resolve::Scope) : Bool

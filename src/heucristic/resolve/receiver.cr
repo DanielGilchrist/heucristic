@@ -375,13 +375,13 @@ module Heucristic
         tail = entry.exit_call
         return false unless tail
         return true if KnownExits.new.terminates?(Crystal::Call.new(nil, tail))
-        return false if visiting.includes?(DefVisit.new(entry.qualified))
+        return false if visiting.includes?(DefVisit.of(entry))
 
         owner = entry.owner
         return false unless owner.is_a?(Index::Identity)
 
         callees = @methods.named_on(TypeRef.new(owner, Array(Resolution).new), tail)
-        deeper = visiting + [DefVisit.new(entry.qualified)]
+        deeper = visiting + [DefVisit.of(entry)]
         !callees.empty? && callees.all? { |callee| no_return?(callee, deeper) }
       end
 
@@ -1234,7 +1234,7 @@ module Heucristic
         sites = Syntax::YieldSites.in(
           definition, enclosing, entry.free_vars, entry.path, @workspace.crystal_version
         )
-        visiting = Array(Visit){DefVisit.new(entry.qualified)}
+        visiting = Array(Visit){DefVisit.of(entry)}
         scopes = Array(Resolution).new
         sites.each do |site|
           expression = site.node.scope
@@ -1319,7 +1319,7 @@ module Heucristic
         owner = entry.owner
         enclosing = owner.is_a?(Index::Identity) ? [owner] : Array(Index::Identity).new
         context = Syntax::Context.new(enclosing, Array(String).new, nil, entry.path, true)
-        visit = DefVisit.new(entry.qualified)
+        visit = DefVisit.of(entry)
         return visit.cycle if site.visiting.includes?(visit)
 
         visiting = site.visiting + [visit]

@@ -59,7 +59,7 @@ module Heucristic
         if owner.is_a?(Index::TopLevel)
           return Unknown.new(:no_annotation, "#{name} outside any type")
         end
-        visit = DefVisit.new(entry.qualified)
+        visit = DefVisit.of(entry)
         return visit.cycle if visiting.includes?(visit)
 
         inner = visiting + [visit]

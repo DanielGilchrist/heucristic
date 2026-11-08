@@ -98,7 +98,9 @@ module Score
       loaded = Heucristic::Index::LoadedFiles.new(
         result.files.to_set, Heucristic::Server::ShimRoots.for(@root)
       )
-      file = Heucristic::Index::Generated.merge(collected, result.sites, @workspace, @shims, loaded)
+      file = Heucristic::Index::Generated.merge(
+        collected, result.sites, result.reopenings, @workspace, @shims, loaded
+      )
       @workspace.update(file)
       @workspace.expand(target, result.expansions)
       result.sites.each { |site| @origins["#{path}:#{site.line}"] = site }
