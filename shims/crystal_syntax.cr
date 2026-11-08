@@ -62,3 +62,16 @@ class Crystal::NumberLiteral
   def self.new(value : Number) : self
   end
 end
+
+class Crystal::Expressions
+  def location : Crystal::Location?
+  end
+
+  def end_location : Crystal::Location?
+  end
+end
+
+class Crystal::UnaryExpression
+  def end_location : Crystal::Location?
+  end
+end

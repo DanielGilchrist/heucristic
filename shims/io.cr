@@ -13,3 +13,8 @@ class IO
   def close : Nil
   end
 end
+
+module IO::Buffered
+  def buffer_size=(value) : typeof(value)
+  end
+end

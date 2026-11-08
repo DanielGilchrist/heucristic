@@ -23,3 +23,18 @@ struct Socket::IPAddress
   def self.new(address : String, port : Int32) : self
   end
 end
+
+class Socket
+  def tty? : Bool
+  end
+end
+
+class TCPSocket
+  def tcp_nodelay=(val : Bool) : Bool
+  end
+end
+
+class UNIXSocket
+  def self.open(path : Path | String, type : Type = Type::STREAM, & : UNIXSocket -> U) : U forall U
+  end
+end

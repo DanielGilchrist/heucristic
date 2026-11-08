@@ -13,3 +13,8 @@ struct Slice(T)
   def self.new(size : Int, value : T, *, read_only = false) : Slice(T)
   end
 end
+
+struct Slice(T)
+  def []?(range : Range) : Slice(T)?
+  end
+end

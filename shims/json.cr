@@ -18,3 +18,8 @@ class JSON::Builder::Escape
   def read(slice : Bytes) : NoReturn
   end
 end
+
+class JSON::Builder
+  def array(& : -> U) : U forall U
+  end
+end

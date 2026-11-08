@@ -50,3 +50,13 @@ class Object
   def itself : self
   end
 end
+
+class Reference
+  def same?(other : Nil) : Bool
+  end
+end
+
+struct Nil
+  def same?(other : Nil) : Bool
+  end
+end
