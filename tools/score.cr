@@ -13,14 +13,7 @@ require "../src/heucristic/syntax/uses"
 require "../src/heucristic/resolve/types"
 require "../src/heucristic/resolve/methods"
 require "../src/heucristic/resolve/receiver"
-require "../src/heucristic/check/calls"
-require "../src/heucristic/check/cases"
-require "../src/heucristic/check/abstracts"
-require "../src/heucristic/check/generics"
-require "../src/heucristic/check/controls"
-require "../src/heucristic/check/paths"
-require "../src/heucristic/check/returns"
-require "../src/heucristic/check/instance_vars"
+require "../src/heucristic/check/suite"
 require "../src/heucristic/check/settled"
 require "./score/verifier"
 
@@ -157,16 +150,22 @@ module Score
     shim_roots : Array(String),
     compiled : Set(String)?,
   ) : Int32
-    settled = Heucristic::Check::Settled.new(
-      workspace,
-      types,
-      !compiled.nil?,
-      Set(String).new,
-      compiled || Set(String).new,
-      root,
-      shim_roots,
-    )
-    checks = Heucristic::Check::Calls.new(workspace, types, methods, receiver, settled)
+    settle = -> : Heucristic::Check::Settled {
+      Heucristic::Check::Settled.new(
+        workspace,
+        types,
+        !compiled.nil?,
+        Set(String).new,
+        compiled || Set(String).new,
+        root,
+        shim_roots,
+      )
+    }
+    build_suite = ->(settled : Heucristic::Check::Settled) : Heucristic::Check::Suite {
+      Heucristic::Check::Suite.new(workspace, types, methods, receiver, settled, root)
+    }
+    settled = settle.call
+    suite = build_suite.call(settled)
     total = 0
     checked = 0
     calls = 0
@@ -188,7 +187,7 @@ module Score
         uncompiled << sites.path.sub(root + "/", "") if settled.uncompiled_file?(sites.path)
         findings = Array(Heucristic::Check::Finding).new
         spent = Time.measure do
-          outcome = checks.run(sites)
+          outcome = suite.run(sites)
           checked += outcome.checked
           outcome.skips.each { |skip, count| skips[skip] += count }
           outcome.examples.each { |skip, where| examples[skip] ||= where }
@@ -196,17 +195,8 @@ module Score
           outcome.unsettled_types.each { |type, count| unsettled[type] += count }
           outcome.macro_calls.each { |name, count| macro_calls[name] += count }
           findings = outcome.findings
-          Heucristic::Check::Cases.new(workspace, types, receiver, settled).run(sites, findings)
-          Heucristic::Check::Abstracts.new(workspace, methods, settled).run(sites.path, findings)
-          Heucristic::Check::Generics.new(workspace, types, settled, root).run(sites, findings)
-          Heucristic::Check::Controls.new(workspace).run(sites, findings)
-          Heucristic::Check::Paths.new(workspace, types, settled).run(sites, findings)
-          Heucristic::Check::Returns.new(types, methods, receiver, settled).run(sites, findings)
-          Heucristic::Check::InstanceVars.new(workspace, types, methods, receiver, settled)
-            .run(sites, findings)
         end
         timings << Timing.new(sites.path.sub(root + "/", ""), spent.total_milliseconds)
-        findings.sort_by! { |finding| {finding.span.start_line, finding.span.start_character} }
         findings.each do |finding|
           total += 1
           where = "#{sites.path.sub(root + "/", "")}:#{finding.span.start_line + 1}"
@@ -226,7 +216,7 @@ module Score
       next if sites.path.starts_with?(File.join(root, "lib") + "/")
       next if only && !sites.path.ends_with?(only)
 
-      spent = Time.measure { ROUNDS.times { checks.run(sites) } }
+      spent = Time.measure { ROUNDS.times { build_suite.call(settle.call).run(sites) } }
       timings << Timing.new(sites.path.sub(root + "/", ""), spent.total_milliseconds / ROUNDS)
     end
     slowest = timings.sort_by { |timing| -timing.milliseconds }.first(3)
