@@ -12,6 +12,7 @@ require "../resolve/methods"
 require "../resolve/receiver"
 require "../resolve/types"
 require "../syntax"
+require "../syntax/parameter_name"
 require "../syntax/target"
 require "./answer"
 require "./macro_lookup"
@@ -307,6 +308,13 @@ module Heucristic
         text.span_of(target.name, location, RESCUE_KEYWORD.size)
       end
 
+      private def parameter_named(definition : Crystal::Def, name : String) : Crystal::Arg?
+        splat = definition.double_splat
+        return splat if splat && splat.name == name
+
+        definition.args.find(&.name.==(name))
+      end
+
       private def introduced_at(name : String, context : Syntax::Context) : Crystal::Location?
         context.blocks.reverse_each do |call|
           argument = call.block.try(&.args.find(&.name.==(name)))
@@ -316,8 +324,8 @@ module Heucristic
         definition = context.def_node
         body = definition ? definition.body : context.ancestors.first?
         return unless body
-        if definition && (parameter = definition.args.find(&.name.==(name)))
-          return parameter.location
+        if definition && (parameter = parameter_named(definition, name))
+          return Syntax::ParameterName.location(parameter)
         end
         if definition && (block_arg = definition.block_arg) && block_arg.name == name
           return block_arg.location

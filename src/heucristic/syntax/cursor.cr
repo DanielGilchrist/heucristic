@@ -1,5 +1,6 @@
 require "compiler/crystal/syntax"
 require "../document/point"
+require "./parameter_name"
 require "./scoped"
 
 module Heucristic
@@ -54,9 +55,8 @@ module Heucristic
       end
 
       def visit(node : Crystal::Arg) : Bool
-        if over?(node.location, node.name.size + 1)
-          @target = OnVar.new(node.name, node.location, context)
-        end
+        location = ParameterName.location(node)
+        @target = OnVar.new(node.name, location, context) if over?(location, node.name.size + 1)
         @target.nil?
       end
 

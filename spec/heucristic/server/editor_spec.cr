@@ -101,4 +101,13 @@ describe "hover and definition at editor positions" do
       starts(client.definition(URI_A, 7, 5)).try(&.map(&.[0])).should eq([1])
     end
   end
+
+  it "jumps from a parameter with an external name and from a double splat to their declarations" do
+    source = "def f(external internal : Int32, **opts)\n  internal\n  opts\nend\n"
+    with_document(source) do |client|
+      starts(client.definition(URI_A, 1, 3)).should eq([{0, 15}])
+      starts(client.definition(URI_A, 2, 3)).should eq([{0, 35}])
+      hover_text(client.hover(URI_A, 0, 16)).to_s.should eq("```crystal\nInt32\n```")
+    end
+  end
 end
