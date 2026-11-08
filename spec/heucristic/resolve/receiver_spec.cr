@@ -659,15 +659,31 @@ describe Heucristic::Resolve::Receiver, "proc block arguments and splat paramete
     struct Tuple(*T)
       def to_a : Array(Union(*T))
       end
+
+      def [](index : Int) : Union(*T)
+      end
+
+      def clone : self
+      end
+
+      def reverse : Tuple(*T)
+      end
     end
 
     class Runner
       def shout(text : String) : String
       end
 
+      def loose(*things) : Nil
+        things.size
+      end
+
       def run(body : String?, *args : String) : Nil
         body.try(&->shout(String)).size
         args.to_a.size
+        args[1].size
+        args.reverse.size
+        args.clone.size
         args.size
       end
     end
@@ -677,9 +693,22 @@ describe Heucristic::Resolve::Receiver, "proc block arguments and splat paramete
     receiver_of_size(source, "body.try(&->shout(String)).size").should eq("String")
   end
 
-  it "leaves a splat parameter's tuple size unknown (crystal run: Tuple(Int32, Int32))" do
-    receiver_of_size(source, "args.to_a.size").should start_with("unknown")
-    receiver_of_size(source, "args.size").should start_with("unknown")
+  it "types a splat parameter as a tuple of unknown size bounded by its restriction" do
+    receiver_of_size(source, "args.size").should eq("Tuple(*String)")
+  end
+
+  it "types what a splat tuple answers whatever the call (crystal run: Array(String))" do
+    receiver_of_size(source, "args.to_a.size").should eq("Array(String)")
+    receiver_of_size(source, "args[1].size").should eq("String")
+  end
+
+  it "bounds an unrestricted splat's elements by nothing (crystal run: Tuple(Int32, String))" do
+    receiver_of_size(source, "things.size").should start_with("Tuple(*unknown")
+  end
+
+  it "never turns a splat tuple into a fixed one (crystal run: Tuple(String, String))" do
+    receiver_of_size(source, "args.reverse.size").should eq("Tuple(*String)")
+    receiver_of_size(source, "args.clone.size").should eq("Tuple(*String)")
   end
 end
 

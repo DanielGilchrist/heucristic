@@ -50,6 +50,7 @@ module Heucristic
             resolution.identity,
             resolution.arguments.map { |arg| rebind(arg, scope) },
             bare: resolution.bare,
+            variadic: resolution.variadic,
           )
         in UnionRef then union(resolution.members.map { |member| rebind(member, scope) })
         in MetaRef

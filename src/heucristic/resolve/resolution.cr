@@ -7,7 +7,12 @@ module Heucristic
       identity : Index::Identity,
       arguments : Array(Resolution),
       labels : Array(String) = Array(String).new,
-      bare : Bool = false do
+      bare : Bool = false,
+      variadic : Bool = false do
+      def self.unsized_tuple(element : Resolution) : TypeRef
+        new(CoreType::Tuple.identity, [element] of Resolution, variadic: true)
+      end
+
       def self.of(core : CoreType) : TypeRef
         new(Index::Public.new(core.type_name), Array(Resolution).new)
       end
@@ -26,12 +31,20 @@ module Heucristic
         current.is_a?(Index::Public) && current.name == core.type_name
       end
 
+      def fixed_tuple? : Bool
+        is?(:tuple) && !variadic
+      end
+
       def labelled? : Bool
         !labels.empty?
       end
 
       def to_s(io : IO) : Nil
         io << identity
+        if variadic
+          io << "(*" << arguments[0] << ')'
+          return
+        end
         if arguments.empty?
           io << "()" if is?(:tuple) && !bare
           return

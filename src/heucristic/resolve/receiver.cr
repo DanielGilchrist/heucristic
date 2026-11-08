@@ -707,7 +707,7 @@ module Heucristic
       end
 
       private def tuple_members(receiver : Resolved) : Array(Resolution)?
-        receiver.arguments if receiver.is_a?(TypeRef) && receiver.is?(:tuple)
+        receiver.arguments if receiver.is_a?(TypeRef) && receiver.fixed_tuple?
       end
 
       private def nilable_member(member : Resolution?) : Resolution?
@@ -771,7 +771,7 @@ module Heucristic
       private def pairs_to_hash(receiver : TypeRef) : Resolution
         element = element_of(receiver)
         return element if element.is_a?(Unknown)
-        unless element.is_a?(TypeRef) && element.is?(:tuple) && element.arguments.size == 2
+        unless element.is_a?(TypeRef) && element.fixed_tuple? && element.arguments.size == 2
           return Unknown.new(:no_annotation, "to_h needs elements typed as two-element tuples")
         end
 
@@ -1705,7 +1705,7 @@ module Heucristic
 
         receiver = of_call(call, frame)
         return receiver if receiver.is_a?(Unknown)
-        if receiver.is_a?(TypeRef) && receiver.is?(:tuple)
+        if receiver.is_a?(TypeRef) && receiver.fixed_tuple?
           element = tuple_element_at(receiver, call)
           return element if element
         end
@@ -1910,13 +1910,18 @@ module Heucristic
 
         restriction = parameter.restriction
         unless restriction
-          return Unknown.new(:no_annotation, "parameter #{name} has no type restriction")
+          unknown = Unknown.new(:no_annotation, "parameter #{name} has no type restriction")
+          splat = definition.splat_index == definition.args.index(parameter)
+          return splat ? TypeRef.unsized_tuple(unknown) : unknown
         end
-        if definition.splat_index == definition.args.index(parameter)
+        written = Syntax::TypeReader.read(restriction)
+        typed = @types.resolve(written, Scope.of(context))
+        return typed unless definition.splat_index == definition.args.index(parameter)
+        if written.is_a?(Syntax::Splat)
           return Unknown.new(:splatted, "`#{name}` holds one value per call argument")
         end
 
-        @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
+        typed.is_a?(Unknown) ? typed : TypeRef.unsized_tuple(typed)
       end
 
       private def from_block_arg(

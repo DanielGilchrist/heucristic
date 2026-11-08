@@ -406,6 +406,11 @@ module Heucristic
             pack = splat_pack(argument, scope)
             return unpacked(argument, scope) unless pack
 
+            if pack.variadic
+              return pack if type.arguments.size == 1 && base.is?(:tuple)
+              return unpacked(argument, scope) unless base.is?(:union)
+            end
+
             arguments.concat(pack.arguments)
           else
             arguments << resolve(argument, scope, lookup)

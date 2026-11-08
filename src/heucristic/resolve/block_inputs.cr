@@ -166,7 +166,7 @@ module Heucristic
           members = input.members.map { |member| unpacked_member(member, position, name) }
           @unions.union(members)
         in TypeRef
-          return indexed_member(input, position, name) unless input.is?(:tuple)
+          return indexed_member(input, position, name) unless input.fixed_tuple?
 
           input.arguments[position]? || Unknown.new(
             :unsupported, "#{name} unpacks past the tuple's size"
@@ -214,13 +214,13 @@ module Heucristic
       end
 
       private def tuple_element(yielded : Resolution, index : Int32) : Resolution?
-        if yielded.is_a?(TypeRef) && yielded.is?(:tuple)
+        if yielded.is_a?(TypeRef) && yielded.fixed_tuple?
           return yielded.arguments[index]?
         end
         return unless yielded.is_a?(UnionRef)
 
         elements = yielded.members.map do |member|
-          return unless member.is_a?(TypeRef) && member.is?(:tuple)
+          return unless member.is_a?(TypeRef) && member.fixed_tuple?
 
           member.arguments[index]? || return
         end
@@ -260,7 +260,7 @@ module Heucristic
           exps = site.node.exps
           if exps.size == 1 && parameters > 1 && !exps[0].is_a?(Crystal::Splat)
             packed = @typer.type_of(exps[0], frame)
-            if packed.is_a?(TypeRef) && packed.is?(:tuple) && (element = packed.arguments[index]?)
+            if packed.is_a?(TypeRef) && packed.fixed_tuple? && (element = packed.arguments[index]?)
               values << element
               next
             end
@@ -290,7 +290,7 @@ module Heucristic
           end
 
           spread = @typer.type_of(expression.exp, frame)
-          return unsized(expression, spread) unless spread.is_a?(TypeRef) && spread.is?(:tuple)
+          return unsized(expression, spread) unless spread.is_a?(TypeRef) && spread.fixed_tuple?
 
           element = spread.arguments[index - position]?
           return element if element

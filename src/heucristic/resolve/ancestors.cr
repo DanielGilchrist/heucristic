@@ -38,7 +38,7 @@ module Heucristic
         target : Index::Identity,
         types : Types,
       ) : Array(Binding) | Unknown
-        bindings = bind(receiver.identity, receiver.arguments)
+        bindings = bind(receiver.identity, receiver.arguments, receiver.variadic)
         found = walk(receiver.identity, bindings, target, types, Array(Index::Identity).new)
         return found unless found.is_a?(NotAnAncestor)
         module_target = @workspace.module?(receiver.identity) && type_vars_of(target).empty?
@@ -102,7 +102,11 @@ module Heucristic
         NotAnAncestor.new
       end
 
-      private def bind(identity : Index::Identity, arguments : Array(Resolution)) : Array(Binding)
+      private def bind(
+        identity : Index::Identity,
+        arguments : Array(Resolution),
+        variadic : Bool = false,
+      ) : Array(Binding)
         type_vars = type_vars_of(identity)
         return Array(Binding).new if arguments.empty?
 
@@ -114,7 +118,9 @@ module Heucristic
         return bind_positional(type_vars, arguments) if packed < 0
 
         bindings = bind_positional(type_vars[0, splat], arguments[0, splat])
-        pack = TypeRef.of(:tuple, arguments[splat, packed])
+        pack = TypeRef.new(
+          CoreType::Tuple.identity, arguments[splat, packed], variadic: variadic
+        )
         bindings << Binding.new(type_vars[splat], pack)
         bindings.concat(bind_positional(type_vars[(splat + 1)..], arguments[(splat + packed)..]))
       end
