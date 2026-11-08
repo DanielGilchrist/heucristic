@@ -671,3 +671,30 @@ private def private_owner?(owner : Heucristic::Index::Owner) : Bool
   in Heucristic::Index::TopLevel then false
   end
 end
+
+describe Heucristic::Index::Collector, "instance variable name spans" do
+  it "covers the written name for every kind of instance variable entry" do
+    source = <<-CR
+      class Box
+        @declared : Int32? = nil
+        getter made : String
+
+        def initialize(@param : Int32, plain : String, &on_selected : Int32 -> Nil)
+          @plain = plain
+          @on_selected = on_selected
+          @assigned = [] of Int32
+        end
+
+        def reset
+          @late = 1
+        end
+      end
+      CR
+    lines = source.lines
+    covered = index(source).instance_vars.map do |ivar|
+      span = ivar.name_span
+      lines[span.start_line.to_i][span.start_character.to_i...span.end_character.to_i]
+    end
+    covered.should eq(%w[@declared made @param @plain @on_selected @assigned @late])
+  end
+end

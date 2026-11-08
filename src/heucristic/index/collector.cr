@@ -553,7 +553,7 @@ module Heucristic
             parameter = block_arg
           end
           next unless parameter
-          location = parameter.location
+          location = target.location
           next unless location
 
           start = Document::Point.from(location)
