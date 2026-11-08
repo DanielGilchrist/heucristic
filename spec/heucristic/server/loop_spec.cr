@@ -1493,6 +1493,17 @@ describe Heucristic::Server::Loop, "call checks" do
     client.shutdown
   end
 
+  it "accepts a module's self where a type that includes the module is required" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic, compiler: compiler)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    guarded_uri = "file://#{root}/app/module_self.cr"
+    found = client.await_diagnostics(guarded_uri, 60.seconds) { |published| !published.empty? }
+    found.map(&.["code"].as_s).should eq(["undefined-method"])
+    client.shutdown
+  end
   it "reports a non-exhaustive case over a file-private enum from the sweep" do
     client = LspClient.in_process
     client.initialize!(root, stdlib: true, semantic: semantic, compiler: compiler)

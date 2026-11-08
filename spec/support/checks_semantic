@@ -1,5 +1,7 @@
 #!/bin/sh
 root="$2"
 stdlib=$(crystal env CRYSTAL_PATH | tr ':' '\n' | grep -v '^lib$' | head -1)
-files=$(find "$stdlib" -name '*.cr' -not -path '*/spec/*' -not -name 'spec.cr' | sed 's/.*/"&"/' | paste -sd, -)
-printf '{"crystal":"test","elapsed_ms":1.0,"source":"","sites":[],"files":["%s/src/checks.cr","%s/app/pages.cr",%s]}\n' "$root" "$root" "$files"
+library=$(find "$stdlib" -name '*.cr' -not -path '*/spec/*' -not -name 'spec.cr')
+application=$(find "$root/app" -name '*.cr')
+files=$(printf '%s\n%s\n' "$library" "$application" | sed 's/.*/"&"/' | paste -sd, -)
+printf '{"crystal":"test","elapsed_ms":1.0,"source":"","sites":[],"files":["%s/src/checks.cr",%s]}\n' "$root" "$files"

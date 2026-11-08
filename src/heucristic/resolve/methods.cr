@@ -319,7 +319,8 @@ module Heucristic
               ancestor?(argument.name, restriction.name) ||
               autocast?(argument, restriction) ||
               (lenient && widens?(argument, restriction)) ||
-              (lenient && descends?(restriction.name, argument.name))
+              (lenient && descends?(restriction.name, argument.name)) ||
+              (lenient && included_below?(argument.name, restriction.name))
           in UnionRef then false
           in MetaRef  then restriction.is?(:class) || module?(restriction.name)
           in TypeVar  then true
@@ -348,6 +349,10 @@ module Heucristic
         argument.members.any? do |member|
           member.is_a?(Unknown) || admits?(expected, member, true)
         end
+      end
+
+      private def included_below?(type : String, ancestor : String) : Bool
+        module?(type) && @descendants.of(ancestor).any? { |below| descends?(below, type) }
       end
 
       private def descends?(type : String, ancestor : String) : Bool
