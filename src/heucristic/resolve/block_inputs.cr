@@ -43,6 +43,15 @@ module Heucristic
         nil
       end
 
+      def self.collected(block : Crystal::Block, index : Int32, name : String) : Unknown?
+        splat = block.splat_index
+        return unless splat && index >= splat
+
+        Unknown.new(
+          :splatted, "`#{name}` depends on how many values the block's splat parameter collects"
+        )
+      end
+
       private def self.locate(targets : Crystal::Expressions, name : String) : Located?
         targets.expressions.each_with_index do |target, position|
           if target.is_a?(Crystal::Var) && target.name == name
@@ -249,21 +258,52 @@ module Heucristic
         sites.each do |site|
           frame = Frame.new(site.context, Array(Binding).new, visiting)
           exps = site.node.exps
-          if exps.size == 1 && parameters > 1
+          if exps.size == 1 && parameters > 1 && !exps[0].is_a?(Crystal::Splat)
             packed = @typer.type_of(exps[0], frame)
             if packed.is_a?(TypeRef) && packed.is?(:tuple) && (element = packed.arguments[index]?)
               values << element
               next
             end
           end
-          expression = exps[index]?
-          unless expression
+          value = yielded_value(exps, index, frame)
+          unless value
             return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values")
           end
-          values << @typer.type_of(expression, frame)
+          values << value
         end
         scope = @typer.scope_of(entry, receiver, arguments)
         scope.is_a?(Unknown) ? @unions.union(values) : @unions.rebind(@unions.union(values), scope)
+      end
+
+      private def yielded_value(
+        expressions : Array(Crystal::ASTNode),
+        index : Int32,
+        frame : Frame,
+      ) : Resolution?
+        position = 0
+        expressions.each do |expression|
+          unless expression.is_a?(Crystal::Splat)
+            return @typer.type_of(expression, frame) if position == index
+
+            position += 1
+            next
+          end
+
+          spread = @typer.type_of(expression.exp, frame)
+          return unsized(expression, spread) unless spread.is_a?(TypeRef) && spread.is?(:tuple)
+
+          element = spread.arguments[index - position]?
+          return element if element
+
+          position += spread.arguments.size
+        end
+        nil
+      end
+
+      private def unsized(splat : Crystal::Splat, spread : Resolution) : Unknown
+        return spread if spread.is_a?(Unknown)
+
+        Unknown.new(:splatted, "`#{splat}` spreads #{spread}, whose size is not known")
       end
 
       private def proc_block_input(

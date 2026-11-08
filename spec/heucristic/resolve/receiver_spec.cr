@@ -4110,3 +4110,140 @@ describe Heucristic::Resolve::Receiver, "nested and union block unpacking" do
     receiver_of_size(source, "extra.size").should start_with("unknown")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "block parameters from yields" do
+  source = <<-CR
+    class Array(T)
+      def each(& : T ->) : Nil
+      end
+    end
+
+    class Bag(T)
+      @items : Array(T)
+      @pair : Tuple(Int32, String)
+
+      def initialize(@items : Array(T), @pair : Tuple(Int32, String))
+      end
+
+      def each
+        @items.each { |item| yield item }
+      end
+
+      def pairs
+        yield 1, "a"
+        yield 2, :b
+      end
+
+      def either
+        yield 1
+        yield "a"
+      end
+
+      def packed
+        yield({1, "a"}, 2.5)
+      end
+
+      def spread
+        yield *@pair
+      end
+
+      def spread_after(count : Float64)
+        yield count, *@pair
+      end
+
+      def spread_unknown(values : Array(Int32))
+        yield *values
+      end
+
+      def partial(flag : Bool)
+        yield 1, "a"
+        yield 2 if flag
+      end
+
+      def mystery(thing)
+        yield thing
+      end
+
+      def local
+        items = [1, 2]
+        yield items
+      end
+
+      def run : Nil
+        pairs { |pn, pt| pn.size; pt.size }
+        either { |ev| ev.size }
+        packed { |pl, pr| pl.size; pr.size }
+        packed { |(qa, qb), qc| qa.size; qb.size; qc.size }
+        spread { |sn, st| sn.size; st.size }
+        spread_after(1.5) { |sd, sn2, st2| sd.size; sn2.size; st2.size }
+        spread_unknown([1]) { |ua, ub| ua.size; ub.size }
+        partial(true) { |bn, bt| bn.size; bt.size }
+        mystery(1) { |mv| mv.size }
+        local { |li| li.size }
+        each { |ei| ei.size }
+      end
+    end
+    CR
+
+  it "types block parameters from the yield's arguments and joins the sites (crystal run)" do
+    receiver_of_size(source, "pn.size").should eq("Int32")
+    receiver_of_size(source, "pt.size").should eq("String | Symbol")
+    receiver_of_size(source, "ev.size").should eq("Int32 | String")
+  end
+
+  it "types a yielded local and a generic owner's type variable" do
+    receiver_of_size(source, "li.size").should eq("Array(Int32)")
+    receiver_of_size(source, "ei.size").should eq("T")
+  end
+
+  it "splats a single yielded tuple across block parameters and unpacks it (crystal run)" do
+    receiver_of_size(source, "pl.size").should eq("Tuple(Int32, String)")
+    receiver_of_size(source, "pr.size").should eq("Float64")
+    receiver_of_size(source, "qa.size").should eq("Int32")
+    receiver_of_size(source, "qb.size").should eq("String")
+    receiver_of_size(source, "qc.size").should eq("Float64")
+  end
+
+  it "spreads a splatted tuple across the yielded values (crystal run: Int32, String)" do
+    receiver_of_size(source, "sn.size").should eq("Int32")
+    receiver_of_size(source, "st.size").should eq("String")
+  end
+
+  it "keeps the positions after a leading argument (crystal run: Float64, Int32, String)" do
+    receiver_of_size(source, "sd.size").should eq("Float64")
+    receiver_of_size(source, "sn2.size").should eq("Int32")
+    receiver_of_size(source, "st2.size").should eq("String")
+  end
+
+  it "is unknown for a splat with no known size, a missing value and an unknown argument" do
+    receiver_of_size(source, "ua.size").should start_with("unknown")
+    receiver_of_size(source, "ub.size").should start_with("unknown")
+    receiver_of_size(source, "bn.size").should eq("Int32")
+    receiver_of_size(source, "bt.size").should start_with("unknown")
+    receiver_of_size(source, "mv.size").should start_with("unknown")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "splat block parameters" do
+  source = <<-CR
+    def pairs(& : Int32, String ->) : Nil
+    end
+
+    class Forwarder
+      def run : Nil
+        pairs { |*rest| rest.size }
+        pairs { |first, *rest| first.size; rest.size }
+        pairs { |*rest| yield *rest }
+      end
+    end
+    CR
+
+  it "does not type a splat block parameter as the first yielded value (crystal: Tuple)" do
+    receiver_of_size(source, "pairs { |*rest| rest.size }").should start_with("unknown")
+  end
+
+  it "types the parameter before a splat and leaves the splat unknown" do
+    receiver_of_size(source, "first.size").should eq("Int32")
+    receiver_of_size(source, "rest.size }").should start_with("unknown")
+  end
+end

@@ -1427,6 +1427,9 @@ module Heucristic
           index ||= unpacked.try(&.parameter_index)
           next unless index
 
+          collected = BlockInputs.collected(block, index, name)
+          return collected if collected
+
           outer = outside(call, frame.context)
           receiver = of_call(call, frame.within(outer))
           return receiver if receiver.is_a?(Unknown)
@@ -1484,7 +1487,7 @@ module Heucristic
         inputs = block_inputs.splatted(resolved, block)
         locals = site.locals.dup
         block.args.each_with_index do |argument, index|
-          input = inputs[index]?
+          input = BlockInputs.collected(block, index, argument.name) || inputs[index]?
           next unless input
 
           unpacked = block.unpacks.try(&.[index]?)
