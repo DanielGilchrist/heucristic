@@ -494,9 +494,9 @@ module Score
       elapsed = result.elapsed.total_milliseconds.round
       puts "macros (#{target.wire}): #{file.defs.size} generated defs kept of " \
            "#{collected.defs.size} in #{elapsed}ms"
-      result.excluded.each do |left_out, reason|
-        relative = left_out.sub(root + "/", "")
-        puts "macros (#{target.wire}): left out #{relative}: #{reason.lines.first?}"
+      result.excluded.each do |exclusion|
+        relative = exclusion.path.sub(root + "/", "")
+        puts "macros (#{target.wire}): left out #{relative}: #{exclusion.summary}"
       end
       return result.files.to_set
     in Heucristic::Index::MacrosFailed

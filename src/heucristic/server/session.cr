@@ -226,7 +226,7 @@ module Heucristic
             @macro_status = MacrosDone.new(file.defs.size, elapsed, event.excluded)
             notify_macros
           in .spec?, .loose?
-            note = exclusion_note(event.excluded)
+            note = event.excluded.note(@root)
             notify_target_macros(event.target, Stage::Done, note, file.defs.size)
           end
           @documents.each { |document| want_loose_macros(document_path(document)) }
@@ -1022,7 +1022,7 @@ module Heucristic
                       status:     Stage::Done.wire,
                       defs:       status.defs,
                       elapsed_ms: status.elapsed_ms,
-                      reason:     exclusion_note(status.excluded),
+                      reason:     status.excluded.note(@root),
                       target:     MAIN,
                     }
                   in MacrosStale
@@ -1088,15 +1088,6 @@ module Heucristic
         in MacrosStale           then "; macros could not be expanded (#{status.reason})"
         in MacrosOff, MacrosDone then ""
         end
-      end
-
-      private def exclusion_note(excluded : Hash(String, String)) : String?
-        return if excluded.empty?
-
-        parts = excluded.join(", ") do |path, reason|
-          "#{path.sub(@root + "/", "")} (#{reason.lines.first? || reason})"
-        end
-        "left out of the expansion because it failed: #{parts}"
       end
 
       private def site_of(entry : Index::Entry) : Index::MacroSite?

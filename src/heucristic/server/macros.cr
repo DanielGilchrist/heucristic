@@ -8,6 +8,7 @@ require "./cache_entry"
 require "./spec_entry"
 require "./loose_entry"
 require "../index/macro_target"
+require "../index/exclusions"
 require "./semantic_helper"
 
 module Heucristic
@@ -18,11 +19,13 @@ module Heucristic
                       LooseEntry::Missing |
                       CacheEntry::Missing
 
+      @excluded : Hash(Index::MacroTarget, Index::Exclusions)
+
       def initialize(@events : Channel(Index::Event)) : Nil
         @running = Hash(Index::MacroTarget, Bool).new(false)
         @again = Hash(Index::MacroTarget, Bool).new(false)
         @loose = Array(String).new
-        @excluded = Hash(Index::MacroTarget, Hash(String, String)).new
+        @excluded = Index::MacroTarget.values.to_h { |target| {target, Index::Exclusions.none} }
         @defines = Array(String).new
       end
 
@@ -81,7 +84,8 @@ module Heucristic
           culprit = culprit(entry, event.trace, candidates(root, target), root)
           return event unless culprit
 
-          excluded(target)[culprit] = failure_line(event.trace, event.reason)
+          reason = failure_line(event.trace, event.reason)
+          @excluded[target] = @excluded[target].plus(culprit, reason)
         end
       end
 
@@ -103,12 +107,7 @@ module Heucristic
       end
 
       private def remaining(target : Index::MacroTarget, files : Array(String)) : Array(String)
-        left = excluded(target)
-        files.reject { |file| left.has_key?(file) }
-      end
-
-      private def excluded(target : Index::MacroTarget) : Hash(String, String)
-        @excluded[target] ||= Hash(String, String).new
+        @excluded[target].reject_from(files)
       end
 
       private def candidates(root : String, target : Index::MacroTarget) : Array(String)
@@ -185,7 +184,7 @@ module Heucristic
           parsed.files,
           parsed.expansions,
           Time.instant - started,
-          excluded(target).dup,
+          @excluded[target],
         )
       rescue error : JSON::ParseException
         Index::MacrosFailed.new(target, "the helper's output is not JSON: #{error.message}", "")

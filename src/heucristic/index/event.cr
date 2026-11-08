@@ -4,6 +4,7 @@ require "./macro_expansion"
 require "./sites"
 require "../check/compiler_error"
 require "./macro_target"
+require "./exclusions"
 
 module Heucristic
   module Index
@@ -22,7 +23,7 @@ module Heucristic
       files : Array(String),
       expansions : Array(MacroExpansion),
       elapsed : Time::Span,
-      excluded : Hash(String, String)
+      excluded : Exclusions
     record MacrosFailed, target : MacroTarget, reason : String, trace : String
     record MacrosUnavailable, target : MacroTarget, reason : String
     record CompilerStarted
