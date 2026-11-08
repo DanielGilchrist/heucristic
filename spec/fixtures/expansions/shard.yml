@@ -1,0 +1,5 @@
+name: expansions
+version: 0.1.0
+targets:
+  expansions:
+    main: src/main.cr

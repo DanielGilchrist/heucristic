@@ -3,6 +3,8 @@ require "../../src/heucristic/index/macro_expansion"
 
 module Semantic
   class Expansions < Crystal::Visitor
+    MAX_NESTING = 4
+
     record Target, found : Crystal::Macro, scope : Crystal::Type
 
     getter found : Array(Heucristic::Index::MacroExpansion)
@@ -75,7 +77,7 @@ module Semantic
       path = location.try(&.original_filename)
       return unless location && path
 
-      source = expansion_source(target, call)
+      source = expansion_source(target, call, @defs.last?, MAX_NESTING)
       return unless source
 
       @found << Heucristic::Index::MacroExpansion.new(
@@ -83,10 +85,47 @@ module Semantic
       )
     end
 
-    private def expansion_source(target : Target, call : Crystal::Call) : String?
-      @program.expand_macro(target.found, call, target.scope, target.scope, @defs.last?)[0]
+    private def expansion_source(
+      target : Target,
+      call : Crystal::Call,
+      definition : Crystal::Def?,
+      nesting : Int32,
+    ) : String?
+      source = @program.expand_macro(target.found, call, target.scope, target.scope, definition)[0]
+      nesting > 0 ? inline_nested(source, target.scope, definition, nesting - 1) : source
     rescue Crystal::CodeError
       nil
+    end
+
+    private def inline_nested(
+      source : String,
+      scope : Crystal::Type,
+      definition : Crystal::Def?,
+      nesting : Int32,
+    ) : String
+      tree = Crystal::Parser.parse(source)
+      statements = tree.is_a?(Crystal::Expressions) ? tree.expressions : [tree]
+      replaced = false
+      rendered = statements.map do |statement|
+        inner = nested_source(statement, scope, definition, nesting)
+        replaced ||= !inner.nil?
+        inner || statement.to_s
+      end
+      replaced ? rendered.join('\n') : source
+    rescue Crystal::CodeError
+      source
+    end
+
+    private def nested_source(
+      statement : Crystal::ASTNode,
+      scope : Crystal::Type,
+      definition : Crystal::Def?,
+      nesting : Int32,
+    ) : String?
+      return unless statement.is_a?(Crystal::Call) && statement.obj.is_a?(Crystal::Path)
+
+      target = macro_for(statement, scope)
+      target ? expansion_source(target, statement, definition, nesting) : nil
     end
 
     private def current_scope : Crystal::Type
@@ -103,6 +142,8 @@ module Semantic
 
       owner = scope.lookup_path(receiver)
       return unless owner.is_a?(Crystal::Type)
+
+      owner = owner.remove_alias
 
       found = macro_on(owner.metaclass, call)
       found ? Target.new(found, owner) : nil

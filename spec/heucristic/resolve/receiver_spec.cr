@@ -3078,6 +3078,16 @@ describe Heucristic::Resolve::Receiver, "macros reached through a receiver's typ
     )
   end
 
+  it "types an aliased literal macro from its inlined expansion (crystal run: Slice(UInt8))" do
+    expanded = [
+      "slice = ::Slice(UInt8).new(2, read_only: false)",
+      "slice.to_unsafe[0] = UInt8.new!(1)",
+      "slice",
+    ].join('\n')
+    expansions = [expansion_at(source, "[1, 2]", "[]", expanded)]
+    receiver_of_size(source, "Bytes[1, 2].size", expansions).should eq("Slice(UInt8)")
+  end
+
   it "finds a macro in a module the receiver's type extends" do
     receiver_of_size(source, "Failure.from_errno(\"x\").size").should eq(
       "unknown (macro: `from_errno` is a macro; its expansion is not typed)"
