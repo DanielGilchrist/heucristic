@@ -22,6 +22,7 @@ require "../src/heucristic/check/paths"
 require "../src/heucristic/check/returns"
 require "../src/heucristic/check/instance_vars"
 require "../src/heucristic/check/settled"
+require "./score/verifier"
 
 module Score
   extend self
@@ -44,7 +45,8 @@ module Score
     column : Int32,
     name : String,
     result : Heucristic::Resolve::Resolution,
-    targets : Array(String)
+    targets : Array(Heucristic::Index::Def),
+    interpolated : Bool
 
   def run(args : Array(String)) : Int32
     root = File.expand_path(args[0]? || Dir.current)
@@ -69,7 +71,9 @@ module Score
     workspace.replace_all(finished.files)
     shims = Heucristic::Index::Shims.new
     shims.replace_all(finished.shims)
-    targets = args.includes?("--no-macros") ? nil : expand_all(root, events, workspace, shims)
+    origins = Hash(String, Heucristic::Index::MacroSite).new
+    expand = !args.includes?("--no-macros")
+    targets = expand ? expand_all(root, events, workspace, shims, origins) : nil
     compiled = targets.try do |found|
       found.each_value.reduce(Set(String).new) { |all, files| all | files }
     end
@@ -129,14 +133,17 @@ module Score
             puts "  def: #{site.context.def_node.try(&.name)}, blocks: #{site.context.blocks.size}"
           end
           outcomes << Outcome.new(
-            path, location.line_number, location.column_number, call.name, result, implemented
+            path, location.line_number, location.column_number, call.name, result, implemented,
+            interpolated?(site.context.ancestors)
           )
         end
       end
     end
 
     report(outcomes, elapsed, root)
-    verify_sample(outcomes, verify, main, root, main_files) if verify > 0 && main
+    if verify > 0 && main
+      verify_sample(outcomes, verify, main, root, main_files, workspace, types, origins)
+    end
     0
   end
 
@@ -313,16 +320,16 @@ module Score
     call : Crystal::Call,
     context : Heucristic::Syntax::Context,
     receiver : Heucristic::Resolve::Receiver,
-  ) : Array(String)
+  ) : Array(Heucristic::Index::Def)
     typed = receiver.of_call(call, context)
-    return Array(String).new if typed.is_a?(Heucristic::Resolve::Unknown)
+    return Array(Heucristic::Index::Def).new if typed.is_a?(Heucristic::Resolve::Unknown)
 
     found = if call.obj.nil? && Heucristic::Syntax::WellKnown::Super.named?(call.name)
               receiver.super_targets(call, context)
             else
               receiver.implementations(typed, receiver.shape_of(call, context))
             end
-    found.map { |entry| "#{entry.path}:#{entry.name_span.start_line + 1}" }
+    found
   end
 
   private def report(outcomes : Array(Outcome), elapsed : Time::Span, root : String) : Nil
@@ -353,50 +360,62 @@ module Score
     main : String,
     root : String,
     main_files : Set(String)?,
+    workspace : Heucristic::Index::Workspace,
+    types : Heucristic::Resolve::Types,
+    origins : Hash(String, Heucristic::Index::MacroSite),
   ) : Nil
     resolved = outcomes.select(&.result.is_a?(Heucristic::Resolve::Resolved))
-    sample = resolved.sample(Math.min(count, resolved.size), Random.new(7))
+    verifiable = resolved.reject(&.interpolated)
+    only = ARGV.index("--only").try { |index| ARGV[index + 1]? }
+    sample = if only
+               verifiable.select { |outcome| at(outcome).ends_with?(only) }
+             else
+               verifiable.sample(Math.min(count, verifiable.size), Random.new(7))
+             end
     puts
     puts "verifying #{sample.size} resolved calls against `crystal tool implementations`"
-    agree = 0
-    disagree = 0
-    unseen = 0
+    left_out = resolved.size - verifiable.size
+    puts "(#{left_out} resolved calls inside string interpolation are not verified: " \
+         "the compiler tool answers for the interpolation, not the call)"
+    verifier = Verifier.new(root, main, workspace, types, origins)
+    tally = Hash(Verifier::Kind, Int32).new(0)
     sample.each do |outcome|
-      cursor = "#{outcome.path}:#{outcome.line}:#{outcome.column}"
-      output = IO::Memory.new
-      status = Process.run(
-        "crystal",
-        {
-          "tool", "implementations", "--no-color", "-f", "json", "-c", cursor,
-          File.join(root, main),
-        },
-        output: output, error: Process::Redirect::Close, chdir: root
-      )
-      unless status.success?
-        puts "  compiler failed at #{cursor.sub(root + "/", "")}"
+      ours = in_target(outcome.targets, main_files, root)
+      probe = Verifier::Probe.new(outcome.path, outcome.line, outcome.column, outcome.result.to_s)
+      where = "#{outcome.path}:#{outcome.line}:#{outcome.column}".sub(root + "/", "")
+      verdict = verifier.judge(probe, ours)
+      unless verdict
+        puts "  compiler failed at #{where}"
         next
       end
-      compiler = JSON.parse(output.to_s)
-      locations = compiler["implementations"]?.try(&.as_a?) || Array(JSON::Any).new
-      theirs = locations.map { |impl| "#{impl["filename"]}:#{impl["line"]}" }
-      where = cursor.sub(root + "/", "")
-      ours = in_target(outcome.targets, main_files, root)
-      if theirs.empty?
-        unseen += 1
-        puts "  ? #{where} #{outcome.name}: compiler reports no implementation"
-      elsif same_targets?(theirs, ours)
-        agree += 1
-      elsif same_files?(theirs, ours)
-        agree += 1
-        puts "  ~ #{where} #{outcome.name}: same file, different line (macro-generated def)"
-      else
-        disagree += 1
-        puts "  X #{where} #{outcome.name}"
-        puts "      ours:     #{ours.map(&.sub(root + "/", "")).join(", ")}"
-        puts "      compiler: #{theirs.map(&.sub(root + "/", "")).join(", ")}"
-      end
+
+      tally[verdict.kind] += 1
+      next if verdict.kind.agree?
+
+      puts "  #{marker(verdict.kind)} #{where} #{outcome.name}: #{verdict.message}"
     end
-    puts "agree: #{agree}, disagree: #{disagree}, compiler saw no implementation: #{unseen}"
+    Verifier::Kind.each do |kind|
+      puts "#{kind.to_s.underscore.tr("_", " ")}: #{tally[kind]}"
+    end
+    puts "not verified inside string interpolation: #{left_out}"
+  end
+
+  private def at(outcome : Outcome) : String
+    "#{outcome.path}:#{outcome.line}:#{outcome.column}"
+  end
+
+  private def marker(kind : Verifier::Kind) : String
+    case kind
+    in .agree?            then "="
+    in .over_approximate? then "+"
+    in .unverified?       then "?"
+    in .disagree?         then "X"
+    in .unseen?           then "-"
+    end
+  end
+
+  private def interpolated?(ancestors : Array(Crystal::ASTNode)) : Bool
+    ancestors.any?(Crystal::StringInterpolation)
   end
 
   private def inside_macro_arguments?(ancestors : Array(Crystal::ASTNode)) : Bool
@@ -417,13 +436,14 @@ module Score
     events : Channel(Heucristic::Index::Event),
     workspace : Heucristic::Index::Workspace,
     shims : Heucristic::Index::Shims,
+    origins : Hash(String, Heucristic::Index::MacroSite),
   ) : Hash(Heucristic::Index::MacroTarget, Set(String))?
     targets = Hash(Heucristic::Index::MacroTarget, Set(String)).new
-    compiled = expand_macros(root, events, workspace, shims, :main)
+    compiled = expand_macros(root, events, workspace, shims, origins, :main)
     return unless compiled
     targets[Heucristic::Index::MacroTarget::Main] = compiled
     if Dir.exists?(File.join(root, "spec"))
-      from_specs = expand_macros(root, events, workspace, shims, :spec)
+      from_specs = expand_macros(root, events, workspace, shims, origins, :spec)
       targets[Heucristic::Index::MacroTarget::Spec] = from_specs if from_specs
     end
 
@@ -440,7 +460,7 @@ module Score
     end
     return targets if loose.empty?
 
-    from_loose = expand_macros(root, events, workspace, shims, :loose, loose)
+    from_loose = expand_macros(root, events, workspace, shims, origins, :loose, loose)
     targets[Heucristic::Index::MacroTarget::Loose] = from_loose if from_loose
     targets
   end
@@ -450,6 +470,7 @@ module Score
     events : Channel(Heucristic::Index::Event),
     workspace : Heucristic::Index::Workspace,
     shims : Heucristic::Index::Shims,
+    origins : Hash(String, Heucristic::Index::MacroSite),
     target : Heucristic::Index::MacroTarget,
     loose : Array(String) = Array(String).new,
   ) : Set(String)?
@@ -477,6 +498,7 @@ module Score
       file = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims, loaded)
       workspace.update(file)
       workspace.expand(target, result.expansions)
+      result.sites.each { |site| origins["#{path}:#{site.line}"] = site }
       elapsed = result.elapsed.total_milliseconds.round
       puts "macros (#{target.wire}): #{file.defs.size} generated defs kept of " \
            "#{collected.defs.size} in #{elapsed}ms"
@@ -498,38 +520,15 @@ module Score
     nil
   end
 
-  private def same_targets?(theirs : Array(String), ours : Array(String)) : Bool
-    return false if ours.empty?
-
-    ours.all? { |target| theirs.includes?(target) }
-  end
-
-  private def same_files?(theirs : Array(String), ours : Array(String)) : Bool
-    their_files = theirs.map(&.rpartition(':')[0]).uniq!.sort!
-    our_files = ours.map(&.rpartition(':')[0]).uniq!.sort!
-    shimmed = our_files.all?(&.includes?("/shims/"))
-    return true if shimmed && their_files.all?(&.ends_with?("/primitives.cr"))
-    return restates?(their_files, our_files) if shimmed
-
-    their_files == our_files
-  end
-
-  private def restates?(their_files : Array(String), our_files : Array(String)) : Bool
-    our_files.all? do |shim|
-      their_files.any? { |file| File.basename(file) == File.basename(shim) }
-    end
-  end
-
   private def in_target(
-    targets : Array(String),
+    targets : Array(Heucristic::Index::Def),
     files : Set(String)?,
     root : String,
-  ) : Array(String)
+  ) : Array(Heucristic::Index::Def)
     return targets unless files
 
-    targets.select do |target|
-      path = target.rpartition(':')[0]
-      !path.starts_with?(root + "/") || files.includes?(path)
+    targets.select do |entry|
+      !entry.path.starts_with?(root + "/") || files.includes?(entry.path)
     end
   end
 
