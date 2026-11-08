@@ -129,4 +129,16 @@ describe Heucristic::Syntax::Cursor do
       target.try(&.name).should eq("c")
     end
   end
+
+  it "finds the name of an alias declaration" do
+    source = "module M\n  alias Query = Hash(String, String)\nend\n"
+    target = target_at(source, 2, 10).as?(Heucristic::Syntax::OnPath)
+    target.try(&.node.to_s).should eq("Query")
+    target.try(&.context.enclosing.map(&.name)).should eq(["M"])
+  end
+
+  it "still finds the paths in an alias value" do
+    source = "alias Query = Hash(String, Int32)\n"
+    target_at(source, 1, 15).as?(Heucristic::Syntax::OnPath).try(&.node.to_s).should eq("Hash")
+  end
 end

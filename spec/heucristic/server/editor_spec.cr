@@ -50,4 +50,12 @@ describe "hover and definition at editor positions" do
       client.definition(URI_A, 0, 13).result.try(&.raw).should be_nil
     end
   end
+
+  it "hovers and jumps from the name of an alias declaration" do
+    with_document("alias Query = Hash(String, String)\n") do |client|
+      text = hover_text(client.hover(URI_A, 0, 7)).to_s
+      text.should contain("alias Query = Hash(String, String)")
+      client.definition(URI_A, 0, 7).result.try(&.as_a?).try(&.size).should eq(1)
+    end
+  end
 end

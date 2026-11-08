@@ -73,6 +73,11 @@ module Heucristic
         @target.nil?
       end
 
+      def visit(node : Crystal::Alias) : Bool
+        declared_name(node.name)
+        @target.nil?
+      end
+
       def visit(node : Crystal::Require) : Bool
         statement = "require ".size + node.string.size + 2
         @target = OnRequire.new(node) if over?(node.location, statement)
