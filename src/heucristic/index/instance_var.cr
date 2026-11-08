@@ -14,7 +14,10 @@ module Heucristic
       origin : Origin,
       expression : Crystal::ASTNode? = nil,
       initialized : Bool = false,
-      in_def : Bool = false,
-      definition : Crystal::Def? = nil
+      definition : Crystal::Def? = nil do
+      def in_def? : Bool
+        !definition.nil?
+      end
+    end
   end
 end

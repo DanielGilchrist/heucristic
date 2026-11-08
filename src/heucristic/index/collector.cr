@@ -34,7 +34,6 @@ module Heucristic
         @constants = Array(Constant).new
         @macros = Array(MacroDef).new
         @opaque = Array(OpaqueBody).new
-        @def_depth = 0
         @opaque_blocks = 0
         @flag_enums = Set(UInt64).new
         @definitions = Array(Crystal::Def).new
@@ -255,7 +254,6 @@ module Heucristic
 
       def visit(node : Crystal::Def) : Bool
         record_def(node)
-        @def_depth += 1
         @definitions << node
         true
       end
@@ -268,7 +266,6 @@ module Heucristic
       end
 
       def end_visit(node : Crystal::Def) : Nil
-        @def_depth -= 1
         @definitions.pop
       end
 
@@ -479,7 +476,7 @@ module Heucristic
 
       private def mark_opaque : Nil
         current = owner
-        return unless current.is_a?(String) && @def_depth == 0
+        return unless current.is_a?(String) && @definitions.empty?
         return if @opaque.any?(&.owner.==(current))
 
         @opaque << OpaqueBody.new(current, @path)
@@ -505,11 +502,9 @@ module Heucristic
         namespace = owner
         return if namespace.is_a?(TopLevel)
 
-        in_def = @def_depth > 0
-        initialized ||= origin.assigned? && !in_def
+        initialized ||= origin.assigned? && @definitions.empty?
         @instance_vars << InstanceVar.new(
-          name, namespace, type, @path, span, origin, expression, initialized, in_def,
-          @definitions.last?,
+          name, namespace, type, @path, span, origin, expression, initialized, @definitions.last?,
         )
       end
 
@@ -808,7 +803,7 @@ module Heucristic
       end
 
       private def opaque_block?(node : Crystal::Call) : Bool
-        !node.block.nil? && node.obj.nil? && owner.is_a?(String) && @def_depth == 0
+        !node.block.nil? && node.obj.nil? && owner.is_a?(String) && @definitions.empty?
       end
 
       private def record_def(node : Crystal::Def) : Nil

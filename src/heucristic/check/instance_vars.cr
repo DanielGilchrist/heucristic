@@ -109,7 +109,7 @@ module Heucristic
         declared = @workspace.instance_vars_of(owner)
         declared.each do |entry|
           next unless entry.origin.declared?
-          next if entry.initialized || entry.in_def
+          next if entry.initialized || entry.in_def?
           next if assigned.includes?(entry.name)
           next if nilable?(entry, owner)
           next if declared.any? { |other| other.name == entry.name && other.initialized }
