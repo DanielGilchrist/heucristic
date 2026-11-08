@@ -332,7 +332,7 @@ module Heucristic
           @types,
           @methods.descendants,
           @macros.done?,
-          @documents.dirty,
+          @documents.dirty_paths,
           @macros.compiled_files,
           @root,
           shim_roots,

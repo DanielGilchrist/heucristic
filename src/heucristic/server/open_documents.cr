@@ -7,12 +7,13 @@ require "./uri"
 module Heucristic
   module Server
     class OpenDocuments
-      getter dirty : Set(String)
+      @dirty_snapshot : Set(String)?
 
       def initialize(@workspace : Index::Workspace) : Nil
         @store = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
         @dirty = Set(String).new
+        @dirty_snapshot = nil
       end
 
       def open(uri : String, version : Int32, source : String) : Document::Open
@@ -25,18 +26,25 @@ module Heucristic
         changes : Array(LSProtocol::TextDocumentContentChangeEvent),
       ) : Document::Open | Document::Store::Missing | Document::OutOfRange
         document = @store.change(uri, version, changes)
-        @dirty << path(document) if document.is_a?(Document::Open)
+        if document.is_a?(Document::Open)
+          @dirty << path(document)
+          @dirty_snapshot = nil
+        end
         document
       end
 
       def close(uri : String) : Nil
         @store.close(uri)
         @trees.delete(uri)
-        @dirty.delete(path_of(uri))
+        mark_clean(uri)
       end
 
       def saved(uri : String) : Nil
-        @dirty.delete(path_of(uri))
+        mark_clean(uri)
+      end
+
+      def dirty_paths : Set(String)
+        @dirty_snapshot ||= @dirty.dup
       end
 
       def [](uri : String) : Document::Open | Document::Store::Missing
@@ -80,6 +88,11 @@ module Heucristic
       def version(uri : String) : Int32?
         document = @store[uri]
         document.is_a?(Document::Open) ? document.version : nil
+      end
+
+      private def mark_clean(uri : String) : Nil
+        @dirty.delete(path_of(uri))
+        @dirty_snapshot = nil
       end
     end
   end
