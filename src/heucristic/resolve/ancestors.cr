@@ -125,6 +125,7 @@ module Heucristic
       private def parents(name : String, types : Types) : Array(Parent) | Unknown
         entries = @workspace.namespaces(name)
         return builtin_parents(name) if entries.empty?
+        return Unknown.new(:ambiguous, "#{name} is private to several files") if shadowed?(entries)
 
         parents = Array(Parent).new
         @workspace.mixins_of(name).reverse_each do |mixin|
@@ -140,6 +141,16 @@ module Heucristic
         in Builtins::NoSuperclass then parents
         in Parent                 then parents << superclass
         end
+      end
+
+      private def shadowed?(entries : Array(Index::Namespace)) : Bool
+        return false unless entries.any?(&.private_path)
+
+        declared = entries.reject { |entry| Index::MacroTarget.generated?(entry.path) }
+        first = declared.first?
+        return false unless first
+
+        declared.any? { |entry| entry.path != first.path }
       end
 
       private def builtin_parents(name : String) : Array(Parent) | Unknown

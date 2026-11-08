@@ -93,3 +93,53 @@ describe Heucristic::Resolve::Ancestors do
     ancestors_of("", "Nope").should eq("unknown (unresolved name: Nope)")
   end
 end
+
+private def ancestors_in(files : Array({String, String}), name : String) : String
+  workspace = Heucristic::Index::Workspace.new
+  files.each do |path, source|
+    tree = Heucristic::Syntax.parse(source, path)
+    raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+    text = Heucristic::Document::Text.new(source)
+    workspace.update(Heucristic::Index::Collector.collect(path, text, tree))
+  end
+  chain = Heucristic::Resolve::Types.new(workspace).ancestors(name)
+  chain.is_a?(Heucristic::Resolve::Unknown) ? chain.to_s : chain.join(", ")
+end
+
+describe Heucristic::Resolve::Ancestors, "file-private types" do
+  it "follows the include of a single private type" do
+    files = [{"a.cr", "module M; end\nprivate struct Foo\n  include M\nend\n"}]
+    ancestors_in(files, "Foo").should eq("M, Struct, Value, Object")
+  end
+
+  it "does not leak a private type's include into a same-named private type in another file" do
+    files = [
+      {"a.cr", "module M; end\nprivate struct Foo\n  include M\nend\n"},
+      {"b.cr", "private struct Foo\nend\n"},
+    ]
+    ancestors_in(files, "Foo").should start_with("unknown")
+  end
+
+  it "does not leak a private type's include into a public type of the same name" do
+    files = [
+      {"a.cr", "module M; end\nprivate struct Foo\n  include M\nend\n"},
+      {"b.cr", "struct Foo\nend\n"},
+    ]
+    ancestors_in(files, "Foo").should start_with("unknown")
+  end
+
+  it "keeps a private type known when the semantic helper reopens it under a generated path" do
+    files = [
+      {"a.cr", "module M; end\nprivate struct Foo\n  include M\nend\n"},
+      {"<macros:spec>", "struct Foo\n  def schema : Int32\n    1\n  end\nend\n"},
+    ]
+    ancestors_in(files, "Foo").should eq("M, Struct, Value, Object")
+  end
+
+  it "keeps a private type reopened in its own file known" do
+    source = "module M; end\nprivate struct Foo\n  include M\nend\nprivate struct Foo\nend\n"
+    files = [{"a.cr", source}]
+    ancestors_in(files, "Foo").should eq("M, Struct, Value, Object")
+  end
+end
