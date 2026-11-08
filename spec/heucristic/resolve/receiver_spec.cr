@@ -3684,3 +3684,82 @@ describe Heucristic::Resolve::Receiver, "union arguments across ancestors" do
     receiver_of_size(source, "pair.g(u, v).size").should eq("Int64 | Float64 | Bool | Char")
   end
 end
+
+describe Heucristic::Resolve::Receiver, "union arguments to class methods" do
+  source = <<-CR
+    class Par
+      def self.k(x : Int32) : Int64
+      end
+
+      def self.k(x : String) : Float64
+      end
+    end
+
+    class Chi < Par
+      def self.k(x : Int32) : Bool
+      end
+    end
+
+    class Whole < Par
+      def self.k(x : Int32 | String) : Bool
+      end
+    end
+
+    class Each < Par
+      def self.k(x : Int32) : Bool
+      end
+
+      def self.k(x : String) : Char
+      end
+    end
+
+    module Extra
+      def k(x : Int32) : Char
+      end
+    end
+
+    class Mixed < Par
+      extend Extra
+    end
+
+    class Foo
+      def initialize(x : Int32)
+      end
+
+      def initialize(x : String)
+      end
+    end
+
+    class Use
+      def run(u : Int32 | String) : Nil
+        Foo.new(u).size
+        Chi.k(u).size
+        Whole.k(u).size
+        Each.k(u).size
+        Mixed.k(u).size
+      end
+    end
+    CR
+
+  it "keeps the overridden parent class method reachable (compiler: Bool | Float64 | Int64)" do
+    receiver_of_size(source, "Chi.k(u).size").should eq("Bool | Int64 | Float64")
+  end
+
+  it "stops at a closer def covering the whole union (compiler: Bool)" do
+    receiver_of_size(source, "Whole.k(u).size").should eq("Bool")
+  end
+
+  it "stops at a closer def per member (compiler: Bool | Char)" do
+    receiver_of_size(source, "Each.k(u).size").should eq("Bool | Char")
+  end
+
+  it "types new over each constructor the members reach (compiler: Foo)" do
+    receiver_of_size(source, "Foo.new(u).size").should eq("Foo")
+  end
+
+  it "gives up when an extended module sits in the chain" do
+    receiver_of_size(source, "Mixed.k(u).size").should eq(
+      "unknown (unresolved name: no overload of `k` accepts every member of its arguments)"
+    )
+  end
+end

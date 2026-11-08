@@ -78,6 +78,9 @@ module Heucristic
         end
         return virtual(receiver, call, site) if defs.empty?
 
+        leaves = @methods.construction_leaves(receiver, call)
+        return across_constructions(receiver, leaves, call, site) if leaves
+
         defs = @methods.reached(receiver, call, defs)
         direct = overloads(defs, receiver, call, site)
         through_subclasses(defs, direct, receiver, call, site)
@@ -92,6 +95,20 @@ module Heucristic
         return true unless below.is_a?(TypeRef)
 
         @methods.defined_between?(below.name, receiver.name, call.name)
+      end
+
+      private def across_constructions(
+        receiver : Resolved,
+        leaves : Array(Methods::Call),
+        call : Methods::Call,
+        site : Receiver::Site,
+      ) : Resolution
+        results = leaves.map { |leaf| result(receiver, leaf, site) }.uniq!
+        return results[0] if results.size == 1
+
+        Unknown.new(
+          :ambiguous, "`#{call.name}` reaches different constructors per argument member"
+        )
       end
 
       private def missing_forward(

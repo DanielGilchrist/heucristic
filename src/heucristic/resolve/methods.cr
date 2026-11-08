@@ -18,6 +18,12 @@ module Heucristic
 
       record Covering, defs : Array(Index::Def), complete : Bool
 
+      record Reach, type : String, metaclass : Bool do
+        def reaches?(entry : Index::Def) : Bool
+          metaclass ? entry.receiver.metaclass? : entry.receiver.instance?
+        end
+      end
+
       record Call,
         name : String,
         arity : Int32,
@@ -143,15 +149,29 @@ module Heucristic
       end
 
       def covering(receiver : Resolution, call : Call) : Covering?
-        return unless receiver.is_a?(TypeRef) && partial?(receiver, call)
+        reach = reach_of(receiver)
+        return if reach.nil? || constructing?(reach, call)
+        return unless partial?(reach, receiver, call)
 
         count = leaf_count(call)
         return Covering.new(Array(Index::Def).new, false) if count > LEAF_LIMIT
 
         leaves = leaf_calls(call)
         return unless diverge?(receiver, leaves)
+        if reach.metaclass && !extended_methods(reach.type, call).empty?
+          return Covering.new(Array(Index::Def).new, false)
+        end
 
-        walk(receiver, call, leaves)
+        walk(reach, receiver, call, leaves)
+      end
+
+      def construction_leaves(receiver : Resolution, call : Call) : Array(Call)?
+        reach = reach_of(receiver)
+        return unless reach && constructing?(reach, call)
+        return if leaf_count(call) > LEAF_LIMIT
+
+        leaves = leaf_calls(call)
+        leaves if leaves.size > 1 && diverge?(receiver, leaves)
       end
 
       def virtual_lookup(receiver : Resolution, call : Call) : Array(Index::Def)
@@ -372,13 +392,32 @@ module Heucristic
         end
       end
 
-      private def walk(receiver : TypeRef, call : Call, leaves : Array(Call)) : Covering?
+      private def constructing?(reach : Reach, call : Call) : Bool
+        reach.metaclass && Syntax::WellKnown::New.named?(call.name)
+      end
+
+      private def reach_of(receiver : Resolution) : Reach?
+        case receiver
+        in TypeRef then Reach.new(receiver.name, false)
+        in MetaRef
+          of = receiver.of
+          of.is_a?(TypeRef) ? Reach.new(of.name, true) : nil
+        in UnionRef, TypeVar, Unknown then nil
+        end
+      end
+
+      private def walk(
+        reach : Reach,
+        receiver : Resolution,
+        call : Call,
+        leaves : Array(Call),
+      ) : Covering?
         uncovered = leaves.dup
         candidates = @workspace.named(call.name)
         found = Array(Index::Def).new
-        levels(receiver.name).each do |level|
+        levels(reach.type).each do |level|
           at_level = candidates.select do |entry|
-            entry.owner == level && entry.receiver.instance? && own?(entry, call.caller_path) &&
+            entry.owner == level && reach.reaches?(entry) && own?(entry, call.caller_path) &&
               call.accepts?(entry) && leaves.any? { |leaf| compatible?(entry, leaf, receiver) }
           end
           next if at_level.empty?
@@ -390,14 +429,14 @@ module Heucristic
         found.empty? ? nil : Covering.new(found, uncovered.empty?)
       end
 
-      private def partial?(receiver : TypeRef, call : Call) : Bool
+      private def partial?(reach : Reach, receiver : Resolution, call : Call) : Bool
         indexes = splittable(call)
         return false if indexes.empty?
 
         candidates = @workspace.named(call.name)
-        levels(receiver.name).each do |level|
+        levels(reach.type).each do |level|
           candidates.each do |entry|
-            next unless entry.owner == level && entry.receiver.instance? && call.accepts?(entry)
+            next unless entry.owner == level && reach.reaches?(entry) && call.accepts?(entry)
 
             return true if indexes.any? { |index| partially_admits?(entry, receiver, call, index) }
           end
@@ -407,7 +446,7 @@ module Heucristic
 
       private def partially_admits?(
         entry : Index::Def,
-        receiver : TypeRef,
+        receiver : Resolution,
         call : Call,
         index : Int32,
       ) : Bool
