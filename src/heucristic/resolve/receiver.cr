@@ -14,6 +14,7 @@ require "./render"
 require "./local_declarations"
 require "./body_facts"
 require "./memos"
+require "./unions"
 require "./local_assignments"
 require "./variable_references"
 require "./flow"
@@ -93,6 +94,7 @@ module Heucristic
         @precedence = MacroPrecedence.new(@workspace, @methods)
         @depth = 0
         @memos = Memos.new
+        @unions = Unions.new(@types)
         @depth_exhausted = 0
       end
 
@@ -175,7 +177,7 @@ module Heucristic
           members = receiver.members.map do |member|
             member.is_a?(Unknown) ? member : result_of(member, call, site)
           end
-          return union(members)
+          return @unions.union(members)
         end
 
         if receiver.is_a?(TypeVar)
@@ -577,7 +579,7 @@ module Heucristic
         unless declared.empty?
           typed = Array(Resolution).new(declared.size)
           declared.each { |entry| typed << declared(entry.type, scope) }
-          return union(typed)
+          return @unions.union(typed)
         end
 
         typed = Array(Resolution).new(entries.size)
@@ -597,7 +599,7 @@ module Heucristic
           guessed = type_of(expression, context, visiting, Array(Binding).new)
           typed << guessed unless guessed.is_a?(Unknown)
         end
-        return union(typed) unless typed.empty?
+        return @unions.union(typed) unless typed.empty?
 
         assigned = entries.map(&.type).select(Syntax::TypeReader::Unsupported).map(&.source)
         Unknown.new(
@@ -631,7 +633,7 @@ module Heucristic
         elsif !node.exhaustive?
           branches << TypeRef.of(:nil)
         end
-        union(branches)
+        @unions.union(branches)
       end
 
       private def select_value(
@@ -648,7 +650,7 @@ module Heucristic
         if (otherwise = node.else)
           branches << type_of(otherwise, context.inside(node, otherwise), visiting, locals)
         end
-        union(branches)
+        @unions.union(branches)
       end
 
       private def rescued_value(
@@ -664,7 +666,7 @@ module Heucristic
           inner = context.inside(node, handler).inside(handler.body)
           branches << type_of(handler.body, inner, visiting, locals)
         end
-        union(branches)
+        @unions.union(branches)
       end
 
       private def op_assigned(
@@ -679,9 +681,9 @@ module Heucristic
           present = truthy(current, true)
           return value if present.is_a?(TypeRef) && present.is?(:nil)
 
-          return union([present, value] of Resolution)
+          return @unions.union([present, value] of Resolution)
         end
-        return union([truthy(current, false), value] of Resolution) if node.op == "&&"
+        return @unions.union([truthy(current, false), value] of Resolution) if node.op == "&&"
         return current if current.is_a?(Unknown)
 
         result_of(current, Methods::Call.new(node.op, 1, false, [value] of Resolution))
@@ -703,9 +705,9 @@ module Heucristic
           keys << type_of(entry.key, context, visiting, locals)
           values << type_of(entry.value, context, visiting, locals)
         end
-        key = union(keys)
+        key = @unions.union(keys)
         return key if key.is_a?(Unknown)
-        value = union(values)
+        value = @unions.union(values)
         return value if value.is_a?(Unknown)
 
         TypeRef.of(:hash, [key, value] of Resolution)
@@ -786,7 +788,7 @@ module Heucristic
           end
           results << result_of(below, call, site)
         end
-        union(results)
+        @unions.union(results)
       end
 
       private def exit_answers(call : Crystal::Call) : Hash(UInt64, Bool)?
@@ -858,7 +860,7 @@ module Heucristic
           member = entry.name == "first?" ? members.first? : members.last?
           return unless member
 
-          return union([member, TypeRef.of(:nil)] of Resolution)
+          return @unions.union([member, TypeRef.of(:nil)] of Resolution)
         end
         return unless qualified == "Tuple#map"
 
@@ -891,7 +893,7 @@ module Heucristic
           return other if other.is_a?(Unknown)
 
           nil_type = TypeRef.of(:nil)
-          members << (nilable ? union([other, nil_type] of Resolution) : other)
+          members << (nilable ? @unions.union([other, nil_type] of Resolution) : other)
         end
         TypeRef.of(:array, [TypeRef.of(:tuple, members)] of Resolution)
       end
@@ -939,7 +941,7 @@ module Heucristic
         end
         return if found.empty?
 
-        union(found)
+        @unions.union(found)
       end
 
       private def ivar_scope(owner : String, level : String) : Scope | Unknown
@@ -992,7 +994,7 @@ module Heucristic
           branches = Array(Resolution).new(2)
           branches << type_of(node.then, context.inside(node, node.then), visiting, locals)
           branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
-          union(branches)
+          @unions.union(branches)
         in Crystal::Return, Crystal::Break, Crystal::Next
           TypeRef.of(:no_return)
         in Crystal::Case             then case_value(node, context, visiting, locals)
@@ -1011,11 +1013,11 @@ module Heucristic
         in Crystal::Or
           left = type_of(node.left, context.inside(node, node.left), visiting, locals)
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
-          union([truthy(left, true), right] of Resolution)
+          @unions.union([truthy(left, true), right] of Resolution)
         in Crystal::And
           left = type_of(node.left, context.inside(node, node.left), visiting, locals)
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
-          union([truthy(left, false), right] of Resolution)
+          @unions.union([truthy(left, false), right] of Resolution)
         in Crystal::ArrayLiteral
           collection = literal_collection(node, context)
           elements(node.elements, context, visiting, locals) do |inner|
@@ -1035,7 +1037,7 @@ module Heucristic
         in Crystal::TypeOf
           members = Array(Resolution).new(node.expressions.size)
           node.expressions.each { |inner| members << type_of(inner, context, visiting, locals) }
-          members.find(&.is_a?(Unknown)) || metaclass_of(union(members))
+          members.find(&.is_a?(Unknown)) || @unions.metaclass_of(@unions.union(members))
         in Crystal::Expressions
           last = node.expressions.last?
           return TypeRef.of(:nil) unless last
@@ -1179,7 +1181,7 @@ module Heucristic
                       )
               values << (looped?(step, item) ? settled(name, current, item.value, typed) : typed)
             end
-            union(values)
+            @unions.union(values)
           in Flow::OrAssigned
             at = context.at(step.within)
             typed = value_type(step.value, locals) ||
@@ -1192,7 +1194,7 @@ module Heucristic
             if present.is_a?(TypeRef) && present.is?(:nil)
               typed
             else
-              union([present, typed] of Resolution)
+              @unions.union([present, typed] of Resolution)
             end
           in Flow::Truthy     then truthy(current, step.positive)
           in Flow::IsA        then narrow_is_a(current, step.types, step.positive, context)
@@ -1205,16 +1207,13 @@ module Heucristic
       private def truthy(current : Resolution, positive : Bool) : Resolution
         return current if current.is_a?(Unknown)
 
-        members = current.is_a?(UnionRef) ? current.members : [current] of Resolution
+        members = UnionRef.members_of(current)
         kept = members.select do |member|
           next true if member.is_a?(Unknown)
           falsey = member.is_a?(TypeRef) && FALSEY.any? { |core| member.is?(core) }
           positive ? !(member.is_a?(TypeRef) && member.is?(:nil)) : falsey
         end
-        return TypeRef.of(:no_return) if kept.empty?
-
-        kept.uniq!
-        kept.size == 1 ? kept[0] : UnionRef.new(kept)
+        UnionRef.join(kept)
       end
 
       private def narrow_is_a(
@@ -1247,25 +1246,22 @@ module Heucristic
           return UnionRef.new(widened)
         end
 
-        members = current.is_a?(UnionRef) ? current.members : [current] of Resolution
+        members = UnionRef.members_of(current)
         kept = Array(Resolution).new
         members.each do |member|
           unless member.is_a?(TypeRef)
             kept << member
             next
           end
-          matched = targets.any? { |target| covers?(target, member) }
+          matched = targets.any? { |target| @unions.covers?(target, member) }
           if positive
             kept << member if matched
-            targets.each { |target| kept << target if !matched && covers?(member, target) }
+            targets.each { |target| kept << target if !matched && @unions.covers?(member, target) }
           else
             kept << member unless matched
           end
         end
-        return TypeRef.of(:no_return) if kept.empty?
-
-        kept.uniq!
-        kept.size == 1 ? kept[0] : UnionRef.new(kept)
+        UnionRef.join(kept)
       end
 
       private def responding(
@@ -1276,7 +1272,7 @@ module Heucristic
       ) : Resolution
         return current if current.is_a?(Unknown)
 
-        members = current.is_a?(UnionRef) ? current.members : [current] of Resolution
+        members = UnionRef.members_of(current)
         kept = Array(Resolution).new(members.size)
         members.each do |member|
           next kept << member unless member.is_a?(TypeRef) || member.is_a?(MetaRef)
@@ -1290,17 +1286,7 @@ module Heucristic
             kept << member
           end
         end
-        return TypeRef.of(:no_return) if kept.empty?
-
-        kept.uniq!
-        kept.size == 1 ? kept[0] : UnionRef.new(kept)
-      end
-
-      private def covers?(ancestor : TypeRef, descendant : TypeRef) : Bool
-        return true if ancestor.name == descendant.name
-
-        chain = @types.ancestors(descendant.name)
-        !chain.is_a?(Unknown) && chain.includes?(ancestor.name)
+        UnionRef.join(kept)
       end
 
       private def assigning?(step : Flow::Step) : Bool
@@ -1392,9 +1378,9 @@ module Heucristic
             assigned << typed
           end
         end
-        return union(assigned) if deferred.empty?
+        return @unions.union(assigned) if deferred.empty?
 
-        seed = union(assigned)
+        seed = @unions.union(assigned)
         return Unknown.new(:cycle, name) if seed.is_a?(Unknown)
 
         seeded_locals = seeded(locals, name, seed)
@@ -1402,7 +1388,7 @@ module Heucristic
           typed = type_of(value, context, visiting + [key], seeded_locals)
           assigned << settled(name, seed, value, typed)
         end
-        union(assigned)
+        @unions.union(assigned)
       end
 
       private def branched(
@@ -1433,7 +1419,7 @@ module Heucristic
         end
         return TypeRef.of(:no_return) if results.empty?
 
-        union(results)
+        @unions.union(results)
       end
 
       private def value_type(value : Crystal::ASTNode, locals : Array(Binding)) : Resolution?
@@ -1464,7 +1450,8 @@ module Heucristic
         return typed if typed.is_a?(Unknown) || seed.is_a?(Unknown)
         return typed unless VariableReferences.include?(value, name)
 
-        grown = members_of(typed).reject { |member| members_of(seed).includes?(member) }
+        known = UnionRef.members_of(seed)
+        grown = UnionRef.members_of(typed).reject { |member| known.includes?(member) }
         return typed if grown.empty?
 
         Unknown.new(
@@ -1482,10 +1469,6 @@ module Heucristic
         item.path.any? do |node|
           node.is_a?(Crystal::While) || node.is_a?(Crystal::Until) || node.is_a?(Crystal::Block)
         end
-      end
-
-      private def members_of(resolution : Resolved) : Array(Resolution)
-        resolution.is_a?(UnionRef) ? resolution.members : [resolution] of Resolution
       end
 
       private def seeded(locals : Array(Binding), name : String, seed : Resolution) : Array(Binding)
@@ -1507,7 +1490,7 @@ module Heucristic
 
         typed = Array(Resolution).new(nodes.size)
         nodes.each { |element| typed << type_of(element, context, visiting, locals) }
-        inner = union(typed)
+        inner = @unions.union(typed)
         return inner if inner.is_a?(Unknown)
 
         yield inner
@@ -1542,37 +1525,8 @@ module Heucristic
         types = rescued.types
         return TypeRef.of(:exception) unless types
 
-        union(types.map { |type| declared(Syntax::TypeReader.read(type), Scope.of(context)) })
-      end
-
-      private def union(resolutions : Array(Resolution)) : Resolution
-        members = Array(Resolution).new
-        resolutions.each do |resolution|
-          return resolution if resolution.is_a?(Unknown)
-          next if resolution.is_a?(TypeRef) && resolution.is?(:no_return)
-          if resolution.is_a?(UnionRef)
-            resolution.members.each { |inner| members << inner unless members.includes?(inner) }
-          else
-            members << resolution unless members.includes?(resolution)
-          end
-        end
-        return TypeRef.of(:no_return) if members.empty?
-
-        members = absorb(members)
-        members.size == 1 ? members[0] : UnionRef.new(members)
-      end
-
-      private def absorb(members : Array(Resolution)) : Array(Resolution)
-        return members if members.size < 2
-
-        members.reject do |member|
-          next false unless member.is_a?(TypeRef)
-
-          members.any? do |other|
-            other.is_a?(TypeRef) && other.name != member.name &&
-              other.arguments.empty? && covers?(other, member)
-          end
-        end
+        scope = Scope.of(context)
+        @unions.union(types.map { |type| declared(Syntax::TypeReader.read(type), scope) })
       end
 
       private def outside(call : Crystal::Call, context : Syntax::Context) : Syntax::Context
@@ -1628,7 +1582,7 @@ module Heucristic
         scoped = defs.select(&.with_yield)
         return Unscoped.new if scoped.empty?
 
-        union(scoped.map { |entry| with_scope(entry, target, shape.arguments) })
+        @unions.union(scoped.map { |entry| with_scope(entry, target, shape.arguments) })
       end
 
       private def with_scope(
@@ -1660,12 +1614,12 @@ module Heucristic
         end
 
         scope = return_scope(entry, receiver, arguments, Site::NONE)
-        scope.is_a?(Unknown) ? union(scopes) : rebind(union(scopes), scope)
+        scope.is_a?(Unknown) ? @unions.union(scopes) : @unions.rebind(@unions.union(scopes), scope)
       end
 
       private def loop_result(block : Crystal::Block, site : Site) : Resolution
         values = break_values(block, site)
-        values.empty? ? TypeRef.of(:no_return) : union(values)
+        values.empty? ? TypeRef.of(:no_return) : @unions.union(values)
       end
 
       private def break_values(block : Crystal::Block, site : Site) : Array(Resolution)
@@ -1716,7 +1670,7 @@ module Heucristic
         return receiver unless element.is_a?(UnionRef)
 
         kept = element.members.reject { |member| member.is_a?(TypeRef) && member.is?(:nil) }
-        TypeRef.of(:array, [union(kept)] of Resolution)
+        TypeRef.of(:array, [@unions.union(kept)] of Resolution)
       end
 
       private def forwarded(
@@ -1826,29 +1780,18 @@ module Heucristic
         located = @types.locate_any(named, scope)
         if located.is_a?(Unknown)
           inherited = @types.resolve(named, scope)
-          return inherited.is_a?(Unknown) ? located : metaclass_of(inherited)
+          return inherited.is_a?(Unknown) ? located : @unions.metaclass_of(inherited)
         end
 
         constants = @workspace.constants(located)
-        return metaclass_of(@types.resolve(named, scope)) if constants.empty?
+        return @unions.metaclass_of(@types.resolve(named, scope)) if constants.empty?
         return Unknown.new(:cycle, located) if visiting.includes?(located)
 
-        union(constants.map { |entry| constant_type(entry, located, visiting + [located]) })
+        @unions.union(constants.map { |entry| constant_type(entry, located, visiting + [located]) })
       end
 
       private def placeholder?(expression : Crystal::ASTNode) : Bool
         expression.is_a?(Crystal::Call) && expression.obj.nil? && expression.name == "uninitialized"
-      end
-
-      private def metaclass_of(resolved : Resolution) : Resolution
-        case resolved
-        in TypeRef, TypeVar then MetaRef.new(resolved)
-        in UnionRef
-          members = Array(Resolution).new(resolved.members.size)
-          resolved.members.each { |member| members << metaclass_of(member) }
-          UnionRef.new(members)
-        in MetaRef, Unknown then resolved
-        end
       end
 
       private def constant_type(
@@ -1960,13 +1903,14 @@ module Heucristic
               block_inputs(member, shape, index, parameters)
             end
           end
-          return union(per_member)
+          return @unions.union(per_member)
         end
 
         defs = @methods.lookup(receiver, shape)
         if defs.empty? && !@methods.virtual_lookup(receiver, shape).empty?
           virtual = @methods.virtual_receivers(receiver, shape.caller_path)
-          return union(virtual.map { |below| block_inputs(below, shape, index, parameters) })
+          inputs = virtual.map { |below| block_inputs(below, shape, index, parameters) }
+          return @unions.union(inputs)
         end
         return @methods.missing(shape.name, receiver) if defs.empty?
 
@@ -1974,7 +1918,7 @@ module Heucristic
         defs.each do |entry|
           inputs << block_input(entry, receiver, shape.arguments, index, parameters)
         end
-        union(inputs)
+        @unions.union(inputs)
       end
 
       private def block_input(
@@ -2017,7 +1961,7 @@ module Heucristic
 
           member.arguments[index]? || return
         end
-        union(elements)
+        @unions.union(elements)
       end
 
       private def yielded(
@@ -2061,7 +2005,7 @@ module Heucristic
           values << type_of(expression, site.context, [entry.qualified], Array(Binding).new)
         end
         scope = return_scope(entry, receiver, arguments, Site::NONE)
-        scope.is_a?(Unknown) ? union(values) : rebind(union(values), scope)
+        scope.is_a?(Unknown) ? @unions.union(values) : @unions.rebind(@unions.union(values), scope)
       end
 
       private def literal_collection(
@@ -2073,19 +2017,6 @@ module Heucristic
 
         resolved = declared(Syntax::TypeReader.read(name), Scope.of(context))
         resolved.is_a?(TypeRef) ? resolved.name : CoreType::Array.type_name
-      end
-
-      private def rebind(resolution : Resolution, scope : Scope) : Resolution
-        case resolution
-        in TypeVar then scope.bound(resolution.name) || resolution
-        in TypeRef
-          TypeRef.new(resolution.name, resolution.arguments.map { |arg| rebind(arg, scope) })
-        in UnionRef then union(resolution.members.map { |member| rebind(member, scope) })
-        in MetaRef
-          inner = rebind(resolution.of, scope)
-          inner.is_a?(TypeRef) || inner.is_a?(TypeVar) ? MetaRef.new(inner) : resolution
-        in Unknown then resolution
-        end
       end
 
       private def proc_block_input(
@@ -2156,7 +2087,7 @@ module Heucristic
         nexts = Escapes.in(block).nexts
         results = escape_values(nexts, block, site.context, site.visiting, locals)
         results << type_of(body, site.context.inside(block, body), site.visiting, locals)
-        Unify.bind(output, union(results), free_vars, bindings, @types, scope)
+        Unify.bind(output, @unions.union(results), free_vars, bindings, @types, scope)
       end
 
       private def passed_block_result(
@@ -2293,7 +2224,7 @@ module Heucristic
           end
           return annotated[0] if annotated.size == 1
         end
-        return union(results) if module?(receiver)
+        return @unions.union(results) if module?(receiver)
 
         Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
       end
@@ -2337,7 +2268,7 @@ module Heucristic
         end
         return direct if results.empty?
 
-        union(results)
+        @unions.union(results)
       end
 
       private def definition_key(defs : Array(Index::Def)) : String
@@ -2592,7 +2523,7 @@ module Heucristic
         return outcome if block.nil?
 
         escaped = break_values(block, site)
-        escaped.empty? ? outcome : union([outcome] + escaped)
+        escaped.empty? ? outcome : @unions.union([outcome] + escaped)
       end
     end
   end

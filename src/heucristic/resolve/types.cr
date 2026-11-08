@@ -433,9 +433,7 @@ module Heucristic
             flat << member unless flat.includes?(member)
           end
         end
-        return TypeRef.of(:no_return) if flat.empty?
-
-        flat.size == 1 ? flat[0] : UnionRef.new(flat)
+        UnionRef.join(flat)
       end
 
       private def resolve_nilable(
@@ -462,9 +460,7 @@ module Heucristic
             resolved << resolution unless resolved.includes?(resolution)
           end
         end
-        return TypeRef.of(:no_return) if resolved.empty?
-
-        resolved.size == 1 ? resolved[0] : UnionRef.new(resolved)
+        UnionRef.join(resolved)
       end
 
       private def resolve_metaclass(

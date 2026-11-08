@@ -126,7 +126,7 @@ module Heucristic
         end
         return if remaining.empty?
 
-        value = remaining.size == 1 ? remaining[0] : UnionRef.new(remaining)
+        value = UnionRef.join(remaining)
         bind(bare, value, free_vars, bindings, types, scope)
       end
 

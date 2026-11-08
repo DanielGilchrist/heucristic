@@ -50,6 +50,17 @@ module Heucristic
     end
 
     record UnionRef, members : Array(Resolution) do
+      def self.members_of(resolution : Resolution) : Array(Resolution)
+        resolution.is_a?(UnionRef) ? resolution.members : [resolution] of Resolution
+      end
+
+      def self.join(members : Array(Resolution)) : Resolution
+        return TypeRef.of(:no_return) if members.empty?
+
+        members.uniq!
+        members.size == 1 ? members[0] : new(members)
+      end
+
       def to_s(io : IO) : Nil
         members.join(io, " | ")
       end
