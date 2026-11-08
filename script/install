@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+cd "$(dirname "$0")/.."
+prefix="${PREFIX:-$HOME/.local}"
+
+shards install
+shards build heucristic --release --no-debug
+script/build-semantic
+
+mkdir -p "$prefix/bin"
+ln -sf "$PWD/bin/heucristic" "$prefix/bin/heucristic"
+echo "linked $prefix/bin/heucristic -> $PWD/bin/heucristic"
