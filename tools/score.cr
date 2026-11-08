@@ -154,6 +154,7 @@ module Score
       Heucristic::Check::Settled.new(
         workspace,
         types,
+        methods.descendants,
         !compiled.nil?,
         Set(String).new,
         compiled || Set(String).new,
@@ -277,6 +278,7 @@ module Score
     settled = Heucristic::Check::Settled.new(
       workspace,
       types,
+      methods.descendants,
       !compiled.nil?,
       Set(String).new,
       compiled || Set(String).new,

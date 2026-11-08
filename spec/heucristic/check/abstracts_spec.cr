@@ -12,7 +12,8 @@ private def unimplemented(source : String) : Array(String)
   types = Heucristic::Resolve::Types.new(workspace)
   methods = Heucristic::Resolve::Methods.new(workspace, types)
   settled = Heucristic::Check::Settled.new(
-    workspace, types, true, Set(String).new, Set{path}, "/project", Array(String).new
+    workspace, types, methods.descendants, true, Set(String).new, Set{path}, "/project",
+    Array(String).new
   )
   findings = Array(Heucristic::Check::Finding).new
   Heucristic::Check::Abstracts.new(workspace, methods, settled).run(path, findings)

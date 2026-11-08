@@ -35,7 +35,8 @@ private def codes(source : String) : Array(String)
     workspace, Heucristic::Index::Shims.new, types, methods
   )
   settled = Heucristic::Check::Settled.new(
-    workspace, types, true, Set(String).new, Set{path}, "/project", Array(String).new
+    workspace, types, methods.descendants, true, Set(String).new, Set{path}, "/project",
+    Array(String).new
   )
   calls = Heucristic::Check::Calls.new(workspace, types, methods, receiver, settled)
   sites = Heucristic::Index::Sites.of(path, text, tree)

@@ -14,6 +14,7 @@ module Heucristic
       def initialize(
         @workspace : Index::Workspace,
         @types : Resolve::Types,
+        @descendants : Resolve::Descendants,
         @complete : Bool,
         @dirty : Set(String),
         @compiled : Set(String),
@@ -24,7 +25,6 @@ module Heucristic
         @unsettled_files = Hash(String, Bool).new
         @settled_types = Hash(String, Bool).new
         @declared_types = Hash(String, Bool).new
-        @descendants = Resolve::Descendants.new(@workspace, @types)
       end
 
       def type?(name : String) : Bool

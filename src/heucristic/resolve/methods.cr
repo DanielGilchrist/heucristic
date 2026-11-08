@@ -116,6 +116,10 @@ module Heucristic
         @types.compiled(map)
       end
 
+      def descendants : Descendants
+        @descendants
+      end
+
       def invalidate : Nil
         @includers.clear
         @private_paths.clear

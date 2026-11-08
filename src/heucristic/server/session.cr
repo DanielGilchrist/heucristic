@@ -214,6 +214,7 @@ module Heucristic
           @workspace.update(file)
           @workspace.expand(event.target, event.expansions)
           @types.invalidate
+          @methods.invalidate
           @receiver.invalidate
           sites = @macro_sites[path] = Hash(Int32, Index::MacroSite).new
           event.sites.each { |site| sites[site.line] = site }
@@ -438,6 +439,7 @@ module Heucristic
         settled = Check::Settled.new(
           @workspace,
           @types,
+          @methods.descendants,
           @macro_status.is_a?(MacrosDone),
           @dirty,
           compiled_files,
