@@ -7,6 +7,7 @@ require "../index/macro_call"
 require "../index/macro_target"
 require "../index/workspace"
 require "../requires"
+require "../resolve/block_inputs"
 require "../resolve/local_declarations"
 require "../resolve/methods"
 require "../resolve/receiver"
@@ -317,8 +318,14 @@ module Heucristic
 
       private def introduced_at(name : String, context : Syntax::Context) : Crystal::Location?
         context.blocks.reverse_each do |call|
-          argument = call.block.try(&.args.find(&.name.==(name)))
+          block = call.block
+          next unless block
+
+          argument = block.args.find(&.name.==(name))
           return argument.location if argument
+
+          unpacked = Resolve::BlockInputs.unpacked_position(block, name)
+          return unpacked.target.location if unpacked
         end
 
         definition = context.def_node

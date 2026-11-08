@@ -367,6 +367,10 @@ module Heucristic
         return_scope(entry, receiver, arguments, Site::NONE)
       end
 
+      def call_on(receiver : Resolved, shape : Methods::CallShape) : Resolution
+        dispatch.result(receiver, shape)
+      end
+
       private def no_return?(entry : Index::Def, visiting : Array(Visit)) : Bool
         restriction = entry.return_type
         if restriction.is_a?(Index::Unrestricted)
@@ -1437,7 +1441,7 @@ module Heucristic
           end
           return input unless unpacked
 
-          return block_inputs.unpacked_element(input, unpacked.position, name)
+          return block_inputs.unpacked_element(input, unpacked.path, name)
         end
         nil
       end
@@ -1486,12 +1490,7 @@ module Heucristic
           unpacked = block.unpacks.try(&.[index]?)
           next locals << Binding.new(argument.name, input) unless unpacked
 
-          unpacked.expressions.each_with_index do |target, position|
-            next unless target.is_a?(Crystal::Var)
-
-            element = block_inputs.unpacked_element(input, position, target.name)
-            locals << Binding.new(target.name, element)
-          end
+          block_inputs.bind_unpacked(input, unpacked, locals)
         end
         body = block.body
         nexts = Escapes.in(block).nexts

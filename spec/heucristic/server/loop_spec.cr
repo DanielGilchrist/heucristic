@@ -11,6 +11,10 @@ private def hover_text(response : Heucristic::Protocol::Response) : String?
   response.result.try(&.["contents"]?).try(&.["value"]?).try(&.as_s?)
 end
 
+private def definition_columns(response : Heucristic::Protocol::Response) : Array(Int32)?
+  response.result.try(&.as_a?).try(&.map(&.["range"]["start"]["character"].as_i))
+end
+
 private alias Notice = Heucristic::Server::Notice
 private alias Stage = Heucristic::Server::Stage
 
@@ -1770,6 +1774,32 @@ describe Heucristic::Server::Loop, "shard targets" do
     reason = status.params.try(&.["reason"].as_s).to_s
     reason.should contain("left out of the expansion because it failed: src/broken.cr")
     reason.should contain("(undefined local variable or method 'undefined_thing')")
+    client.shutdown
+  end
+end
+
+describe Heucristic::Server::Loop, "unpacked block parameters" do
+  it "answers hover and definition for the names a block unpacks, nested ones included" do
+    client = LspClient.in_process
+    client.initialize!("/tmp/heucristic-spec-empty")
+    client.await_notification(Notice::Indexed)
+
+    source = <<-CR
+      def pairs : Array(Tuple(Int32, Tuple(String, Symbol)))
+        [{1, {"a", :b}}]
+      end
+
+      pairs.each { |(number, (text, symbol))| number; text; symbol }
+      CR
+    client.open(URI_A, source)
+    client.await_diagnostics
+
+    hover_text(client.hover(URI_A, 4, 41)).to_s.should contain("Int32")
+    hover_text(client.hover(URI_A, 4, 49)).to_s.should contain("String")
+    hover_text(client.hover(URI_A, 4, 55)).to_s.should contain("Symbol")
+    definition_columns(client.definition(URI_A, 4, 41)).should eq([15])
+    definition_columns(client.definition(URI_A, 4, 49)).should eq([24])
+    definition_columns(client.definition(URI_A, 4, 55)).should eq([30])
     client.shutdown
   end
 end

@@ -25,16 +25,33 @@ module Heucristic
           receiver : Resolved,
           arguments : Array(Resolution),
         ) : Scope | Unknown
+
+        abstract def call_on(receiver : Resolved, shape : Methods::CallShape) : Resolution
       end
 
-      record Unpacked, parameter_index : Int32, position : Int32
+      INDEX = "[]"
+
+      record Unpacked, parameter_index : Int32, path : Array(Int32), target : Crystal::Var
+
+      private record Located, path : Array(Int32), target : Crystal::Var
 
       def self.unpacked_position(block : Crystal::Block, name : String) : Unpacked?
-        block.unpacks.try &.each do |index, expressions|
-          position = expressions.expressions.index do |var|
-            var.is_a?(Crystal::Var) && var.name == name
+        block.unpacks.try &.each do |index, targets|
+          found = locate(targets, name)
+          return Unpacked.new(index, found.path, found.target) if found
+        end
+        nil
+      end
+
+      private def self.locate(targets : Crystal::Expressions, name : String) : Located?
+        targets.expressions.each_with_index do |target, position|
+          if target.is_a?(Crystal::Var) && target.name == name
+            return Located.new([position], target)
           end
-          return Unpacked.new(index, position) if position
+          next unless target.is_a?(Crystal::Expressions)
+
+          inner = locate(target, name)
+          return Located.new([position] + inner.path, inner.target) if inner
         end
         nil
       end
@@ -101,25 +118,23 @@ module Heucristic
         shimmed.is_a?(Syntax::Proc) ? shimmed : nil
       end
 
-      def unpacked_element(input : Resolution, position : Int32, name : String) : Resolution
-        return input if input.is_a?(Unknown)
-        unless input.is_a?(TypeRef)
-          return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
-        end
-        if input.is?(:tuple)
-          element = input.arguments[position]?
-          return element || Unknown.new(:unsupported, "#{name} unpacks past the tuple's size")
-        end
+      def unpacked_element(input : Resolution, path : Array(Int32), name : String) : Resolution
+        path.reduce(input) { |current, position| unpacked_member(current, position, name) }
+      end
 
-        chain = @types.ancestors(input.identity)
-        inherits = !chain.is_a?(Unknown) && chain.includes?(CoreType::Indexable.identity)
-        indexable = input.is?(:indexable) || inherits
-        unless indexable
-          return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
-        end
+      def bind_unpacked(
+        input : Resolution,
+        targets : Crystal::Expressions,
+        locals : Array(Binding),
+      ) : Nil
+        targets.expressions.each_with_index do |target, position|
+          if target.is_a?(Crystal::Var)
+            locals << Binding.new(target.name, unpacked_member(input, position, target.name))
+          end
+          next unless target.is_a?(Crystal::Expressions)
 
-        element = input.arguments[0]?
-        element || Unknown.new(:unsupported, "#{name} unpacks #{input} with no element type")
+          bind_unpacked(unpacked_member(input, position, "a nested unpacking"), target, locals)
+        end
       end
 
       def splatted(inputs : Array(Resolution), block : Crystal::Block) : Array(Resolution)
@@ -133,6 +148,31 @@ module Heucristic
           elements << element
         end
         elements
+      end
+
+      private def unpacked_member(input : Resolution, position : Int32, name : String) : Resolution
+        case input
+        in Unknown then input
+        in UnionRef
+          members = input.members.map { |member| unpacked_member(member, position, name) }
+          @unions.union(members)
+        in TypeRef
+          return indexed_member(input, position, name) unless input.is?(:tuple)
+
+          input.arguments[position]? || Unknown.new(
+            :unsupported, "#{name} unpacks past the tuple's size"
+          )
+        in MetaRef, TypeVar, ProgramRef
+          Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
+        end
+      end
+
+      private def indexed_member(input : TypeRef, position : Int32, name : String) : Resolution
+        shape = Methods::CallShape.of_types(INDEX, [TypeRef.of(:int32)] of Resolution, false)
+        found = @typer.call_on(input, shape)
+        return found unless found.is_a?(Unknown) && found.reason.unresolved_name?
+
+        Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
       end
 
       private def for_def(

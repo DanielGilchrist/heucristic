@@ -628,6 +628,8 @@ describe Heucristic::Resolve::Receiver, "unpacking indexable elements" do
     end
 
     module Indexable(T)
+      def [](index : Int) : T
+      end
     end
 
     class Array(T)
@@ -4030,5 +4032,81 @@ describe Heucristic::Resolve::Receiver, "splat type variables" do
   it "is unknown when an argument or a call splat hides the tuple's elements" do
     receiver_of_size(source, "Tuple.new(number, mystery).size").should start_with("unknown")
     receiver_of_size(source, "Tuple.new(*rest).size").should start_with("unknown")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "nested and union block unpacking" do
+  source = <<-CR
+    module Enumerable(T)
+      def each(& : T ->) : Nil
+      end
+
+      def map(& : T -> U) : Array(U) forall U
+      end
+    end
+
+    class Array(T)
+      include Enumerable(T)
+
+      def [](index : Int) : T
+      end
+    end
+
+    class Hash(K, V)
+      include Enumerable(Tuple(K, V))
+    end
+
+    class Lookup
+      def [](index : Int) : String
+      end
+    end
+
+    class Table
+      def run(
+        nested : Array(Tuple(Int32, Tuple(String, Symbol))),
+        keyed : Hash(Int32, Tuple(String, Float64)),
+        mixed : Array(Tuple(Int32, String) | Array(Int32)),
+        lookups : Array(Lookup),
+        deep : Array(Tuple(Int32, Tuple(String, Tuple(Symbol, Float64)))),
+      ) : Nil
+        nested.each { |(number, (text, symbol))| number.size; text.size; symbol.size }
+        keyed.each { |key, (text, float)| key.size; text.size; float.size }
+        mixed.each { |(head, tail)| head.size; tail.size }
+        lookups.each { |(first, second)| first.size }
+        nested.map { |(number, (text, symbol))| symbol }.size
+        deep.each { |(number, (text, (symbol, float)))| float.size }
+        nested.each { |(number, (text, symbol, extra))| extra.size }
+      end
+    end
+    CR
+
+  it "types the targets of a nested unpacking (crystal run: Int32 String Symbol)" do
+    receiver_of_size(source, "number.size").should eq("Int32")
+    receiver_of_size(source, "text.size").should eq("String")
+    receiver_of_size(source, "symbol.size }").should eq("Symbol")
+    receiver_of_size(source, "(symbol, float)))| float.size").should eq("Float64")
+  end
+
+  it "types a nested target after a plain parameter (crystal run: Int32 String Float64)" do
+    receiver_of_size(source, "key.size").should eq("Int32")
+    receiver_of_size(source, "float.size }").should eq("Float64")
+  end
+
+  it "unpacks each member of a union element (crystal run: Int32, String | Int32)" do
+    receiver_of_size(source, "head.size").should eq("Int32")
+    receiver_of_size(source, "tail.size").should eq("String | Int32")
+  end
+
+  it "types a target through the element's own [] (crystal run: String)" do
+    receiver_of_size(source, "first.size").should eq("String")
+  end
+
+  it "binds nested targets when typing the block's result" do
+    mapped = "nested.map { |(number, (text, symbol))| symbol }.size"
+    receiver_of_size(source, mapped).should eq("Array(Symbol)")
+  end
+
+  it "is unknown when a nested unpacking reaches past the tuple (crystal: index out of bounds)" do
+    receiver_of_size(source, "extra.size").should start_with("unknown")
   end
 end
