@@ -17,6 +17,7 @@ require "./answer"
 require "./macro_lookup"
 require "./parameter_hint"
 require "./source_paths"
+require "./undeclared"
 require "./uri"
 
 module Heucristic
@@ -31,6 +32,7 @@ module Heucristic
         @macros : MacroLookup,
         @sources : SourcePaths,
       ) : Nil
+        @undeclared = Undeclared.new(@workspace)
       end
 
       def answer(
@@ -42,7 +44,7 @@ module Heucristic
         case target
         in Syntax::OnDef  then answer_def(target)
         in Syntax::OnCall then answer_call(target, root)
-        in Syntax::OnPath then answer_path(target)
+        in Syntax::OnPath then answer_path(target, root)
         in Syntax::OnVar
           anchored = anchored_at(path, target.location)
           anchored.empty? ? answer_var(target, text, root) : Answer.of(anchored)
@@ -261,7 +263,7 @@ module Heucristic
         end
       end
 
-      private def answer_path(target : Syntax::OnPath) : Answer
+      private def answer_path(target : Syntax::OnPath, root : String) : Answer
         node = target.node
         context = target.context
         scope = Resolve::Scope.of(context)
@@ -273,7 +275,9 @@ module Heucristic
         @workspace.namespaces(located).each { |entry| entries << entry }
         @workspace.aliases(located).each { |entry| entries << entry }
         @workspace.constants(located).each { |entry| entries << entry }
-        Answer.of(entries)
+        return Answer.of(entries) unless entries.empty?
+
+        @undeclared.answer(located, root)
       end
 
       private def answer_var(target : Syntax::OnVar, text : Document::Text, root : String) : Answer

@@ -180,6 +180,10 @@ module Heucristic
         @enclosing.has_key?(identity)
       end
 
+      def enclosed(identity : Identity) : Array(Namespace)
+        @enclosing.entries(identity)
+      end
+
       def aliases(identity : Identity) : Array(Alias)
         @aliases.entries(identity)
       end

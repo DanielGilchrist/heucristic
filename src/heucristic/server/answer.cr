@@ -19,6 +19,15 @@ module Heucristic
         new(Array(Index::Entry).new, Array(Document::Span).new, Array(String).new, [note])
       end
 
+      def self.described(description : String) : Answer
+        new(
+          Array(Index::Entry).new,
+          Array(Document::Span).new,
+          [description],
+          Array(String).new,
+        )
+      end
+
       def self.macros(macros : Array(Index::MacroDef), descriptions : Array(String)) : Answer
         new(
           Array(Index::Entry).new,
