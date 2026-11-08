@@ -2,6 +2,7 @@ require "../../../src/heucristic/document/span"
 require "../../../src/heucristic/index/macro_target"
 require "../../../src/heucristic/index/entry"
 require "../../../src/heucristic/syntax/target"
+require "./accessors"
 require "./group"
 require "./judgement"
 require "./observation"
@@ -12,12 +13,12 @@ module Score
     class Judge
       DECLARING     = /\b(?:class|struct|module|enum|lib|annotation|alias|record)\s+(?:\w+::)*\z/
       CONSTANT_TAIL = /\A\s*(?::[^=]*)?=/
-      ACCESSOR      = /\b(?:class_)?(?:getter|property|setter)[?!]?\s[^#]*\z|\brecord\b[^#]*\z/
 
       record Slice, before : String, text : String, after : String
 
       def initialize(@definitions : Set(Place)) : Nil
         @lines = Hash(String, Array(String)?).new
+        @accessors = Accessors.new
       end
 
       def judge(observation : Observation) : Judgement
@@ -60,7 +61,7 @@ module Score
         entries.each do |entry|
           slice = slice_at(entry.path, entry.name_span)
           return Failed.new("no source at #{entry.path}") unless slice
-          next if variable_declared?(slice, name)
+          next if variable_declared?(slice, name, entry)
 
           return Failed.new("declaration text `#{slice.text}` is not `#{name}`")
         end
@@ -111,11 +112,15 @@ module Score
         end
       end
 
-      private def variable_declared?(slice : Slice, name : String) : Bool
+      private def variable_declared?(
+        slice : Slice,
+        name : String,
+        entry : Heucristic::Index::Entry,
+      ) : Bool
         return true if slice.text == name
         return false unless slice.text == name.lstrip('@')
 
-        slice.before.ends_with?('@') || ACCESSOR.matches?(slice.before)
+        slice.before.ends_with?('@') || @accessors.declares?(entry.path, entry.name_span)
       end
 
       private def declaration_failure(entry : Heucristic::Index::Entry, name : String) : String?
