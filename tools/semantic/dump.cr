@@ -293,7 +293,7 @@ module Semantic
 
     private def emit(text : String) : Nil
       @source << text << '\n'
-      @line += 1
+      @line += text.count('\n') + 1
     end
   end
 end
