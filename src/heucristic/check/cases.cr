@@ -73,7 +73,7 @@ module Heucristic
         return unless @settled.type?(resolved.identity)
 
         members = @workspace.constants_of(resolved.identity).map do |constant|
-          constant.name.rpartition("::")[2]
+          constant.identity.last
         end
         return if members.empty?
 

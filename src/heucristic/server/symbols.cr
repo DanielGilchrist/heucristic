@@ -23,16 +23,16 @@ module Heucristic
         file = @workspace.file(path)
         return Array(LSProtocol::DocumentSymbol).new unless file
 
-        containers = Hash(String, Array(LSProtocol::DocumentSymbol)).new
+        containers = Hash(Index::Owner, Array(LSProtocol::DocumentSymbol)).new
         roots = Array(LSProtocol::DocumentSymbol).new
         file.namespaces.each do |entry|
           children = Array(LSProtocol::DocumentSymbol).new
-          containers[entry.name] = children
+          containers[entry.identity] = children
         end
         file.namespaces.each do |entry|
-          children = containers[entry.name]
+          children = containers[entry.identity]
           symbol = document_symbol(label(entry), kind_of(entry), entry.name_span, children)
-          place(entry.name.rpartition("::")[0], symbol, containers, roots)
+          place(entry.identity.parent, symbol, containers, roots)
         end
         members(file).each do |owner, entry|
           symbol = document_symbol(label(entry), kind_of(entry), entry.name_span, nil)
@@ -44,12 +44,12 @@ module Heucristic
       def matching(query : String, root : String) : Array(LSProtocol::SymbolInformation)
         needle = query.downcase
         found = Array(LSProtocol::SymbolInformation).new
-        reopenings = Hash(String, Array(Index::Namespace)).new
+        reopenings = Hash(Index::Identity, Array(Index::Namespace)).new
         @workspace.each_file do |file|
           next unless project?(file.path, root)
 
           file.namespaces.each do |entry|
-            (reopenings[entry.name] ||= Array(Index::Namespace).new) << entry
+            (reopenings[entry.identity] ||= Array(Index::Namespace).new) << entry
           end
           file.defs.each do |entry|
             consider(found, entry, entry.name, needle, container(entry.owner))
@@ -57,8 +57,8 @@ module Heucristic
           file.constants.each { |entry| consider(found, entry, entry.name, needle, nil) }
           file.aliases.each { |entry| consider(found, entry, entry.name, needle, nil) }
         end
-        reopenings.each do |name, entries|
-          consider(found, primary(name, entries), name, needle, nil)
+        reopenings.each do |identity, entries|
+          consider(found, primary(identity, entries), identity.name, needle, nil)
         end
         found.sort_by! do |symbol|
           prefix = symbol.name.downcase.starts_with?(needle) ? 0 : 1
@@ -67,10 +67,13 @@ module Heucristic
         found.first(LIMIT)
       end
 
-      private def primary(name : String, entries : Array(Index::Namespace)) : Index::Namespace
+      private def primary(
+        identity : Index::Identity,
+        entries : Array(Index::Namespace),
+      ) : Index::Namespace
         return entries[0] if entries.size == 1
 
-        basename = name.rpartition("::")[2].underscore
+        basename = identity.last.underscore
         named = entries.find { |entry| ::File.basename(entry.path, ".cr") == basename }
         return named if named
 
@@ -123,25 +126,22 @@ module Heucristic
         true
       end
 
-      private def members(file : Index::File) : Array({String, Index::Entry})
-        found = Array({String, Index::Entry}).new
-        file.defs.each do |entry|
-          owner = entry.owner
-          found << {owner.is_a?(Index::Identity) ? owner.name : "", entry}
-        end
-        file.constants.each { |entry| found << {entry.name.rpartition("::")[0], entry} }
+      private def members(file : Index::File) : Array({Index::Owner, Index::Entry})
+        found = Array({Index::Owner, Index::Entry}).new
+        file.defs.each { |entry| found << {entry.owner, entry} }
+        file.constants.each { |entry| found << {entry.identity.parent, entry} }
         seen = Set(String).new
         file.instance_vars.each do |entry|
-          found << {entry.owner.name, entry} if seen.add?("#{entry.owner}#{entry.name}")
+          found << {entry.owner, entry} if seen.add?("#{entry.owner}#{entry.name}")
         end
-        file.aliases.each { |entry| found << {entry.name.rpartition("::")[0], entry} }
+        file.aliases.each { |entry| found << {entry.identity.parent, entry} }
         found
       end
 
       private def place(
-        owner : String,
+        owner : Index::Owner,
         symbol : LSProtocol::DocumentSymbol,
-        containers : Hash(String, Array(LSProtocol::DocumentSymbol)),
+        containers : Hash(Index::Owner, Array(LSProtocol::DocumentSymbol)),
         roots : Array(LSProtocol::DocumentSymbol),
       ) : Nil
         (containers[owner]? || roots) << symbol
@@ -166,7 +166,7 @@ module Heucristic
         case entry
         in Index::Def then entry.receiver.metaclass? ? "self.#{entry.name}" : entry.name
         in Index::Constant, Index::Alias, Index::Namespace
-          entry.name.rpartition("::")[2]
+          entry.identity.last
         in Index::InstanceVar then entry.name
         end
       end

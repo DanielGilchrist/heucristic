@@ -14,6 +14,11 @@ module Heucristic
         separator ? Public.new(name[0, separator]) : TopLevel.new
       end
 
+      def last : String
+        separator = name.rindex("::")
+        separator ? name[(separator + 2)..] : name
+      end
+
       def to_s(io : IO) : Nil
         io << name
       end
@@ -31,6 +36,11 @@ module Heucristic
       def parent : Owner
         separator = name.rindex("::")
         separator ? FilePrivate.new(name[0, separator], path) : TopLevel.new
+      end
+
+      def last : String
+        separator = name.rindex("::")
+        separator ? name[(separator + 2)..] : name
       end
 
       def to_s(io : IO) : Nil

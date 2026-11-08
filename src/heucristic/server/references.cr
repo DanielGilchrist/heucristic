@@ -62,7 +62,7 @@ module Heucristic
         found = Array(LSProtocol::Location).new
         qualified = entries.compact_map { |entry| qualified_name(entry) }.uniq!
         qualified.each do |identity|
-          last = identity.name.rpartition("::")[2]
+          last = identity.last
           @workspace.path_uses(last).each do |use|
             next unless names?(use, identity)
 

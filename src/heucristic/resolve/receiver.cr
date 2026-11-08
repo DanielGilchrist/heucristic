@@ -1606,7 +1606,7 @@ module Heucristic
         namespace = @workspace.namespaces(enum_type.identity).find(&.is_a?(Index::EnumNamespace))
         flags = namespace.is_a?(Index::EnumNamespace) && namespace.flags
         members = @workspace.constants_of(enum_type.identity).reject do |constant|
-          flags && constant.name.rpartition("::")[2].in?("None", "All")
+          flags && constant.identity.last.in?("None", "All")
         end
         return TypeRef.of(:nil) if members.empty?
 

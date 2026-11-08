@@ -217,9 +217,9 @@ module Heucristic
         defs_of(owner).each { |entry| names << entry.name }
         macros_of(owner).each { |entry| names << entry.name }
         instance_vars_of(owner).each { |entry| names << entry.name }
-        constants_of(owner).each { |entry| names << entry.name.rpartition("::")[2] }
+        constants_of(owner).each { |entry| names << entry.identity.last }
         @aliases_by_owner.entries(owner).each do |entry|
-          names << entry.name.rpartition("::")[2]
+          names << entry.identity.last
         end
         @enclosing.entries(owner).each do |entry|
           names << entry.name[(owner.name.size + 2)..].partition("::")[0]

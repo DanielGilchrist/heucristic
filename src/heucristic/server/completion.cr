@@ -22,6 +22,8 @@ module Heucristic
         path : String,
         source_paths : Array(String)
 
+      alias Child = {String, LSProtocol::CompletionItemKind}
+
       REQUIRE_PREFIX = /\A\s*require\s+"([^"]*)\z/
 
       def initialize(
@@ -180,7 +182,9 @@ module Heucristic
                   else
                     named = Syntax::Named.new(names, target.node.global?)
                     located = @types.locate_any(named, Resolve::Scope.of(target.context))
-                    located.is_a?(Index::Identity) ? [located.name] : Array(String).new
+                    owners = Array(Index::Owner).new
+                    owners << located if located.is_a?(Index::Identity)
+                    owners
                   end
         parents.each do |parent|
           children_of(parent).each do |name, kind|
@@ -192,20 +196,23 @@ module Heucristic
         items
       end
 
-      private def scope_chain(context : Syntax::Context) : Array(String)
-        chain = Array(String).new
+      private def scope_chain(context : Syntax::Context) : Array(Index::Owner)
+        chain = Array(Index::Owner).new
         current = context.owner
         while current.is_a?(Index::Identity)
-          chain << current.name
+          chain << current
           current = current.parent
         end
-        chain << ""
+        chain << Index::TopLevel.new
         chain
       end
 
-      private def children_of(parent : String) : Array({String, LSProtocol::CompletionItemKind})
-        found = Array({String, LSProtocol::CompletionItemKind}).new
-        prefix = parent.empty? ? "" : "#{parent}::"
+      private def children_of(parent : Index::Owner) : Array(Child)
+        found = Array(Child).new
+        prefix = case parent
+                 in Index::Identity then "#{parent.name}::"
+                 in Index::TopLevel then ""
+                 end
         @workspace.each_file do |file|
           file.namespaces.each do |entry|
             next unless direct_child?(entry.name, prefix)
