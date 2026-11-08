@@ -10,10 +10,14 @@ module Score
     at : At?,
     verification : Verification?,
     defines : Array(String),
-    macros : Bool do
+    macros : Bool,
+    specs : Bool,
+    count : Int32?,
+    main : String? do
     enum Mode
       Scan
       Check
+      Features
     end
 
     record Verification, count : Int32, main : String
@@ -25,6 +29,7 @@ module Score
       mode = Mode::Scan
       why = false
       macros = true
+      specs = false
       only = nil
       at = nil
       count = nil
@@ -41,6 +46,10 @@ module Score
           why = true
         when "--no-macros"
           macros = false
+        when "--features"
+          mode = Mode::Features
+        when "--specs"
+          specs = true
         when "--only", "--main", "--define", "--at", "--verify"
           value = args[index + 1]?
           return Invalid.new("#{argument} needs a value") unless value
@@ -66,7 +75,7 @@ module Score
       end
 
       verification = count && main && count > 0 ? Verification.new(count, main) : nil
-      new(root, mode, why, only, at, verification, defines, macros)
+      new(root, mode, why, only, at, verification, defines, macros, specs, count, main)
     end
   end
 end

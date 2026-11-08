@@ -4,7 +4,8 @@ module Score
       STDERR.puts "score: #{reason}"
       STDERR.puts "usage: score [<project>] [--check [--why] [--only <suffix>]] " \
                   "[--at <file>:<line>[:<column>]] [--verify <count> --main <file>] " \
-                  "[--define <flag>]... [--no-macros]"
+                  "[--define <flag>]... [--no-macros] " \
+                  "[--features [--specs] [--verify <count> [--main <file>]]]"
       1
     end
   end

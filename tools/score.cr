@@ -5,6 +5,7 @@ require "../src/heucristic/index/workspace"
 require "../src/heucristic/crystal_env"
 require "../src/heucristic/server/shim_roots"
 require "./score/corpus"
+require "./score/features/survey"
 require "./score/expansion"
 require "./score/options"
 require "./score/scan"
@@ -58,8 +59,9 @@ module Score
     )
 
     case options.mode
-    in .check? then Sweep.new(corpus, options).run
-    in .scan?  then Scan.new(corpus, options).run
+    in .check?    then Sweep.new(corpus, options).run
+    in .scan?     then Scan.new(corpus, options).run
+    in .features? then Features::Survey.new(corpus, options).run
     end
   end
 end
