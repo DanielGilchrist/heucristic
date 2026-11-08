@@ -23,6 +23,8 @@ require "./uri"
 module Heucristic
   module Server
     class Answerer
+      RESCUE_KEYWORD = "rescue"
+
       def initialize(
         @workspace : Index::Workspace,
         @types : Resolve::Types,
@@ -287,8 +289,22 @@ module Heucristic
           @hints.for(target.name, target.context, root).try { |hint| notes << hint }
         end
         spans = Array(Document::Span).new
-        add_span(spans, text, introduced_at(target), target.name.size)
+        if (rescued = rescue_variable(target, text))
+          spans << rescued
+        else
+          add_span(spans, text, introduced_at(target), target.name.size)
+        end
         Answer.new(Array(Index::Entry).new, spans, notes, Array(String).new)
+      end
+
+      private def rescue_variable(target : Syntax::OnVar, text : Document::Text) : Document::Span?
+        clause = target.context.ancestors.reverse_each.find do |node|
+          node.is_a?(Crystal::Rescue) && node.name == target.name
+        end
+        location = clause.try(&.location)
+        return unless location
+
+        text.span_of(target.name, location, RESCUE_KEYWORD.size)
       end
 
       private def introduced_at(target : Syntax::OnVar) : Crystal::Location?

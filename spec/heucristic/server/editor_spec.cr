@@ -6,6 +6,15 @@ private def hover_text(response : Heucristic::Protocol::Response) : String?
   response.result.try(&.["contents"]?).try(&.["value"]?).try(&.as_s?)
 end
 
+private def starts(response : Heucristic::Protocol::Response) : Array({Int32, Int32})?
+  response.result.try(&.as_a?).try do |locations|
+    locations.map do |location|
+      start = location["range"]["start"]
+      {start["line"].as_i, start["character"].as_i}
+    end
+  end
+end
+
 private def with_document(source : String, & : LspClient ->) : Nil
   client = LspClient.in_process
   client.initialize!("/tmp/heucristic-spec-empty")
@@ -56,6 +65,14 @@ describe "hover and definition at editor positions" do
       text = hover_text(client.hover(URI_A, 0, 7)).to_s
       text.should contain("alias Query = Hash(String, String)")
       client.definition(URI_A, 0, 7).result.try(&.as_a?).try(&.size).should eq(1)
+    end
+  end
+
+  it "jumps from a rescue variable to the rescue clause that binds it" do
+    source = "def run\n  exit\nrescue ex : Exception\n  ex.message\nrescue boom\n  boom\nend\n"
+    with_document(source) do |client|
+      starts(client.definition(URI_A, 3, 3)).should eq([{2, 7}])
+      starts(client.definition(URI_A, 5, 3)).should eq([{4, 7}])
     end
   end
 end

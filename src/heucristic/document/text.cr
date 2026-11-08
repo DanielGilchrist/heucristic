@@ -90,6 +90,23 @@ module Heucristic
         found.is_a?(Span) ? found : nil
       end
 
+      def span_of(word : String, after : Crystal::Location, skipping : Int32) : Span?
+        line = after.line_number - 1
+        start = @line_starts[line]?
+        return unless start
+
+        tail = line_slice(start, line_end(line))[(after.column_number - 1 + skipping)..]?
+        return unless tail
+
+        word_start = tail.lstrip(' ')
+        return unless word_start.starts_with?(word)
+
+        column = after.column_number + skipping + tail.size - word_start.size
+        from = Point.new(line + 1, column)
+        found = span(from, from.advance(word.size))
+        found.is_a?(Span) ? found : nil
+      end
+
       def splice(from : Int32, to : Int32, replacement : String) : Text
         Text.new(String.build(@source.bytesize + replacement.bytesize) do |io|
           io.write(@source.to_slice[0, from])
