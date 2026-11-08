@@ -442,20 +442,13 @@ module Heucristic
         found = first_level(type, call) do |entry|
           entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
         end
-        return found unless found.empty?
+        return alongside_initialize(type, call, found) unless found.empty?
 
         extended = extended_methods(type, call)
         return extended unless extended.empty?
 
         if Syntax::WellKnown::New.named?(call.name)
-          constructor = Call.new(
-            Syntax::WellKnown::Initialize.method_name,
-            call.arity,
-            call.block,
-            call.arguments,
-            call.named,
-            call.named_arguments,
-          )
+          constructor = initializer_call(call)
           constructed = instance_methods(type, constructor)
           return constructed unless constructed.empty?
 
@@ -566,6 +559,31 @@ module Heucristic
           free_vars: Array(String).new,
           yields: false,
         )]
+      end
+
+      private def initializer_call(call : Call) : Call
+        Call.new(
+          Syntax::WellKnown::Initialize.method_name,
+          call.arity,
+          call.block,
+          call.arguments,
+          call.named,
+          call.named_arguments,
+        )
+      end
+
+      private def alongside_initialize(
+        type : String,
+        call : Call,
+        explicit : Array(Index::Def),
+      ) : Array(Index::Def)
+        return explicit unless Syntax::WellKnown::New.named?(call.name)
+
+        constructor = initializer_call(call)
+        constructed = instance_methods(type, constructor)
+        return explicit if constructed.empty?
+
+        most_specific(explicit + constructed, call)
       end
 
       private def extended_methods(type : String, call : Call) : Array(Index::Def)

@@ -473,3 +473,22 @@ describe Heucristic::Resolve::Methods, "loaded files" do
     methods.named_on(limit, "new", "/p/src/main.cr").map(&.path).should eq(["/std/unix.cr"])
   end
 end
+
+describe Heucristic::Resolve::Methods, "new next to initialize" do
+  source = <<-CR
+    class Handler
+      def initialize(dir : String, @flag : Bool = true)
+      end
+
+      def self.new(dir : String, flag = true)
+      end
+    end
+    CR
+
+  it "keeps initialize beside an explicit self.new with unrestricted parameters" do
+    call = Heucristic::Resolve::Methods::Call.new("new", 1, false)
+    lines = lookup_meta(source, "Handler", call).map(&.name_span.start_line)
+
+    lines.should contain(1)
+  end
+end
