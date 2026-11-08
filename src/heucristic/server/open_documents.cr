@@ -1,5 +1,6 @@
 require "../document/store"
 require "../document/text"
+require "../index/workspace"
 require "../syntax"
 require "./uri"
 
@@ -8,7 +9,7 @@ module Heucristic
     class OpenDocuments
       getter dirty : Set(String)
 
-      def initialize : Nil
+      def initialize(@workspace : Index::Workspace) : Nil
         @store = Document::Store.new
         @trees = Hash(String, Crystal::ASTNode).new
         @dirty = Set(String).new
@@ -71,7 +72,9 @@ module Heucristic
 
       def text(path : String) : Document::Text?
         document = @store[Uri.from_path(path)]
-        document.text if document.is_a?(Document::Open)
+        return document.text if document.is_a?(Document::Open)
+
+        @workspace.sites(path).try(&.text)
       end
 
       def version(uri : String) : Int32?

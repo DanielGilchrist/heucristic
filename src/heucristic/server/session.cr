@@ -33,8 +33,8 @@ require "./completion"
 require "./rename"
 require "../index/sites"
 require "./macro_status"
-require "./compiler"
-require "./compiler_status"
+require "./compiler_state"
+require "./project_files"
 require "./notice"
 require "./stage"
 require "./published"
@@ -60,8 +60,6 @@ module Heucristic
 
       @macro_status : MacroStatus
 
-      @compiler_status : CompilerStatus
-
       @semantic : String?
 
       @executable : String?
@@ -81,14 +79,13 @@ module Heucristic
         @loose = Set(String).new
         @indexed = false
         @semantic = nil
-        @compiler = Compiler.new(events)
-        @compiler_status = CompilerPending.new
         @executable = nil
         @published = Published.new
         @check_generations = Hash(String, Int32).new
         @sweep = 0
-        @documents = OpenDocuments.new
         @workspace = Index::Workspace.new
+        @documents = OpenDocuments.new(@workspace)
+        @compiler = CompilerState.new(events, @transport, @documents)
         @shims = Index::Shims.new
         @types = Resolve::Types.new(@workspace)
         @methods = Resolve::Methods.new(@workspace, @types)
@@ -262,37 +259,23 @@ module Heucristic
       end
 
       def compiler_started : Nil
-        @compiler_status = CompilerPending.new
-        notify_compiler
+        @compiler.started
       end
 
       def compiler_finished(event : Index::CompilerFinished) : Nil
-        frame = placed_frame(event.errors)
-        batch = compiler_batch(frame)
-        @published.compiler(batch).each do |uri|
-          publish(uri, @documents.version(uri), @published.for(uri))
+        @compiler.finished(event, @root, @executable) do |batch|
+          @published.compiler(batch).each do |uri|
+            publish(uri, @documents.version(uri), @published.for(uri))
+          end
         end
-        @compiler_status = CompilerDone.new(
-          batch.size,
-          event.elapsed.total_milliseconds.round,
-          frame.try { |found| File.expand_path(found.file, @root) },
-          frame.try(&.line),
-          frame.try(&.message),
-        )
-        notify_compiler
-        @compiler.finished(@root, @executable)
       end
 
       def compiler_failed(event : Index::CompilerFailed) : Nil
-        @compiler_status = CompilerBroken.new(event.reason)
-        notify_compiler
-        @compiler.finished(@root, @executable)
+        @compiler.failed(event, @root, @executable)
       end
 
       def compiler_unavailable(event : Index::CompilerUnavailable) : Nil
-        @compiler_status = CompilerOff.new(event.reason)
-        notify_compiler
-        @compiler.finished(@root, @executable)
+        @compiler.unavailable(event, @root, @executable)
       end
 
       private def initialize_session(request : Protocol::Request) : Outcome
@@ -348,7 +331,7 @@ module Heucristic
 
       private def want_loose_macros(path : String) : Nil
         return unless @compiled.has_key?(Index::MacroTarget::Main)
-        return unless project_file?(path)
+        return unless ProjectFiles.include?(path, @root)
         return if path.starts_with?(File.join(@root, "spec") + "/")
         return if compiled_files.includes?(path) || @loose.includes?(path)
 
@@ -519,7 +502,7 @@ module Heucristic
           params.new_name,
           target.is_a?(Syntax::OnInstanceVar),
           answer.entries.any?(Index::Namespace) || target.is_a?(Syntax::OnPath),
-        ) { |file| text_of(file) }
+        ) { |file| @documents.text(file) }
         if edit.is_a?(Rename::Invalid)
           return error(request.id, Protocol::Encoder::INVALID_REQUEST, edit.reason)
         end
@@ -907,81 +890,6 @@ module Heucristic
         @macros.start(@root, @semantic, :loose) unless @loose.empty?
         @compiler.start(@root, @executable)
         Silence.new
-      end
-
-      private def notify_compiler : Nil
-        payload = case (status = @compiler_status)
-                  in CompilerPending
-                    {
-                      status:     Stage::Pending.wire,
-                      errors:     0,
-                      elapsed_ms: 0.0,
-                      reason:     nil,
-                      file:       nil,
-                      line:       nil,
-                      message:    nil,
-                    }
-                  in CompilerDone
-                    {
-                      status:     Stage::Done.wire,
-                      errors:     status.errors,
-                      elapsed_ms: status.elapsed_ms,
-                      reason:     nil,
-                      file:       status.file,
-                      line:       status.line,
-                      message:    status.message,
-                    }
-                  in CompilerBroken
-                    {
-                      status:     Stage::Failed.wire,
-                      errors:     0,
-                      elapsed_ms: 0.0,
-                      reason:     status.reason,
-                      file:       nil,
-                      line:       nil,
-                      message:    nil,
-                    }
-                  in CompilerOff
-                    {
-                      status:     Stage::Unavailable.wire,
-                      errors:     0,
-                      elapsed_ms: 0.0,
-                      reason:     status.reason,
-                      file:       nil,
-                      line:       nil,
-                      message:    nil,
-                    }
-                  end
-        @transport.send(Protocol::Encoder.notification(Notice::Compiler.method, payload))
-      end
-
-      private def placed_frame(errors : Array(Check::CompilerError)) : Check::CompilerError?
-        last = errors.last?
-        return unless last
-
-        failing = errors.select do |error|
-          project_file?(error.file) && error.message == last.message
-        end
-        failing.first? || errors.reverse.find { |error| project_file?(error.file) } || last
-      end
-
-      private def compiler_batch(frame : Check::CompilerError?) : Published::Batch
-        batch = Published::Batch.new
-        return batch unless frame
-
-        path = File.expand_path(frame.file, @root)
-        uri = Uri.from_path(path)
-        batch[uri] = [Diagnostics.compiler(frame, text_of(path))]
-        batch
-      end
-
-      private def project_file?(file : String) : Bool
-        path = File.expand_path(file, @root)
-        path.starts_with?(@root + "/") && !path.starts_with?(File.join(@root, "lib") + "/")
-      end
-
-      private def text_of(path : String) : Document::Text?
-        @documents.text(path) || @workspace.sites(path).try(&.text)
       end
 
       private def notify_macros : Nil
