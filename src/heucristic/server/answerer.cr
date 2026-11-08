@@ -56,6 +56,35 @@ module Heucristic
         end
       end
 
+      def sections(answer : Answer, root : String) : Array(String)
+        sections = answer.descriptions.dup
+        if sections.empty? && answer.notes.empty?
+          sections.concat(describe_all(answer.entries, root))
+        end
+        sections.concat(answer.notes)
+      end
+
+      def locations(answer : Answer, uri : String) : Array(LSProtocol::Location)
+        locations = Array(LSProtocol::Location).new(answer.entries.size)
+        answer.entries.each do |entry|
+          location = locate(entry)
+          locations << location if location
+        end
+        answer.spans.each do |span|
+          locations << LSProtocol::Location.new(range: span.to_range, uri: URI.parse(uri))
+        end
+        answer.macros.each do |definition|
+          uri_of = URI.parse(Uri.from_path(definition.path))
+          locations << LSProtocol::Location.new(range: definition.name_span.to_range, uri: uri_of)
+        end
+        answer.files.each do |file|
+          origin = LSProtocol::Position.new(line: 0, character: 0)
+          range = LSProtocol::Range.new(start: origin, end: origin)
+          locations << LSProtocol::Location.new(range: range, uri: URI.parse(Uri.from_path(file)))
+        end
+        locations
+      end
+
       def describe_all(entries : Array(Index::Entry), root : String) : Array(String)
         namespaces = entries.select(Index::Namespace)
         return entries.map { |entry| describe(entry, root) } if namespaces.size < 2

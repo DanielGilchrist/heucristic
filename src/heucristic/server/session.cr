@@ -514,11 +514,7 @@ module Heucristic
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
         answer = answer_at(params.text_document.uri.to_s, params.position)
-        sections = answer.descriptions.dup
-        if sections.empty? && answer.notes.empty?
-          sections.concat(@answerer.describe_all(answer.entries, @root))
-        end
-        sections.concat(answer.notes)
+        sections = @answerer.sections(answer, @root)
         sections << "nothing indexed for this position" if sections.empty?
 
         contents = LSProtocol::MarkupContent.new(
@@ -533,23 +529,7 @@ module Heucristic
 
         uri = params.text_document.uri.to_s
         answer = answer_at(uri, params.position)
-        locations = Array(LSProtocol::Location).new(answer.entries.size)
-        answer.entries.each do |entry|
-          location = @answerer.locate(entry)
-          locations << location if location
-        end
-        answer.spans.each do |span|
-          locations << LSProtocol::Location.new(range: span.to_range, uri: URI.parse(uri))
-        end
-        answer.macros.each do |definition|
-          uri_of = URI.parse(Uri.from_path(definition.path))
-          locations << LSProtocol::Location.new(range: definition.name_span.to_range, uri: uri_of)
-        end
-        answer.files.each do |file|
-          origin = LSProtocol::Position.new(line: 0, character: 0)
-          range = LSProtocol::Range.new(start: origin, end: origin)
-          locations << LSProtocol::Location.new(range: range, uri: URI.parse(Uri.from_path(file)))
-        end
+        locations = @answerer.locations(answer, uri)
         reply(request.id, locations.empty? ? nil : locations)
       end
 

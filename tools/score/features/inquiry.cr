@@ -69,18 +69,10 @@ module Score
       end
 
       private def reply_to(answer : Heucristic::Server::Answer) : Reply
-        return Empty.new if hover_sections(answer).empty?
+        return Empty.new if @answerer.sections(answer, @root).empty?
         return unanswered(answer) unless answered?(answer)
 
         Answered.new(located?(answer))
-      end
-
-      private def hover_sections(answer : Heucristic::Server::Answer) : Array(String)
-        sections = answer.descriptions.dup
-        if sections.empty? && answer.notes.empty?
-          sections.concat(@answerer.describe_all(answer.entries, @root))
-        end
-        sections.concat(answer.notes)
       end
 
       private def answered?(answer : Heucristic::Server::Answer) : Bool
@@ -90,8 +82,7 @@ module Score
       end
 
       private def located?(answer : Heucristic::Server::Answer) : Bool
-        !answer.spans.empty? || !answer.macros.empty? || !answer.files.empty? ||
-          answer.entries.any? { |entry| @answerer.locate(entry) }
+        !@answerer.locations(answer, "file:///").empty?
       end
 
       private def unanswered(answer : Heucristic::Server::Answer) : Unanswered
