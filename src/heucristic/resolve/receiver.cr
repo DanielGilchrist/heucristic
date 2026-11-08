@@ -13,6 +13,7 @@ require "./unify"
 require "./render"
 require "./local_declarations"
 require "./body_facts"
+require "./memos"
 require "./local_assignments"
 require "./variable_references"
 require "./flow"
@@ -91,15 +92,8 @@ module Heucristic
       ) : Nil
         @precedence = MacroPrecedence.new(@workspace, @methods)
         @depth = 0
-        @exit_answers = Hash(String, Hash(UInt64, Bool)).new
-        @facts = Hash(UInt64, BodyFacts).new
-        @typed_values = Hash(UInt64, Resolution).new
-        @call_results = Hash(CallKey, CachedCall).new
+        @memos = Memos.new
         @depth_exhausted = 0
-        @block_inputs = Hash({UInt64, Int32}, Resolution).new
-        @yield_scopes = Hash(UInt64, Resolution | Unscoped).new
-        @expanded = Hash(UInt64, Expanded | Syntax::Broken).new
-        @macro_assigned = Hash(UInt64, Hash(String, String)).new
       end
 
       def result_of(
@@ -113,13 +107,13 @@ module Heucristic
         end
 
         key = CallKey.of(call, context)
-        cached = @call_results[key]?
+        cached = @memos.call_results[key]?
         return cached.result if cached && cached.context.same_as?(context)
 
         exhausted = @depth_exhausted
         result = computed_result(call, context, locals, visiting)
         if exhausted == @depth_exhausted && !unsettled?(result)
-          @call_results[key] = CachedCall.new(call, context.copy, result)
+          @memos.call_results[key] = CachedCall.new(call, context.copy, result)
         end
         result
       end
@@ -228,10 +222,10 @@ module Heucristic
         context.blocks.reverse_each do |block_call|
           next if opaque_block?(block_call)
 
-          scope = @yield_scopes[block_call.object_id]? || begin
+          scope = @memos.yield_scopes[block_call.object_id]? || begin
             computed = block_scope(block_call, context)
             if computed.is_a?(Unscoped) || !unsettled?(computed)
-              @yield_scopes[block_call.object_id] = computed
+              @memos.yield_scopes[block_call.object_id] = computed
             end
             computed
           end
@@ -376,25 +370,11 @@ module Heucristic
       end
 
       def invalidate : Nil
-        @exit_answers.clear
-        @facts.clear
-        @typed_values.clear
-        @call_results.clear
-        @block_inputs.clear
-        @yield_scopes.clear
-        @expanded.clear
-        @macro_assigned.clear
+        @memos.clear
       end
 
       def forget(path : String) : Nil
-        @exit_answers.delete(path)
-        @facts.clear
-        @typed_values.clear
-        @call_results.clear
-        @block_inputs.clear
-        @yield_scopes.clear
-        @expanded.clear
-        @macro_assigned.clear
+        @memos.forget(path)
       end
 
       def remembered_exit(
@@ -813,7 +793,7 @@ module Heucristic
         filename = call.location.try(&.filename)
         return unless filename.is_a?(String)
 
-        @exit_answers[filename] ||= Hash(UInt64, Bool).new
+        @memos.exit_answers(filename)
       end
 
       private def module?(receiver : Resolved) : Bool
@@ -1152,7 +1132,7 @@ module Heucristic
       end
 
       private def facts_of(body : Crystal::ASTNode) : BodyFacts
-        @facts[body.object_id] ||= BodyFacts.of(body)
+        @memos.facts[body.object_id] ||= BodyFacts.of(body)
       end
 
       private def facts_for(context : Syntax::Context) : BodyFacts?
@@ -1459,7 +1439,7 @@ module Heucristic
       private def value_type(value : Crystal::ASTNode, locals : Array(Binding)) : Resolution?
         return unless locals.empty?
 
-        @typed_values[value.object_id]?
+        @memos.typed_values[value.object_id]?
       end
 
       private def remember_value(
@@ -1467,7 +1447,7 @@ module Heucristic
         typed : Resolution,
         locals : Array(Binding),
       ) : Resolution
-        @typed_values[value.object_id] = typed if locals.empty? && !unsettled?(typed)
+        @memos.typed_values[value.object_id] = typed if locals.empty? && !unsettled?(typed)
         typed
       end
 
@@ -1919,11 +1899,11 @@ module Heucristic
           receiver = of_call(call, outer, locals, visiting)
           return receiver if receiver.is_a?(Unknown)
 
-          input = @block_inputs[{call.object_id, index}]? || begin
+          input = @memos.block_inputs[{call.object_id, index}]? || begin
             shape = shape_of(call, outer, locals, visiting)
             computed = block_inputs(receiver, shape, index, block.args.size)
             if locals.empty? && !unsettled?(computed)
-              @block_inputs[{call.object_id, index}] = computed
+              @memos.block_inputs[{call.object_id, index}] = computed
             end
             computed
           end
@@ -2470,7 +2450,7 @@ module Heucristic
         context : Syntax::Context,
         path : String,
       ) : Expanded | Syntax::Broken
-        @expanded[call.object_id] ||= expand(call, found, context, path)
+        @memos.expanded[call.object_id] ||= expand(call, found, context, path)
       end
 
       private def expand(
@@ -2527,7 +2507,7 @@ module Heucristic
         facts = facts_for(context)
         return unless path && facts
 
-        assigners = @macro_assigned[facts.object_id] ||= macro_assigners(facts, context, path)
+        assigners = @memos.macro_assigned[facts.object_id] ||= macro_assigners(facts, context, path)
         assigners[name]?
       end
 
