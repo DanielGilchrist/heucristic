@@ -4,6 +4,7 @@ require "./file"
 require "./accessor"
 require "./synthesized"
 require "./record_head"
+require "./declaration_macros"
 require "./macro_hook"
 require "./body_traits"
 require "./signature"
@@ -146,7 +147,7 @@ module Heucristic
         end
         body = node.body
         fields = body.is_a?(Crystal::Expressions) ? body.expressions : [body]
-        fields.each { |field| c_field(field) }
+        declarations.try { |macros| fields.each { |field| macros.c_field(field) } }
         false
       end
 
@@ -301,7 +302,8 @@ module Heucristic
 
       def visit(node : Crystal::Call) : Bool
         if node.obj.nil? && (accessor = Accessor.from_name(node.name))
-          return accessors(node, accessor)
+          declarations.try(&.accessors(node, accessor))
+          return false
         end
         synthesized = node.obj.nil? ? Synthesized.from_name(node.name) : nil
         unless synthesized
@@ -311,7 +313,9 @@ module Heucristic
         end
 
         case synthesized
-        in .delegate?           then return delegates(node)
+        in .delegate?
+          declarations.try(&.delegates(node))
+          return false
         in .forward_missing_to? then return record_missing_handler(node)
         in .record?             then nil
         end
@@ -332,10 +336,7 @@ module Heucristic
             private_path: private_path(node),
           )
         end
-        fields = node.args.skip(1)
-        fields.each { |field| record_field(field) }
-        record_initializer(name, fields)
-        record_copies(name)
+        declarations.try(&.record_declared(name, node.args.skip(1)))
         node.block.try(&.accept(self))
         @owners.pop
         false
@@ -345,12 +346,21 @@ module Heucristic
         true
       end
 
+      private def declarations : DeclarationMacros?
+        namespace = owner
+        return if namespace.is_a?(TopLevel)
+
+        DeclarationMacros.new(
+          namespace, @path, @text, visibility, @definitions.last?, @defs, @instance_vars
+        )
+      end
+
       private def record_missing_handler(node : Crystal::Call) : Bool
         anything = [
           Parameter.new("args", "args", Unrestricted.new, nil, :splat),
           Parameter.new("options", "options", Unrestricted.new, nil, :double_splat),
         ]
-        record_forward(node)
+        declarations.try(&.forward(node))
         record_macro(
           MacroHook::MethodMissing.macro_name,
           node,
@@ -359,16 +369,6 @@ module Heucristic
           :declaring,
           false,
         )
-      end
-
-      private def record_forward(node : Crystal::Call) : Nil
-        target = node.args[0]?
-        return if owner.is_a?(TopLevel) || target.nil?
-
-        span = span_of(node, node.name.size)
-        return unless span
-
-        @defs << Def.forwarder(MacroHook::MethodMissing.macro_name, owner, @path, span, target)
       end
 
       private def record_macro(
@@ -421,46 +421,6 @@ module Heucristic
         )
       end
 
-      private def record_copies(name : Crystal::Path) : Nil
-        span = span_of(name, name.to_s.size)
-        return unless span
-
-        add_def("clone", :instance, span, Array(Parameter).new, Syntax::SelfType.new)
-        changes = Parameter.new("changes", "changes", Unrestricted.new, nil, :double_splat)
-        add_def("copy_with", :instance, span, [changes], Syntax::SelfType.new)
-      end
-
-      private def record_initializer(name : Crystal::Path, fields : Array(Crystal::ASTNode)) : Nil
-        span = span_of(name, name.to_s.size)
-        return unless span
-
-        parameters = fields.compact_map do |field|
-          case field
-          in Crystal::TypeDeclaration
-            var = field.var
-            next unless var.is_a?(Crystal::Var)
-            restriction = Syntax::TypeReader.read(field.declared_type)
-            Parameter.new(var.name, var.name, restriction, field.value.try(&.to_s), :positional)
-          in Crystal::Assign
-            target = field.target
-            next unless target.is_a?(Crystal::Var)
-            evident = Evident.type(field.value)
-            type = evident.is_a?(Syntax::Type) ? evident : Unrestricted.new
-            Parameter.new(target.name, target.name, type, field.value.to_s, :positional)
-          in Crystal::ASTNode then nil
-          end
-        end
-        required = parameters.count(&.default.nil?)
-        @defs << Def.synthetic(
-          name: Syntax::WellKnown::Initialize.method_name,
-          owner: owner,
-          path: @path,
-          name_span: span,
-          parameters: parameters,
-          arity: Arity.new(required, parameters.size - required, false),
-        )
-      end
-
       private def constant(
         name : Crystal::Path,
         value : Crystal::ASTNode,
@@ -502,9 +462,8 @@ module Heucristic
         namespace = owner
         return if namespace.is_a?(TopLevel)
 
-        initialized ||= origin.assigned? && @definitions.empty?
-        @instance_vars << InstanceVar.new(
-          name, namespace, type, @path, span, origin, expression, initialized, @definitions.last?,
+        @instance_vars << InstanceVar.build(
+          name, namespace, type, @path, span, origin, expression, initialized, @definitions.last?
         )
       end
 
@@ -609,119 +568,6 @@ module Heucristic
         end
       end
 
-      private def delegates(node : Crystal::Call) : Bool
-        return false if owner.is_a?(TopLevel)
-        target = node.named_args.try(&.find(&.name.==("to"))).try(&.value)
-        return false unless target
-
-        node.args.each do |arg|
-          name = case arg
-                 in Crystal::SymbolLiteral, Crystal::StringLiteral then arg.value
-                 in Crystal::Call
-                   arg.obj.nil? && arg.args.empty? ? arg.name : nil
-                 in Crystal::ASTNode then nil
-                 end
-          next unless name
-          span = span_of(arg, name.size + 1)
-          next unless span
-
-          @defs << Def.forwarder(name, owner, @path, span, target)
-        end
-        false
-      end
-
-      private def accessors(node : Crystal::Call, accessor : Accessor) : Bool
-        return false if owner.is_a?(TopLevel)
-
-        lazy = !node.block.nil?
-        node.args.each { |arg| accessor(arg, accessor, lazy) }
-        false
-      end
-
-      private def accessor(arg : Crystal::ASTNode, accessor : Accessor, lazy : Bool) : Nil
-        receiver = accessor.receiver
-        case arg
-        in Crystal::TypeDeclaration
-          var = arg.var
-          return unless var.is_a?(Crystal::Var)
-          type = Syntax::TypeReader.read(arg.declared_type)
-          accessor_defs(var, var.name, type, accessor)
-          return unless receiver.instance?
-
-          span = span_of(var, var.name.size)
-          return unless span
-
-          declared = accessor.bang? || lazy ? nilable(type) : type
-          instance_var("@#{var.name}", declared, span, :declared, arg.value, !arg.value.nil?)
-        in Crystal::Assign
-          target = arg.target
-          return unless target.is_a?(Crystal::Var)
-          evident = Evident.type(arg.value)
-          type = evident.is_a?(Syntax::Type) ? evident : Unrestricted.new
-          accessor_defs(target, target.name, type, accessor)
-          return unless receiver.instance? && evident.is_a?(Syntax::Type)
-
-          instance_var("@#{target.name}", evident, span_of(target, target.name.size), :assigned)
-        in Crystal::Var
-          accessor_defs(arg, arg.name, Unrestricted.new, accessor)
-        in Crystal::Call
-          return unless arg.obj.nil? && arg.args.empty?
-
-          accessor_defs(arg, arg.name, Unrestricted.new, accessor)
-        in Crystal::SymbolLiteral, Crystal::StringLiteral
-          accessor_defs(arg, arg.value, Unrestricted.new, accessor)
-        in Crystal::ASTNode then nil
-        end
-      end
-
-      private def accessor_defs(
-        node : Crystal::ASTNode,
-        name : String,
-        type : Restriction,
-        accessor : Accessor,
-      ) : Nil
-        span = span_of(node, name.size)
-        return unless span
-
-        receiver = accessor.receiver
-        if accessor.reads?
-          reader = "#{name}#{accessor.reader_suffix}"
-          none = Array(Parameter).new
-          plain = read_of(name, receiver, false)
-          if accessor.bang?
-            add_def("#{name}?", receiver, span, none, nilable(type), plain)
-            add_def(reader, receiver, span, none, type, read_of(name, receiver, true))
-          else
-            add_def(reader, receiver, span, none, type, plain)
-          end
-        end
-        return unless accessor.writes?
-
-        value = Parameter.new("value", "value", type, nil, :positional)
-        add_def("#{name}=", receiver, span, [value], type)
-      end
-
-      private def add_def(
-        name : String,
-        receiver : Receiver,
-        span : Document::Span,
-        parameters : Array(Parameter),
-        return_type : Restriction,
-        reads : InstanceVarRead? = nil,
-      ) : Nil
-        @defs << Def.synthetic(
-          name: name,
-          owner: owner,
-          path: @path,
-          name_span: span,
-          receiver: receiver,
-          parameters: parameters,
-          return_type: return_type,
-          visibility: visibility,
-          reads: reads,
-        )
-      end
-
       private def visibility : Visibility
         @visibilities.last? || Visibility::Public
       end
@@ -734,72 +580,9 @@ module Heucristic
         Synthesized.from_name(exp.name).try(&.delegate?) || false
       end
 
-      private def span_of(node : Crystal::ASTNode, size : Int32) : Document::Span?
-        location = node.location
-        return unless location
-
-        start = Document::Point.from(location)
-        span = @text.span(start, start.advance(size))
-        span.is_a?(Document::Span) ? span : nil
-      end
-
-      private def instance_var(
-        name : String,
-        type : Syntax::TypeReader::Outcome,
-        span : Document::Span?,
-        origin : Origin,
-      ) : Nil
-        instance_var(name, type, span, origin) if span
-      end
-
-      private def record_field(field : Crystal::ASTNode) : Nil
-        return unless field.is_a?(Crystal::TypeDeclaration)
-        var = field.var
-        return unless var.is_a?(Crystal::Var)
-        location = var.location
-        return unless location
-
-        start = Document::Point.from(location)
-        span = @text.span(start, start.advance(var.name.size))
-        return unless span.is_a?(Document::Span)
-
-        type = Syntax::TypeReader.read(field.declared_type)
-        instance_var("@#{var.name}", type, span, :declared)
-        @defs << Def.synthetic(
-          name: var.name,
-          owner: owner,
-          path: @path,
-          name_span: span,
-          return_type: type,
-        )
-      end
-
       private def fun_return_type(node : Crystal::FunDef) : Restriction
         returning = node.return_type
         returning ? Restrictions.of(returning) : Syntax::Named.of(:nil)
-      end
-
-      private def c_field(field : Crystal::ASTNode) : Nil
-        record_field(field)
-        return unless field.is_a?(Crystal::TypeDeclaration)
-        var = field.var
-        return unless var.is_a?(Crystal::Var)
-        location = var.location
-        return unless location
-
-        start = Document::Point.from(location)
-        span = @text.span(start, start.advance(var.name.size))
-        return unless span.is_a?(Document::Span)
-
-        type = Syntax::TypeReader.read(field.declared_type)
-        @defs << Def.synthetic(
-          name: "#{var.name}=",
-          owner: owner,
-          path: @path,
-          name_span: span,
-          parameters: [Parameter.new("value", "value", type, nil, :positional)],
-          return_type: type,
-        )
       end
 
       private def opaque_block?(node : Crystal::Call) : Bool
@@ -845,17 +628,6 @@ module Heucristic
 
         body = node.body
         InstanceVarRead.new(body.name, false) if body.is_a?(Crystal::InstanceVar)
-      end
-
-      private def read_of(name : String, receiver : Receiver, asserted : Bool) : InstanceVarRead?
-        InstanceVarRead.new("@#{name}", asserted) if receiver.instance?
-      end
-
-      private def nilable(type : Restriction) : Restriction
-        case type
-        in Syntax::Type                                  then Syntax::Nilable.new(type)
-        in Syntax::TypeReader::Unsupported, Unrestricted then type
-        end
       end
     end
   end

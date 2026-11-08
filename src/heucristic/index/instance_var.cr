@@ -15,6 +15,21 @@ module Heucristic
       expression : Crystal::ASTNode? = nil,
       initialized : Bool = false,
       definition : Crystal::Def? = nil do
+      def self.build(
+        name : String,
+        owner : String,
+        type : Syntax::TypeReader::Outcome,
+        path : String,
+        name_span : Document::Span,
+        origin : Origin,
+        expression : Crystal::ASTNode?,
+        initialized : Bool,
+        definition : Crystal::Def?,
+      ) : InstanceVar
+        initialized ||= origin.assigned? && definition.nil?
+        new(name, owner, type, path, name_span, origin, expression, initialized, definition)
+      end
+
       def in_def? : Bool
         !definition.nil?
       end
