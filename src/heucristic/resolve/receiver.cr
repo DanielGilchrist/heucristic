@@ -786,12 +786,20 @@ module Heucristic
           Unknown.new(:no_annotation, "#{collection} does not state its element type")
       end
 
+      private def scope_in(frame : Frame) : Scope
+        scope = Scope.of(frame.context)
+        return scope if frame.locals.empty?
+
+        bindings = frame.locals.select(&.name.starts_with?("typeof("))
+        bindings.empty? ? scope : scope.copy_with(bindings: bindings)
+      end
+
       private def constructed(
         call : Crystal::Call,
         evident : Syntax::Type,
         frame : Frame,
       ) : Resolution
-        written = @types.resolve(evident, Scope.of(frame.context))
+        written = @types.resolve(evident, scope_in(frame))
         return written unless Syntax::WellKnown::New.named?(call.name)
 
         found = result_of(call, frame)
@@ -809,7 +817,7 @@ module Heucristic
         evident = Index::Evident.type(node)
         if evident.is_a?(Syntax::Type)
           return constructed(node, evident, frame) if node.is_a?(Crystal::Call)
-          return @types.resolve(evident, Scope.of(frame.context))
+          return @types.resolve(evident, scope_in(frame))
         end
 
         case node

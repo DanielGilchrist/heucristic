@@ -98,7 +98,19 @@ module Heucristic
 
         inner = frame.visited(key)
         bound = bindings(statements, expanded.isolated, call, inner)
-        @typer.type_of(last, inner.with_locals(bound + frame.locals))
+        @typer.type_of(tuple_of(last), inner.with_locals(bound + frame.locals))
+      end
+
+      private def tuple_of(node : Crystal::ASTNode) : Crystal::ASTNode
+        return node unless node.is_a?(Crystal::Call) && node.name == "new"
+        return node unless node.block.nil? && node.named_args.nil?
+        return node if node.args.empty?
+        return node if node.args.any?(Crystal::Splat)
+
+        receiver = node.obj
+        return node unless receiver.is_a?(Crystal::Path) && receiver.names == ["Tuple"]
+
+        Crystal::TupleLiteral.new(node.args)
       end
 
       private def expansion_of(
@@ -144,9 +156,12 @@ module Heucristic
                    "expansion of `#{call.name}` where flow decides its type"
           bound << Binding.new(name, Unknown.new(:macro, detail))
         end
-        statements[0...-1].each do |statement|
-          next unless statement.is_a?(Crystal::Assign)
-
+        isolated.type_ofs.each do |node|
+          scoped = frame.with_locals(bound + frame.locals)
+          typed = instance_of(@typer.type_of(node, scoped))
+          bound.unshift(Binding.new("typeof(#{node.expressions.join(", ")})", typed))
+        end
+        isolated.straight.each do |statement|
           target = statement.target
           next unless target.is_a?(Crystal::Var)
           next if isolated.nested.includes?(target.name)
@@ -155,6 +170,18 @@ module Heucristic
           bound.unshift(Binding.new(target.name, typed))
         end
         bound
+      end
+
+      private def instance_of(resolution : Resolution) : Resolution
+        case resolution
+        in MetaRef
+          resolution.of
+        in UnionRef
+          members = resolution.members.map { |member| instance_of(member) }
+          UnionRef.new(members)
+        in TypeRef, TypeVar, ProgramRef, Unknown
+          resolution
+        end
       end
 
       private def assigners(

@@ -3503,6 +3503,68 @@ describe Heucristic::Resolve::Receiver, "macro expansions" do
   end
 end
 
+describe Heucristic::Resolve::Receiver, "macro expansions with a begin block" do
+  source = <<-CR
+    def raise(error : Exception) : NoReturn
+    end
+
+    class Channel(T)
+      def initialize(capacity : Int32)
+      end
+
+      def receive : T
+      end
+    end
+
+    class Crate
+      def self.text : String
+      end
+
+      macro gather
+        channel = Channel(typeof(Crate.text) | Exception).new(1)
+        Tuple.new(
+          begin
+            received = channel.receive
+            received.is_a?(Exception) ? raise received : received
+          end,
+          1,
+        )
+      end
+
+      macro wrapped
+        begin
+          value = "text"
+          value
+        end
+      end
+
+      def run : Nil
+        gather[0].size
+        wrapped.size
+      end
+    end
+    CR
+
+  expansions = [
+    expansion_at(
+      source, "gather[0]", "gather",
+      "channel = Channel(typeof(Crate.text) | Exception).new(1)\nTuple.new(\n  begin\n" \
+      "    received = channel.receive\n" \
+      "    received.is_a?(Exception) ? raise received : received\n" \
+      "  end,\n  1,\n)"
+    ),
+    expansion_at(source, "wrapped.size", "wrapped", "begin\n  value = \"text\"\n  value\nend"),
+  ]
+
+  it "types a begin's straight-line assignments inside a call argument (crystal run: String)" do
+    receiver_of_size(source, "gather[0].size", expansions).should eq("String")
+  end
+
+  it "types a top-level begin's straight-line assignments (crystal run: String)" do
+    receiver_of_size(source, "wrapped.size", expansions).should eq("String")
+  end
+end
+
 describe Heucristic::Resolve::Receiver, "memoised call results" do
   source = <<-CR
     class Out
