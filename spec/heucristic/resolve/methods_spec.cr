@@ -808,3 +808,95 @@ describe Heucristic::Resolve::Methods, "dispatch on union arguments" do
     found.map(&.qualified).sort!.should eq(["Base#same", "Text#same", "Twice#same"])
   end
 end
+
+METACLASS_SOURCE = <<-CR
+  module Walkable
+  end
+
+  class Animal
+  end
+
+  class Dog < Animal
+  end
+
+  class Robot
+    include Walkable
+  end
+
+  class Decoder
+    def self.decode(kind : Dog.class, bytes : String) : Dog
+    end
+
+    def self.decode(kind : Robot.class, bytes : String) : Robot
+    end
+  end
+  CR
+
+private def metaclass_methods(source : String) : Heucristic::Resolve::Methods
+  tree = Heucristic::Syntax.parse(source, "a.cr")
+  raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+  workspace = Heucristic::Index::Workspace.new
+  workspace.update(
+    Heucristic::Index::Collector.collect(
+      "a.cr", Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+    )
+  )
+  Heucristic::Resolve::Methods.new(workspace, Heucristic::Resolve::Types.new(workspace))
+end
+
+private def metaclass_of(name : String) : Heucristic::Resolve::MetaRef
+  Heucristic::Resolve::MetaRef.new(type_ref(name))
+end
+
+private def admits_metaclass?(
+  restriction : Heucristic::Resolve::Resolution,
+  argument : Heucristic::Resolve::Resolved,
+) : Bool
+  metaclass_methods(METACLASS_SOURCE).admits?(restriction, argument)
+end
+
+describe Heucristic::Resolve::Methods, "metaclass arguments" do
+  it "drops the overload whose metaclass restriction does not match the argument" do
+    string = type_ref("String")
+    {"Robot", "Dog"}.each do |name|
+      call = call_shape(
+        "decode", 2, false, [metaclass_of(name), string] of Heucristic::Resolve::Resolution
+      )
+      lookup_meta(METACLASS_SOURCE, "Decoder", call).map(&.return_type.to_s).should eq([name])
+    end
+  end
+
+  it "rejects an unrelated metaclass" do
+    admits_metaclass?(metaclass_of("Animal"), metaclass_of("Robot")).should be_false
+  end
+
+  it "admits a subclass metaclass for a superclass metaclass restriction only" do
+    admits_metaclass?(metaclass_of("Animal"), metaclass_of("Dog")).should be_true
+    admits_metaclass?(metaclass_of("Dog"), metaclass_of("Animal")).should be_false
+  end
+
+  it "admits a metaclass of a class that includes the restricted module" do
+    admits_metaclass?(metaclass_of("Walkable"), metaclass_of("Robot")).should be_true
+    admits_metaclass?(metaclass_of("Walkable"), metaclass_of("Dog")).should be_false
+  end
+
+  it "rejects a value where a metaclass is required" do
+    admits_metaclass?(metaclass_of("Animal"), type_ref("Dog")).should be_false
+  end
+
+  it "admits a metaclass of a type variable on either side" do
+    variable = Heucristic::Resolve::MetaRef.new(Heucristic::Resolve::TypeVar.new("T"))
+    admits_metaclass?(metaclass_of("Animal"), variable).should be_true
+    admits_metaclass?(variable, metaclass_of("Animal")).should be_true
+  end
+
+  it "admits a metaclass for Object, Value and Class but not Reference or another class" do
+    dog = metaclass_of("Dog")
+    admits_metaclass?(type_ref("Object"), dog).should be_true
+    admits_metaclass?(type_ref("Value"), dog).should be_true
+    admits_metaclass?(type_ref("Class"), dog).should be_true
+    admits_metaclass?(type_ref("Reference"), dog).should be_false
+    admits_metaclass?(type_ref("Animal"), dog).should be_false
+  end
+end

@@ -377,7 +377,7 @@ module Heucristic
           restriction.members.any? do |member|
             member.is_a?(Unknown) || admits?(member, argument, admission)
           end
-        in MetaRef    then argument.is_a?(MetaRef)
+        in MetaRef    then admits_metaclass?(restriction, argument)
         in ProgramRef then false
         in TypeRef
           case argument
@@ -390,8 +390,10 @@ module Heucristic
               (admission.check? && descends?(restriction.identity, argument.identity)) ||
               (admission.check? && included_below?(argument.identity, restriction.identity))
           in UnionRef then false
-          in MetaRef  then restriction.is?(:class) || @workspace.module?(restriction.identity)
-          in TypeVar  then true
+          in MetaRef
+            restriction.is?(:class) || restriction.is?(:object) || restriction.is?(:value) ||
+              @workspace.module?(restriction.identity)
+          in TypeVar then true
           end
         end
       end
@@ -583,6 +585,19 @@ module Heucristic
         return false unless argument.is?(:symbol)
 
         @workspace.enum?(restriction.identity)
+      end
+
+      private def admits_metaclass?(restriction : MetaRef, argument : Resolved) : Bool
+        case argument
+        in MetaRef
+          wanted = restriction.of
+          given = argument.of
+          return true if wanted.is_a?(TypeVar) || given.is_a?(TypeVar)
+
+          wanted.identity == given.identity || ancestor?(given.identity, wanted.identity)
+        in TypeVar                       then true
+        in TypeRef, ProgramRef, UnionRef then false
+        end
       end
 
       private def ancestor?(type : Index::Identity, candidate : Index::Identity) : Bool
