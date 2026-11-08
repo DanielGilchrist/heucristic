@@ -183,6 +183,18 @@ module Heucristic
         @namespaces[name]? || Array(Namespace).new
       end
 
+      def module?(name : String) : Bool
+        namespaces(name).any?(ModuleNamespace)
+      end
+
+      def enum?(name : String) : Bool
+        namespaces(name).any?(EnumNamespace)
+      end
+
+      def lib?(name : String) : Bool
+        namespaces(name).any?(LibNamespace)
+      end
+
       def encloses?(name : String) : Bool
         @enclosing.has_key?(name)
       end

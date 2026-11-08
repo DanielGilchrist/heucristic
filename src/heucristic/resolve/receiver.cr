@@ -744,14 +744,10 @@ module Heucristic
         @memos.exit_answers(filename)
       end
 
-      private def module?(receiver : Resolved) : Bool
-        receiver.is_a?(TypeRef) && @workspace.namespaces(receiver.name).any?(Index::ModuleNamespace)
-      end
-
       private def owning(entry : Index::Def, receiver : Resolved) : Resolved
         owner = entry.owner
         return receiver unless owner.is_a?(String) && receiver.is_a?(TypeRef)
-        return receiver if receiver.name == owner || module?(receiver)
+        return receiver if receiver.name == owner || @workspace.module?(receiver.name)
 
         chain = @types.ancestors(receiver.name)
         return receiver if chain.is_a?(Array(String)) && chain.includes?(owner)
@@ -977,7 +973,7 @@ module Heucristic
         owner : String,
         visiting : Array(String),
       ) : Resolution?
-        return unless @workspace.namespaces(owner).any?(Index::ModuleNamespace)
+        return unless @workspace.module?(owner)
         return if visiting.includes?(owner)
 
         found = Array(Resolution).new
@@ -1856,7 +1852,7 @@ module Heucristic
         visiting : Array(String),
       ) : Resolution
         owner = name.rpartition("::")[0]
-        if @workspace.namespaces(owner).any?(Index::EnumNamespace)
+        if @workspace.enum?(owner)
           return TypeRef.new(owner, Array(Resolution).new)
         end
         owner_scope = owner.empty? ? Scope::TOP : Scope.of(owner)
@@ -2280,7 +2276,8 @@ module Heucristic
           end
           return annotated[0] if annotated.size == 1
         end
-        return @unions.union(results) if module?(receiver)
+        module_receiver = receiver.is_a?(TypeRef) && @workspace.module?(receiver.name)
+        return @unions.union(results) if module_receiver
 
         Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
       end

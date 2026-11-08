@@ -53,12 +53,12 @@ module Heucristic
       end
 
       private def provable?(path : Crystal::Path, scope : Resolve::Scope) : Bool
-        return false if @workspace.namespaces(path.names[0]).any?(Index::LibNamespace)
+        return false if @workspace.lib?(path.names[0])
         return enclosing_settled?(scope) if path.names.size == 1
 
         head = @types.locate_any(Syntax::Named.new(path.names[0...-1], path.global?), scope)
         return false if head.is_a?(Resolve::Unknown)
-        return false if @workspace.namespaces(head).any?(Index::LibNamespace)
+        return false if @workspace.lib?(head)
 
         @settled.namespace?(head)
       end
@@ -71,7 +71,7 @@ module Heucristic
 
       private def inside_lib?(context : Syntax::Context) : Bool
         context.enclosing.any? do |namespace|
-          @workspace.namespaces(namespace).any?(Index::LibNamespace)
+          @workspace.lib?(namespace)
         end
       end
     end

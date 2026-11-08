@@ -31,7 +31,8 @@ module Heucristic
         bindings = bind(receiver.name, receiver.arguments)
         found = walk(receiver.name, bindings, target, types, Array(String).new)
         return found unless found.is_a?(NotAnAncestor)
-        return Array(Binding).new if module?(receiver.name) && type_vars_of(target).empty?
+        module_target = @workspace.module?(receiver.name) && type_vars_of(target).empty?
+        return Array(Binding).new if module_target
 
         Unknown.new(:unresolved_name, "#{target} is not an ancestor of #{receiver}")
       end
@@ -53,10 +54,6 @@ module Heucristic
           return entry.splat_index if entry.is_a?(Index::ClassNamespace) && entry.splat_index
         end
         Builtins.splat_index(name)
-      end
-
-      private def module?(name : String) : Bool
-        @workspace.namespaces(name).any?(Index::ModuleNamespace)
       end
 
       private def walk(

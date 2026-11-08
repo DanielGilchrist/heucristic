@@ -311,7 +311,7 @@ module Heucristic
         chain = @types.ancestors(type)
         found = chain.is_a?(Unknown) ? [type] : [type] + chain
         object = CoreType::Object.type_name
-        found << object if module?(type) && !found.includes?(object)
+        found << object if @workspace.module?(type) && !found.includes?(object)
         found
       end
 
@@ -339,7 +339,7 @@ module Heucristic
               (lenient && descends?(restriction.name, argument.name)) ||
               (lenient && included_below?(argument.name, restriction.name))
           in UnionRef then false
-          in MetaRef  then restriction.is?(:class) || module?(restriction.name)
+          in MetaRef  then restriction.is?(:class) || @workspace.module?(restriction.name)
           in TypeVar  then true
           end
         end
@@ -369,7 +369,9 @@ module Heucristic
       end
 
       private def included_below?(type : String, ancestor : String) : Bool
-        module?(type) && @descendants.of(ancestor).any? { |below| descends?(below, type) }
+        return false unless @workspace.module?(type)
+
+        @descendants.of(ancestor).any? { |below| descends?(below, type) }
       end
 
       private def descends?(type : String, ancestor : String) : Bool
@@ -404,7 +406,7 @@ module Heucristic
       private def autocast?(argument : TypeRef, restriction : TypeRef) : Bool
         return false unless argument.is?(:symbol)
 
-        @workspace.namespaces(restriction.name).any?(Index::EnumNamespace)
+        @workspace.enum?(restriction.name)
       end
 
       private def ancestor?(type : String, candidate : String) : Bool
@@ -428,7 +430,7 @@ module Heucristic
 
       private def includer_methods(type : String, call : Call) : Array(Index::Def)
         return Array(Index::Def).new if @including.includes?(type)
-        return Array(Index::Def).new unless @workspace.namespaces(type).any?(Index::ModuleNamespace)
+        return Array(Index::Def).new unless @workspace.module?(type)
 
         @including << type
         found = Array(Index::Def).new
@@ -501,7 +503,7 @@ module Heucristic
       end
 
       private def includers_candidates(type : String) : Array(Index::Def)
-        return Array(Index::Def).new unless @workspace.namespaces(type).any?(Index::ModuleNamespace)
+        return Array(Index::Def).new unless @workspace.module?(type)
 
         includers_of(type).flat_map { |includer| instance_candidates(includer) }
       end
@@ -547,10 +549,6 @@ module Heucristic
           found.concat(instance_methods(resolved.name, call)) if resolved.is_a?(TypeRef)
         end
         found.uniq!
-      end
-
-      private def module?(type : String) : Bool
-        @workspace.namespaces(type).any?(Index::ModuleNamespace)
       end
 
       private def default_constructor(type : String, call : Call) : Array(Index::Def)
@@ -782,7 +780,7 @@ module Heucristic
         end
         return found unless found.empty?
         return found if @including.includes?(type)
-        return found unless @workspace.namespaces(type).any?(Index::ModuleNamespace)
+        return found unless @workspace.module?(type)
 
         @including << type
         includers_of(type).each { |includer| found.concat(instance_named(includer, name)) }
@@ -827,7 +825,7 @@ module Heucristic
       end
 
       private def extending_levels(type : String) : Array(String)
-        levels(type).reject { |level| level != type && module?(level) }
+        levels(type).reject { |level| level != type && @workspace.module?(level) }
       end
 
       private def constructors(type : String, caller_path : String?) : Array(Index::Def)

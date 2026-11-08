@@ -37,7 +37,7 @@ module Heucristic
         owner = site.context.owner
         return unless owner.is_a?(String)
         return unless closed?(owner)
-        return if @workspace.namespaces(owner).any?(Index::ModuleNamespace)
+        return if @workspace.module?(owner)
         return if MacroArguments.within?(site.context.ancestors, @workspace)
         location = site.node.location
         return unless location
@@ -90,7 +90,7 @@ module Heucristic
         owner = site.context.owner
         return unless owner.is_a?(String)
         return unless closed?(owner)
-        return if @workspace.namespaces(owner).any?(Index::ModuleNamespace)
+        return if @workspace.module?(owner)
         location = node.name_location
         return unless location
 

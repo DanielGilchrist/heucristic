@@ -182,7 +182,7 @@ module Heucristic
       end
 
       private def enum_member?(parent : String, full : String, scope : Scope) : Bool
-        return false unless @workspace.namespaces(parent).any?(Index::EnumNamespace)
+        return false unless @workspace.enum?(parent)
 
         @workspace.constants(full).any? { |entry| visible?(entry.private_path, scope) }
       end

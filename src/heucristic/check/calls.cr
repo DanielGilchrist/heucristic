@@ -603,7 +603,7 @@ module Heucristic
         of = receiver.of
         return false if of.is_a?(Resolve::TypeVar)
 
-        return false if @workspace.namespaces(of.name).any?(Index::EnumNamespace)
+        return false if @workspace.enum?(of.name)
 
         @settled.generated_free?(of.name)
       end
