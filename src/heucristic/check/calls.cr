@@ -450,7 +450,7 @@ module Heucristic
         end
         return receiver if remaining.empty?
 
-        remaining.size == 1 ? remaining[0] : Resolve::UnionRef.new(remaining)
+        Resolve::UnionRef.join(remaining)
       end
 
       private def top_level(name : String, context : Syntax::Context) : Array(Index::Def)
