@@ -3398,3 +3398,128 @@ describe Heucristic::Resolve::Receiver, "macro expansions" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "memoised call results" do
+  source = <<-CR
+    class Out
+      def put(value : Int32) : Out
+        self
+      end
+
+      def done : Out
+        self
+      end
+    end
+
+    class Builder
+      def build(& : Out ->) : Nil
+      end
+    end
+
+    def go(list : Array(Int32), builder : Builder) : Nil
+      builder.build do |io|
+        unless list.empty?
+          io.put(1).put(2).done
+        end
+        io.put(3).done
+      end
+    end
+    CR
+
+  markers = {"io.put(3).done", "io.put(1).put(2).done"}
+
+  it "answers every call as a fresh receiver would, whichever is asked first" do
+    tree = Heucristic::Syntax.parse(source, "a.cr")
+    raise "syntax error" if tree.is_a?(Heucristic::Syntax::Broken)
+
+    build = -> : Heucristic::Resolve::Receiver {
+      workspace = Heucristic::Index::Workspace.new
+      workspace.update(
+        Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+      )
+      types = Heucristic::Resolve::Types.new(workspace)
+      methods = Heucristic::Resolve::Methods.new(workspace, types)
+      Heucristic::Resolve::Receiver.new(workspace, Heucristic::Index::Shims.new, types, methods)
+    }
+    answer = ->(receiver : Heucristic::Resolve::Receiver, marker : String) : String {
+      line = source.lines.index!(&.includes?(marker)) + 1
+      column = source.lines[line - 1].index!(".done") + 2
+      target = Heucristic::Syntax::Cursor.find(
+        tree, Heucristic::Document::Point.new(line, column), "a.cr"
+      )
+      case target
+      in Heucristic::Syntax::OnCall then receiver.of_call(target.node, target.context).to_s
+      in Heucristic::Syntax::OnDef,
+         Heucristic::Syntax::OnPath,
+         Heucristic::Syntax::OnVar,
+         Heucristic::Syntax::OnInstanceVar,
+         Heucristic::Syntax::OnName,
+         Heucristic::Syntax::OnRequire,
+         Nil
+        "no call"
+      end
+    }
+
+    fresh = markers.map { |marker| answer.call(build.call, marker) }.to_a
+    fresh.should eq({"Out", "Out"}.to_a)
+    [markers, markers.reverse].each do |order|
+      shared = build.call
+      order.each do |marker|
+        answer.call(shared, marker).should eq(fresh[markers.index!(marker)])
+      end
+    end
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "memo contexts that share a fingerprint" do
+  source = <<-CR
+    def f(x : Box?) : Nil
+      1
+      if x
+        2
+        x.size
+      end
+    end
+
+    class Box
+      def size : Int32
+        1
+      end
+    end
+    CR
+
+  it "answers a context differing only in a middle ancestor with its own result" do
+    tree = Heucristic::Syntax.parse(source, "a.cr")
+    raise "syntax error" if tree.is_a?(Heucristic::Syntax::Broken)
+
+    workspace = Heucristic::Index::Workspace.new
+    workspace.update(
+      Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+    )
+    types = Heucristic::Resolve::Types.new(workspace)
+    methods = Heucristic::Resolve::Methods.new(workspace, types)
+    shims = Heucristic::Index::Shims.new
+    receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
+    target = Heucristic::Syntax::Cursor.find(tree, Heucristic::Document::Point.new(5, 7), "a.cr")
+    raise "cursor did not land on a call" unless target.is_a?(Heucristic::Syntax::OnCall)
+
+    narrowed = target.context
+    middle = narrowed.ancestors.index!(&.is_a?(Crystal::If))
+    ancestors = narrowed.ancestors.dup
+    ancestors[middle] = Crystal::Expressions.new
+    widened = Heucristic::Syntax::Context.new(
+      narrowed.enclosing, narrowed.type_vars, narrowed.def_node, narrowed.blocks,
+      ancestors, narrowed.path, narrowed.instance
+    )
+
+    fingerprint = ->(context : Heucristic::Syntax::Context) : {Int32, UInt64, UInt64} {
+      {context.ancestors.size, context.ancestors.first.object_id, context.ancestors.last.object_id}
+    }
+    fingerprint.call(widened).should eq(fingerprint.call(narrowed))
+
+    fresh = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
+    expected = fresh.result_of(target.node, widened).to_s
+    expected.should_not eq(receiver.result_of(target.node, narrowed).to_s)
+    receiver.result_of(target.node, widened).to_s.should eq(expected)
+  end
+end

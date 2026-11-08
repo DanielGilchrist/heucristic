@@ -34,6 +34,27 @@ module Heucristic
 
       record Unscoped
 
+      record CallKey,
+        call : UInt64,
+        ancestors : Int32,
+        first_ancestor : UInt64,
+        last_ancestor : UInt64,
+        blocks : Int32,
+        last_block : UInt64 do
+        def self.of(call : Crystal::Call, context : Syntax::Context) : CallKey
+          new(
+            call.object_id,
+            context.ancestors.size,
+            context.ancestors.first?.try(&.object_id) || 0_u64,
+            context.ancestors.last?.try(&.object_id) || 0_u64,
+            context.blocks.size,
+            context.blocks.last?.try(&.object_id) || 0_u64,
+          )
+        end
+      end
+
+      record CachedCall, node : Crystal::Call, context : Syntax::Context, result : Resolution
+
       record Expanded, tree : Crystal::ASTNode, isolated : Syntax::ExpansionLocals::Isolated
 
       record Site,
@@ -73,6 +94,8 @@ module Heucristic
         @exit_answers = Hash(String, Hash(UInt64, Bool)).new
         @facts = Hash(UInt64, BodyFacts).new
         @typed_values = Hash(UInt64, Resolution).new
+        @call_results = Hash(CallKey, CachedCall).new
+        @depth_exhausted = 0
         @block_inputs = Hash({UInt64, Int32}, Resolution).new
         @yield_scopes = Hash(UInt64, Resolution | Unscoped).new
         @expanded = Hash(UInt64, Expanded | Syntax::Broken).new
@@ -85,52 +108,20 @@ module Heucristic
         locals : Array(Binding) = Array(Binding).new,
         visiting : Array(String) = Array(String).new,
       ) : Resolution
-        return TypeRef.of(:bool) if Receiver.chained_comparison?(call)
-
-        case macro_precedence(call, context)
-        in .macro?
-          annotated = inside_annotation(call, context)
-          return annotated || macro_expansion(call, context, locals, visiting)
-        in .undecided?
-          detail = "`#{call.name}` is a macro or a def depending on arguments not known here"
-          return Unknown.new(:macro, detail)
-        in .def?
+        unless locals.empty? && visiting.empty?
+          return computed_result(call, context, locals, visiting)
         end
 
-        receiver = of_call(call, context, locals, visiting)
-        return receiver if receiver.is_a?(Unknown)
-        if receiver.is_a?(TypeRef) && receiver.is?(:tuple)
-          element = tuple_element_at(receiver, call)
-          return element if element
-        end
-        if receiver.is_a?(TypeRef) && receiver.labelled?
-          element = labelled_element_at(receiver, call)
-          return element if element
-        end
+        key = CallKey.of(call, context)
+        cached = @call_results[key]?
+        return cached.result if cached && cached.context.same_as?(context)
 
-        shape = shape_of(call, context, locals, visiting)
-        site = Site.new(
-          call.block, context, locals, visiting, shape.named_arguments, call.block_arg
-        )
-        if call.obj.nil? && Syntax::WellKnown::Super.named?(call.name)
-          return super_result(call, receiver, shape, site)
+        exhausted = @depth_exhausted
+        result = computed_result(call, context, locals, visiting)
+        if exhausted == @depth_exhausted && !unsettled?(result)
+          @call_results[key] = CachedCall.new(call, context.copy, result)
         end
-
-        outcome = result_of(receiver, shape, site)
-        if outcome.is_a?(Unknown) && outcome.reason.unresolved_name?
-          if (action = select_action(call, context))
-            return result_of(receiver, shape_of(action, context, locals, visiting), site)
-          end
-        end
-        if outcome.is_a?(Unknown)
-          return macro_result(call, context, outcome, receiver, shape, locals, visiting)
-        end
-
-        block = call.block
-        return outcome if block.nil?
-
-        escaped = break_values(block, site)
-        escaped.empty? ? outcome : union([outcome] + escaped)
+        result
       end
 
       def macro_precedence(
@@ -388,6 +379,7 @@ module Heucristic
         @exit_answers.clear
         @facts.clear
         @typed_values.clear
+        @call_results.clear
         @block_inputs.clear
         @yield_scopes.clear
         @expanded.clear
@@ -398,6 +390,7 @@ module Heucristic
         @exit_answers.delete(path)
         @facts.clear
         @typed_values.clear
+        @call_results.clear
         @block_inputs.clear
         @yield_scopes.clear
         @expanded.clear
@@ -986,6 +979,7 @@ module Heucristic
         locals : Array(Binding),
       ) : Resolution
         if @depth >= DEPTH_LIMIT
+          @depth_exhausted += 1
           return Unknown.new(:too_deep, "typing `#{node}` needs more than #{DEPTH_LIMIT} steps")
         end
 
@@ -2565,6 +2559,60 @@ module Heucristic
       ) : Methods::Call
         arity = call.has_parentheses? ? shape.arity : definition.args.size
         Methods::Call.new(definition.name, arity, shape.block, shape.arguments, shape.named)
+      end
+
+      private def computed_result(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        locals : Array(Binding),
+        visiting : Array(String),
+      ) : Resolution
+        return TypeRef.of(:bool) if Receiver.chained_comparison?(call)
+
+        case macro_precedence(call, context)
+        in .macro?
+          annotated = inside_annotation(call, context)
+          return annotated || macro_expansion(call, context, locals, visiting)
+        in .undecided?
+          detail = "`#{call.name}` is a macro or a def depending on arguments not known here"
+          return Unknown.new(:macro, detail)
+        in .def?
+        end
+
+        receiver = of_call(call, context, locals, visiting)
+        return receiver if receiver.is_a?(Unknown)
+        if receiver.is_a?(TypeRef) && receiver.is?(:tuple)
+          element = tuple_element_at(receiver, call)
+          return element if element
+        end
+        if receiver.is_a?(TypeRef) && receiver.labelled?
+          element = labelled_element_at(receiver, call)
+          return element if element
+        end
+
+        shape = shape_of(call, context, locals, visiting)
+        site = Site.new(
+          call.block, context, locals, visiting, shape.named_arguments, call.block_arg
+        )
+        if call.obj.nil? && Syntax::WellKnown::Super.named?(call.name)
+          return super_result(call, receiver, shape, site)
+        end
+
+        outcome = result_of(receiver, shape, site)
+        if outcome.is_a?(Unknown) && outcome.reason.unresolved_name?
+          if (action = select_action(call, context))
+            return result_of(receiver, shape_of(action, context, locals, visiting), site)
+          end
+        end
+        if outcome.is_a?(Unknown)
+          return macro_result(call, context, outcome, receiver, shape, locals, visiting)
+        end
+
+        block = call.block
+        return outcome if block.nil?
+
+        escaped = break_values(block, site)
+        escaped.empty? ? outcome : union([outcome] + escaped)
       end
     end
   end

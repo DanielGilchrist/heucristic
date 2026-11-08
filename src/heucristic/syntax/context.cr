@@ -30,6 +30,20 @@ module Heucristic
         )
       end
 
+      def same_as?(other : Context) : Bool
+        return false unless path == other.path && instance == other.instance
+        return false unless def_node.same?(other.def_node)
+
+        enclosing == other.enclosing && type_vars == other.type_vars &&
+          same_nodes?(blocks, other.blocks) && same_nodes?(ancestors, other.ancestors)
+      end
+
+      def copy : Context
+        Context.new(
+          enclosing.dup, type_vars.dup, def_node, blocks.dup, ancestors.dup, path, instance
+        )
+      end
+
       def instance_code? : Bool
         instance || accessor_block.try(&.receiver.instance?) || false
       end
@@ -81,6 +95,13 @@ module Heucristic
 
       def inside(parent : Crystal::ASTNode, child : Crystal::ASTNode) : Context
         inside(parent).inside(child)
+      end
+
+      private def same_nodes?(left : Array(T), right : Array(T)) : Bool forall T
+        return false unless left.size == right.size
+
+        left.each_with_index { |node, index| return false unless node.same?(right[index]) }
+        true
       end
 
       private def enclosing_def(nodes : Array(Crystal::ASTNode)) : Crystal::Def?
