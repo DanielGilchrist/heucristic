@@ -13,7 +13,7 @@ module Heucristic
         @receiver : Resolution,
         @typer : Receiver,
         @context : Syntax::Context,
-        @visiting : Array(String),
+        @visiting : Array(Visit),
       ) : Nil
       end
 

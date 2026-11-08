@@ -195,7 +195,7 @@ module Heucristic
         end
 
         site = Resolve::Receiver::Site.new(
-          call.block, target.context, Array(Resolve::Binding).new, Array(String).new
+          call.block, target.context, Array(Resolve::Binding).new, Array(Resolve::Visit).new
         )
         sections = found.map do |entry|
           describe_resolved(entry, receiver, shape.arguments, site, root)

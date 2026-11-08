@@ -14,6 +14,7 @@ require "./render"
 require "./local_declarations"
 require "./body_facts"
 require "./memos"
+require "./visit"
 require "./unions"
 require "./special"
 require "./local_assignments"
@@ -64,14 +65,14 @@ module Heucristic
         block : Crystal::Block?,
         context : Syntax::Context,
         locals : Array(Binding),
-        visiting : Array(String),
+        visiting : Array(Visit),
         named : Array(Binding) = Array(Binding).new,
         block_arg : Crystal::ASTNode? = nil do
         NONE = new(
           nil,
           Syntax::Context.new(Array(String).new, Array(String).new, nil),
           Array(Binding).new,
-          Array(String).new,
+          Array(Visit).new,
         )
       end
 
@@ -103,7 +104,7 @@ module Heucristic
         call : Crystal::Call,
         context : Syntax::Context,
         locals : Array(Binding) = Array(Binding).new,
-        visiting : Array(String) = Array(String).new,
+        visiting : Array(Visit) = Array(Visit).new,
       ) : Resolution
         unless locals.empty? && visiting.empty?
           return computed_result(call, context, locals, visiting)
@@ -133,7 +134,7 @@ module Heucristic
 
       def forwarded_receiver(receiver : Resolved) : Resolution?
         handler = missing_handler(receiver)
-        forward_receiver(handler, [handler.qualified]) if handler
+        forward_receiver(handler, Array(Visit){DefVisit.new(handler.qualified)}) if handler
       end
 
       def select_action(call : Crystal::Call, context : Syntax::Context) : Crystal::Call?
@@ -146,7 +147,7 @@ module Heucristic
         call : Crystal::Call,
         context : Syntax::Context,
         locals : Array(Binding) = Array(Binding).new,
-        visiting : Array(String) = Array(String).new,
+        visiting : Array(Visit) = Array(Visit).new,
       ) : Methods::Call
         arguments = Array(Resolution).new(call.args.size)
         call.args.each { |argument| arguments << type_of(argument, context, visiting, locals) }
@@ -213,7 +214,7 @@ module Heucristic
         call : Crystal::Call,
         context : Syntax::Context,
         locals : Array(Binding) = Array(Binding).new,
-        visiting : Array(String) = Array(String).new,
+        visiting : Array(Visit) = Array(Visit).new,
       ) : Resolution
         receiver = call.obj
         return implicit_receiver(call, context) unless receiver
@@ -238,11 +239,11 @@ module Heucristic
       end
 
       def variable(name : String, context : Syntax::Context) : Resolution
-        variable(name, context, Array(String).new, Array(Binding).new)
+        variable(name, context, Array(Visit).new, Array(Binding).new)
       end
 
       def instance_var(name : String, context : Syntax::Context) : Resolution
-        instance_var(name, context, Array(String).new)
+        instance_var(name, context, Array(Visit).new)
       end
 
       def return_type(
@@ -328,7 +329,7 @@ module Heucristic
       def remembered_exit(
         call : Crystal::Call,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         & : Resolution -> Bool
       ) : Bool
         answers = exit_answers(call)
@@ -342,23 +343,23 @@ module Heucristic
       end
 
       def no_return?(entry : Index::Def) : Bool
-        no_return?(entry, Array(String).new)
+        no_return?(entry, Array(Visit).new)
       end
 
       def narrowing_steps(name : String, context : Syntax::Context) : Array(Flow::Step)
-        exits = exits_for(context, Array(String).new)
+        exits = exits_for(context, Array(Visit).new)
         Flow.steps(name, context.ancestors, exits, facts_for(context))
       end
 
       def typed(node : Crystal::ASTNode, context : Syntax::Context) : Resolution
-        type_of(node, context, Array(String).new, Array(Binding).new)
+        type_of(node, context, Array(Visit).new, Array(Binding).new)
       end
 
       def type_of(entry : Index::Constant) : Resolution
-        constant_type(entry, entry.name, Array(String).new)
+        constant_type(entry, entry.name, Array(Visit).new)
       end
 
-      private def no_return?(entry : Index::Def, visiting : Array(String)) : Bool
+      private def no_return?(entry : Index::Def, visiting : Array(Visit)) : Bool
         restriction = entry.return_type
         if restriction.is_a?(Index::Unrestricted)
           shim = @shims.find(entry)
@@ -371,19 +372,19 @@ module Heucristic
         tail = entry.exit_call
         return false unless tail
         return true if KnownExits.new.terminates?(Crystal::Call.new(nil, tail))
-        return false if visiting.includes?(entry.qualified)
+        return false if visiting.includes?(DefVisit.new(entry.qualified))
 
         owner = entry.owner
         return false unless owner.is_a?(String)
 
         callees = @methods.named_on(TypeRef.new(owner, Array(Resolution).new), tail)
-        deeper = visiting + [entry.qualified]
+        deeper = visiting + [DefVisit.new(entry.qualified)]
         !callees.empty? && callees.all? { |callee| no_return?(callee, deeper) }
       end
 
       private def case_subject(
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         enclosing = context.ancestors.reverse_each.find { |node| node.is_a?(Crystal::Case) }
@@ -442,7 +443,7 @@ module Heucristic
         receiver : Resolved,
         shape : Methods::Call,
         locals : Array(Binding),
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution
         return outcome unless outcome.reason.unresolved_name?
         annotated = inside_annotation(call, context)
@@ -472,7 +473,7 @@ module Heucristic
         call : Crystal::Call,
         context : Syntax::Context,
         locals : Array(Binding),
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution
         expanded = expanded_result(call, context, locals, visiting)
         return expanded if expanded
@@ -487,7 +488,7 @@ module Heucristic
       private def instance_var(
         name : String,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution
         owner = context.owner
         if owner.is_a?(Index::TopLevel)
@@ -504,7 +505,7 @@ module Heucristic
           scope = ivar_scope(owner, level)
           return scope if scope.is_a?(Unknown)
 
-          return instance_var_from(entries, level, scope, visiting + [name])
+          return instance_var_from(entries, level, scope, visiting + [InstanceVarVisit.new(name)])
         end
 
         from_includers = includers_instance_var(name, owner, visiting)
@@ -519,7 +520,7 @@ module Heucristic
         entries : Array(Index::InstanceVar),
         level : String,
         scope : Scope,
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution
         declared = entries.select(&.origin.declared?)
         unless declared.empty?
@@ -565,7 +566,7 @@ module Heucristic
       private def case_value(
         node : Crystal::Case,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         branches = Array(Resolution).new(node.whens.size + 1)
@@ -585,7 +586,7 @@ module Heucristic
       private def select_value(
         node : Crystal::Select,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         branches = Array(Resolution).new(node.whens.size + 1)
@@ -602,7 +603,7 @@ module Heucristic
       private def rescued_value(
         node : Crystal::ExceptionHandler,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         branches = Array(Resolution).new
@@ -618,7 +619,7 @@ module Heucristic
       private def op_assigned(
         node : Crystal::OpAssign,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         current = type_of(node.target, context, visiting, locals)
@@ -638,7 +639,7 @@ module Heucristic
       private def hash_literal(
         node : Crystal::HashLiteral,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         if node.entries.empty?
@@ -675,7 +676,7 @@ module Heucristic
         declared(Syntax::TypeReader.read(output), Scope.of(context))
       end
 
-      private def exits_for(context : Syntax::Context, visiting : Array(String)) : CallExits
+      private def exits_for(context : Syntax::Context, visiting : Array(Visit)) : CallExits
         CallExits.new(@methods, implicit_self(context), self, context, visiting)
       end
 
@@ -686,9 +687,10 @@ module Heucristic
       ) : Resolution?
         handler = missing_handler(receiver)
         return unless handler
-        return Unknown.new(:cycle, handler.qualified) if site.visiting.includes?(handler.qualified)
+        visit = DefVisit.new(handler.qualified)
+        return visit.cycle if site.visiting.includes?(visit)
 
-        visiting = site.visiting + [handler.qualified]
+        visiting = site.visiting + [visit]
         delegate = forward_receiver(handler, visiting)
         return delegate if delegate.is_a?(Unknown)
 
@@ -705,7 +707,7 @@ module Heucristic
         end
       end
 
-      private def forward_receiver(handler : Index::Def, visiting : Array(String)) : Resolution
+      private def forward_receiver(handler : Index::Def, visiting : Array(Visit)) : Resolution
         target = handler.forwards_to
         return Unknown.new(:unresolved_name, handler.qualified) unless target
 
@@ -971,10 +973,11 @@ module Heucristic
       private def includers_instance_var(
         name : String,
         owner : String,
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution?
         return unless @workspace.module?(owner)
-        return if visiting.includes?(owner)
+        visit = IncluderVisit.new(owner)
+        return if visiting.includes?(visit)
 
         found = Array(Resolution).new
         @workspace.each_mixin do |mixin|
@@ -988,7 +991,7 @@ module Heucristic
           next unless resolved.is_a?(TypeRef) && resolved.name == owner
 
           context = Syntax::Context.new([includer], Array(String).new, nil)
-          resolution = instance_var(name, context, visiting + [owner])
+          resolution = instance_var(name, context, visiting + [visit])
           found << resolution unless resolution.is_a?(Unknown)
         end
         return if found.empty?
@@ -1009,7 +1012,7 @@ module Heucristic
       private def type_of(
         node : Crystal::ASTNode,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         if @depth >= DEPTH_LIMIT
@@ -1028,7 +1031,7 @@ module Heucristic
       private def typed(
         node : Crystal::ASTNode,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         return constant(node, context, visiting) if node.is_a?(Crystal::Path)
@@ -1103,7 +1106,7 @@ module Heucristic
       private def variable(
         name : String,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         return implicit_self(context) if Syntax::WellKnown::SelfName.named?(name)
@@ -1120,7 +1123,7 @@ module Heucristic
           uncarried = steps.reject { |step| step.is_a?(Flow::Reassigned) && step.carried }
           return narrow(local.value, name, uncarried, context, visiting, locals)
         end
-        return Unknown.new(:cycle, name) if visiting.includes?(key)
+        return key.cycle if visiting.includes?(key)
 
         if (captured = captured(name, context, visiting, locals))
           return captured
@@ -1147,7 +1150,7 @@ module Heucristic
       private def captured(
         name : String,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution?
         index = context.proc_index
@@ -1206,7 +1209,7 @@ module Heucristic
         name : String,
         steps : Array(Flow::Step),
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         key = variable_key(name, context)
@@ -1349,15 +1352,15 @@ module Heucristic
         end
       end
 
-      private def variable_key(name : String, context : Syntax::Context) : String
+      private def variable_key(name : String, context : Syntax::Context) : VariableVisit
         owner = context.blocks.last? || context.def_node
-        owner ? "#{name}@#{owner.object_id}" : name
+        VariableVisit.new(name, owner.try(&.object_id))
       end
 
       private def declared_variable(
         name : String,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
         steps : Array(Flow::Step),
       ) : Resolution
@@ -1399,7 +1402,7 @@ module Heucristic
         end
 
         key = variable_key(name, context)
-        return Unknown.new(:cycle, name) if visiting.includes?(key)
+        return key.cycle if visiting.includes?(key)
 
         if (from_block = block_parameter(name, context, locals, visiting + [key]))
           return from_block
@@ -1448,7 +1451,7 @@ module Heucristic
         step : Flow::Branched,
         name : String,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         return current if !step.assigns && (current.is_a?(TypeVar) || current.is_a?(Unknown))
@@ -1532,7 +1535,7 @@ module Heucristic
       private def elements(
         nodes : Array(Crystal::ASTNode),
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
         & : Resolution -> Resolution
       ) : Resolution
@@ -1650,6 +1653,7 @@ module Heucristic
         owner = entry.owner
         enclosing = owner.is_a?(String) ? [owner] : Array(String).new
         sites = Syntax::YieldSites.in(definition, enclosing, entry.free_vars, entry.path)
+        visiting = Array(Visit){DefVisit.new(entry.qualified)}
         scopes = Array(Resolution).new
         sites.each do |site|
           expression = site.node.scope
@@ -1658,7 +1662,7 @@ module Heucristic
           if expression.is_a?(Crystal::Var) && Syntax::WellKnown::SelfName.named?(expression.name)
             scopes << owning(entry, receiver)
           else
-            scopes << type_of(expression, site.context, [entry.qualified], Array(Binding).new)
+            scopes << type_of(expression, site.context, visiting, Array(Binding).new)
           end
         end
         if scopes.empty?
@@ -1682,7 +1686,7 @@ module Heucristic
         found : Array(Escapes::Found),
         block : Crystal::Block,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Array(Resolution)
         found.map do |escape|
@@ -1734,9 +1738,10 @@ module Heucristic
         owner = entry.owner
         enclosing = owner.is_a?(String) ? [owner] : Array(String).new
         context = Syntax::Context.new(enclosing, Array(String).new, nil, entry.path, true)
-        return Unknown.new(:cycle, entry.qualified) if site.visiting.includes?(entry.qualified)
+        visit = DefVisit.new(entry.qualified)
+        return visit.cycle if site.visiting.includes?(visit)
 
-        visiting = site.visiting + [entry.qualified]
+        visiting = site.visiting + [visit]
         delegate = type_of(target, context, visiting, Array(Binding).new)
         return delegate if delegate.is_a?(Unknown)
 
@@ -1755,9 +1760,10 @@ module Heucristic
         if owner.is_a?(Index::TopLevel)
           return Unknown.new(:no_annotation, "#{name} outside any type")
         end
-        return Unknown.new(:cycle, entry.qualified) if site.visiting.includes?(entry.qualified)
+        visit = DefVisit.new(entry.qualified)
+        return visit.cycle if site.visiting.includes?(visit)
 
-        visiting = site.visiting + [entry.qualified]
+        visiting = site.visiting + [visit]
         entries = @workspace.instance_vars_of(owner).select(&.name.==(name))
         if entries.empty?
           context = Syntax::Context.new([owner], @types.type_vars_of(owner), nil, entry.path)
@@ -1819,7 +1825,7 @@ module Heucristic
       private def constant(
         path : Crystal::Path,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution
         scope = Scope.of(context)
         if path.names.size == 1 && !path.global? && scope.type_vars.includes?(path.names[0])
@@ -1837,9 +1843,10 @@ module Heucristic
 
         constants = @workspace.constants(located)
         return @unions.metaclass_of(@types.resolve(named, scope)) if constants.empty?
-        return Unknown.new(:cycle, located) if visiting.includes?(located)
+        visit = ConstantVisit.new(located)
+        return visit.cycle if visiting.includes?(visit)
 
-        @unions.union(constants.map { |entry| constant_type(entry, located, visiting + [located]) })
+        @unions.union(constants.map { |entry| constant_type(entry, located, visiting + [visit]) })
       end
 
       private def placeholder?(expression : Crystal::ASTNode) : Bool
@@ -1849,7 +1856,7 @@ module Heucristic
       private def constant_type(
         entry : Index::Constant,
         name : String,
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution
         owner = name.rpartition("::")[0]
         if @workspace.enum?(owner)
@@ -1880,7 +1887,7 @@ module Heucristic
         name : String,
         context : Syntax::Context,
         locals : Array(Binding),
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution?
         context.blocks.reverse_each do |call|
           block = call.block
@@ -2041,10 +2048,11 @@ module Heucristic
         end
 
         values = Array(Resolution).new(sites.size)
+        visiting = Array(Visit){DefVisit.new(entry.qualified)}
         sites.each do |site|
           exps = site.node.exps
           if exps.size == 1 && parameters > 1
-            packed = type_of(exps[0], site.context, [entry.qualified], Array(Binding).new)
+            packed = type_of(exps[0], site.context, visiting, Array(Binding).new)
             if packed.is_a?(TypeRef) && packed.is?(:tuple) && (element = packed.arguments[index]?)
               values << element
               next
@@ -2054,7 +2062,7 @@ module Heucristic
           unless expression
             return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values")
           end
-          values << type_of(expression, site.context, [entry.qualified], Array(Binding).new)
+          values << type_of(expression, site.context, visiting, Array(Binding).new)
         end
         scope = return_scope(entry, receiver, arguments, Site::NONE)
         scope.is_a?(Unknown) ? @unions.union(values) : @unions.rebind(@unions.union(values), scope)
@@ -2294,8 +2302,8 @@ module Heucristic
         subclasses = @methods.concrete_subclasses(receiver, call.caller_path)
         return direct if subclasses.empty?
 
-        key = "#{receiver}##{call.name}/#{call.arity}"
-        return Unknown.new(:cycle, key) if site.visiting.includes?(key)
+        key = DispatchVisit.new(receiver, call.name, call.arity)
+        return key.cycle if site.visiting.includes?(key)
 
         virtual_only = @methods.abstract_class?(receiver.name)
         selfish = defs.any? { |entry| self_typed?(entry) }
@@ -2315,7 +2323,7 @@ module Heucristic
           next unless selfish || seen.add?(definition_key(below_defs))
 
           result = overloads_result(below_defs, below, call, inner)
-          next if result.is_a?(Unknown) && result.reason.cycle? && result.detail == key
+          next if result == key.cycle
 
           results << result
         end
@@ -2362,7 +2370,7 @@ module Heucristic
         step : Flow::Declared,
         name : String,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
         restriction = declared(Syntax::TypeReader.read(step.restriction), Scope.of(context))
@@ -2386,7 +2394,7 @@ module Heucristic
         call : Crystal::Call,
         context : Syntax::Context,
         locals : Array(Binding),
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution?
         location = call.name_location
         path = context.path
@@ -2395,8 +2403,8 @@ module Heucristic
         found = @workspace.expansion(path, location.line_number, location.column_number)
         return unless found && found.name == call.name
 
-        key = "expansion@#{path}:#{location.line_number}:#{location.column_number}"
-        return Unknown.new(:cycle, call.name) if visiting.includes?(key)
+        key = ExpansionVisit.new(path, location.line_number, location.column_number, call.name)
+        return key.cycle if visiting.includes?(key)
 
         expanded = expansion_of(call, found, context, path)
         if expanded.is_a?(Syntax::Broken)
@@ -2450,7 +2458,7 @@ module Heucristic
         isolated : Syntax::ExpansionLocals::Isolated,
         call : Crystal::Call,
         context : Syntax::Context,
-        visiting : Array(String),
+        visiting : Array(Visit),
         locals : Array(Binding),
       ) : Array(Binding)
         bound = Array(Binding).new(isolated.names.size)
@@ -2515,7 +2523,7 @@ module Heucristic
         call : Crystal::Call,
         context : Syntax::Context,
         locals : Array(Binding),
-        visiting : Array(String),
+        visiting : Array(Visit),
       ) : Resolution
         return TypeRef.of(:bool) if Receiver.chained_comparison?(call)
 
