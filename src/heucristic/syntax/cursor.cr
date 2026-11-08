@@ -1,12 +1,14 @@
 require "compiler/crystal/syntax"
 require "../document/point"
 require "./parameter_name"
+require "./rescue_name"
 require "./scoped"
 
 module Heucristic
   module Syntax
     class Cursor < Scoped
       getter target : Target?
+      @lines : Array(String)?
 
       def self.find(
         tree : Crystal::ASTNode,
@@ -27,6 +29,7 @@ module Heucristic
         @source : String,
       ) : Nil
         super(path, version)
+        @lines = nil
       end
 
       def visit(node : Crystal::Def) : Bool
@@ -53,6 +56,13 @@ module Heucristic
         if over?(node.location, node.name.size)
           @target = OnVar.new(node.name, node.location, context)
         end
+        @target.nil?
+      end
+
+      def visit(node : Crystal::Rescue) : Bool
+        name = node.name
+        location = RescueName.location(node, lines)
+        @target = OnVar.new(name, location, context) if name && over?(location, name.size)
         @target.nil?
       end
 
@@ -100,6 +110,10 @@ module Heucristic
         node : Crystal::MacroIf,
       ) : Index::MacroText::Expansion | Index::MacroText::Undecidable
         Index::MacroText.expand_at(node, @point, @version)
+      end
+
+      private def lines : Array(String)
+        @lines ||= @source.lines
       end
 
       private def segment_at(node : Crystal::Path, location : Crystal::Location) : Int32

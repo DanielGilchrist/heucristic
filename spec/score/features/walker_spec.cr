@@ -121,3 +121,11 @@ describe Score::Features::Walker do
     kinds_at(sites, 23, "self").should eq [Score::Features::Kind::SelfReference]
   end
 end
+
+describe Score::Features::Walker do
+  it "records a rescue clause's variable as a local definition at its own column" do
+    rescued = sites_of("def run\n  exit\nrescue error : Exception\n  error\nend\n")
+    rescued.should contain Score::Features::Site.new(:local_definition, 3, 8, "error")
+    kinds_at(rescued, 4, "error").should eq [Score::Features::Kind::LocalUse]
+  end
+end

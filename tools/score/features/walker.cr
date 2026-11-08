@@ -1,4 +1,5 @@
 require "compiler/crystal/syntax"
+require "../../../src/heucristic/syntax/rescue_name"
 require "../statements"
 require "./site"
 
@@ -195,6 +196,7 @@ module Score
       end
 
       def visit(node : Crystal::Rescue) : Bool
+        rescue_variable(node)
         node.types.try(&.each { |type| typed(type) })
         node.body.accept(self)
         false
@@ -275,6 +277,12 @@ module Score
         elsif node.is_a?(Crystal::Splat)
           unpacked_parameters(node.exp)
         end
+      end
+
+      private def rescue_variable(node : Crystal::Rescue) : Nil
+        name = node.name
+        location = Heucristic::Syntax::RescueName.location(node, @lines)
+        add(Kind::LocalDefinition, location, name) if name && location
       end
 
       private def enum_member(member : Crystal::ASTNode) : Nil
