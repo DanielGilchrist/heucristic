@@ -1,0 +1,5 @@
+#!/bin/sh
+root="$2"
+cat <<JSON
+{"crystal":"test","elapsed_ms":1.0,"source":"class ::Shop::Widget\nend\n::Shop::LIMIT = 1\nclass ::Shop::Orphan\nend\n","files":["$root/src/sample.cr"],"sites":[{"line":1,"owner":"Shop::Widget","name":"resource","metaclass":false,"macro_name":"resource","macro_path":"$root/src/dsl.cr","macro_line":3,"expanded_path":"$root/src/sample.cr","expanded_line":2,"expanded_column":3},{"line":3,"owner":"Shop::LIMIT","name":"resource","metaclass":false,"macro_name":"resource","macro_path":"$root/src/dsl.cr","macro_line":3,"expanded_path":"$root/src/sample.cr","expanded_line":2,"expanded_column":3}]}
+JSON

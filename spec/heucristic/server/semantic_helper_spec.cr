@@ -30,6 +30,17 @@ describe "the semantic helper's site table" do
       inner.try { |site| lines[site.line - 1].should contain("def inner") }
     end
 
+    it "records a site on the declaration line of a type or constant a macro declares" do
+      output = expanded
+      lines = output.source.try(&.lines) || Array(String).new
+      declared = output.sites.select { |site| site.name == "settings" }
+      declaring = declared.map { |site| lines[site.line - 1] }
+
+      declaring.should contain("class ::Mail::Inner")
+      declaring.any?(&.starts_with?("::Mail::HABITAT")).should be_true
+      declared.map(&.expanded_line).uniq!.should eq([13])
+    end
+
     it "expands a macro called through an alias of its owner (crystal run: Slice(UInt8))" do
       found = expanded(EXPANSIONS).expansions.find { |expansion| expansion.name == "[]" }
 

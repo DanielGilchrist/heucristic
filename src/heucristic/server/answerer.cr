@@ -415,17 +415,28 @@ module Heucristic
           lines << entry.signature
           fence(lines)
         in Index::Namespace
-          fence(namespace_header(entry))
+          fence(declared_by(entry, root) + [namespace_header(entry)])
         in Index::Alias
-          fence("alias #{entry.name} = #{entry.target}")
+          fence(declared_by(entry, root) + ["alias #{entry.name} = #{entry.target}"])
         in Index::InstanceVar
           fence("# #{entry.owner}", "#{entry.name} : #{entry.type}")
         in Index::Constant
           value = entry.value
-          return fence(entry.name) unless value.is_a?(String)
-
-          fence("#{entry.name} = #{value} # : #{@receiver.type_of(entry)}")
+          rendered = entry.name
+          rendered = "#{rendered} = #{value} # : #{@receiver.type_of(entry)}" if value.is_a?(String)
+          fence(declared_by(entry, root) + [rendered])
         end
+      end
+
+      private def declared_by(entry : Index::Entry, root : String) : Array(String)
+        lines = Array(String).new
+        provenance = @macros.provenance(entry, root)
+        if provenance
+          lines << provenance
+        elsif Index::MacroTarget.generated?(entry.path)
+          lines << "# declared by a macro"
+        end
+        lines
       end
 
       private def namespace_header(entry : Index::Namespace) : String

@@ -57,9 +57,9 @@ module Semantic
         declared_by_macro = macro_declared?(type)
         case type
         in Crystal::Const
-          emit("::#{type} = #{constant_value(type.value)}") if declared_by_macro
+          emit_declared(type, "::#{type} = #{constant_value(type.value)}") if declared_by_macro
         in Crystal::AliasType
-          emit("alias ::#{type} = #{type.aliased_type}") if declared_by_macro
+          emit_declared(type, "alias ::#{type} = #{type.aliased_type}") if declared_by_macro
         in Crystal::ModuleType
           declaring = declared_by_macro ? declaring_file(type) : nil
           generated = generated_defs(type, false, declaring) +
@@ -242,7 +242,11 @@ module Semantic
       declared_by_macro : Bool,
     ) : Nil
       @reopenings << Heucristic::Index::Reopening.new(type.to_s, @private_files[type]?)
-      emit(declared_by_macro ? Header.declare(type) : Header.reopen(type))
+      if declared_by_macro
+        emit_declared(type, Header.declare(type))
+      else
+        emit(Header.reopen(type))
+      end
       if declared_by_macro && type.is_a?(Crystal::EnumType)
         type.types?.try &.each do |name, member|
           emit("  #{name} = #{member.value}") if member.is_a?(Crystal::Const)
@@ -307,6 +311,12 @@ module Semantic
 
     private def real_name(name : String) : String
       name.matches?(/\A[A-Za-z_][A-Za-z0-9_]*\z/) ? name : name.inspect
+    end
+
+    private def emit_declared(type : Crystal::Type, text : String) : Nil
+      declaring = declaring_file(type)
+      @sites << Sites.declaring(@line + 1, type, declaring, @private_files[type]?) if declaring
+      emit(text)
     end
 
     private def emit(text : String) : Nil
