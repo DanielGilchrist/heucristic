@@ -587,7 +587,7 @@ module Heucristic
       end
 
       private def extended_methods(type : String, call : Call) : Array(Index::Def)
-        levels(type).each do |level|
+        extending_levels(type).each do |level|
           @workspace.mixins_of(level).reverse_each do |mixin|
             next unless mixin.kind.extend?
 
@@ -729,7 +729,7 @@ module Heucristic
         found = @workspace.named(name).select do |entry|
           entry.receiver.metaclass? && searched.includes?(entry.owner)
         end
-        searched.each do |level|
+        extending_levels(type).each do |level|
           @workspace.mixins_of(level).each do |mixin|
             next unless mixin.kind.extend?
 
@@ -740,6 +740,10 @@ module Heucristic
         found.concat(instance_named(CoreType::Class.type_name, name))
         found.concat(constructors(type, caller_path)) if Syntax::WellKnown::New.named?(name)
         found.uniq!
+      end
+
+      private def extending_levels(type : String) : Array(String)
+        levels(type).reject { |level| level != type && module?(level) }
       end
 
       private def constructors(type : String, caller_path : String?) : Array(Index::Def)

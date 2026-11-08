@@ -271,6 +271,26 @@ describe Heucristic::Resolve::Methods do
     lookup(source, "Fibers", "detach", 1).should eq(["Fibers#detach"])
   end
 
+  it "does not extend a class's metaclass with the extend self of a module it includes" do
+    source = <<-CR
+      module Checks
+        extend self
+      end
+
+      class Operation
+        include Checks
+
+        def run : Nil
+        end
+      end
+
+      class Save < Operation
+      end
+      CR
+    lookup_meta(source, "Save", "run", 0).should be_empty
+    lookup_meta(source, "Operation", "run", 0).should be_empty
+  end
+
   it "separates a yielding def from its block-less overload" do
     source = <<-CR
       class List
