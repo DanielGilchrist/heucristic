@@ -25,18 +25,15 @@ require "./outcome"
 require "./answer"
 require "./progress"
 require "./options"
-require "./macros"
+require "./macro_state"
 require "./references"
 require "./parameter_hint"
 require "./symbols"
 require "./completion"
 require "./rename"
 require "../index/sites"
-require "./macro_status"
 require "./compiler_state"
-require "./project_files"
 require "./notice"
-require "./stage"
 require "./published"
 require "./immediacy"
 require "../check/suite"
@@ -44,7 +41,6 @@ require "../check/settled"
 require "../index/collector"
 require "../index/macro_site"
 require "../index/macro_target"
-require "../index/generated"
 require "../crystal_env"
 require "../resolve/local_declarations"
 
@@ -58,8 +54,6 @@ module Heucristic
 
       @workspace : Index::Workspace
 
-      @macro_status : MacroStatus
-
       @semantic : String?
 
       @executable : String?
@@ -70,14 +64,6 @@ module Heucristic
 
       def initialize(@transport : Protocol::Transport, events : Channel(Index::Event)) : Nil
         @root = Dir.current
-        @macros = Macros.new(events)
-        @macro_status = MacrosPending.new
-        @macro_sites = Hash(String, Hash(Int32, Index::MacroSite)).new
-        @generated = Hash(Index::MacroTarget, Index::File).new
-        @compiled = Hash(Index::MacroTarget, Set(String)).new
-        @spec_wanted = false
-        @loose = Set(String).new
-        @indexed = false
         @semantic = nil
         @executable = nil
         @published = Published.new
@@ -90,6 +76,9 @@ module Heucristic
         @types = Resolve::Types.new(@workspace)
         @methods = Resolve::Methods.new(@workspace, @types)
         @receiver = Resolve::Receiver.new(@workspace, @shims, @types, @methods)
+        @macros = MacroState.new(
+          events, @transport, @workspace, @shims, @types, @methods, @receiver
+        )
         @references = References.new(@workspace, @types, @receiver)
         @hints = ParameterHint.new(@workspace, @types, @receiver, @references)
         @symbols = Symbols.new(@workspace)
@@ -176,11 +165,10 @@ module Heucristic
         @shims.replace_all(event.shims)
         @workspace.replace_all(event.files)
         @workspace.replace_sites(event.sites)
-        @generated.each_value { |file| @workspace.update(file) }
+        @macros.restore
         @types.invalidate
         @methods.invalidate
         @receiver.invalidate
-        @indexed = true
         @documents.each { |document| index_document(document) }
         @transport.send(Protocol::Encoder.notification(
           Notice::Indexed.method,
@@ -190,70 +178,28 @@ module Heucristic
             elapsed_ms: event.elapsed.total_milliseconds.round,
           },
         ))
-        @macros.start(@root, @semantic, :main)
-        @macros.start(@root, @semantic, :spec) if @spec_wanted
+        @macros.indexed(@root, @semantic)
         @compiler.start(@root, @executable)
       end
 
       def macros_started(event : Index::MacrosStarted) : Nil
-        case event.target
-        in .main?
-          @macro_status = MacrosPending.new
-          notify_macros
-        in .spec?, .loose?
-          notify_target_macros(event.target, Stage::Pending, nil, 0)
-        end
+        @macros.started(event)
       end
 
       def macros_expanded(event : Index::MacrosExpanded) : Nil
-        path = event.target.generated_path
-        tree = Syntax.parse(event.source, path)
-        if tree.is_a?(Syntax::Broken)
-          macros_broken(event.target, "generated source does not parse: #{tree.message}")
-        else
-          text = Document::Text.new(event.source)
-          collected = Index::Collector.collect(path, text, tree)
-          file = Index::Generated.merge(collected, event.sites, @workspace, @shims,
-            Index::LoadedFiles.new(event.files.to_set, shim_roots))
-          @generated[event.target] = file
-          @workspace.update(file)
-          @workspace.expand(event.target, event.expansions)
-          @types.invalidate
-          @methods.invalidate
-          @receiver.invalidate
-          sites = @macro_sites[path] = Hash(Int32, Index::MacroSite).new
-          event.sites.each { |site| sites[site.line] = site }
-          @compiled[event.target] = event.files.to_set
-          @methods.compiled(Resolve::Compiled.new(@compiled, shim_roots))
-          elapsed = event.elapsed.total_milliseconds.round
-          case event.target
-          in .main?
-            @macro_status = MacrosDone.new(file.defs.size, elapsed, event.excluded)
-            notify_macros
-          in .spec?, .loose?
-            note = event.excluded.note(@root)
-            notify_target_macros(event.target, Stage::Done, note, file.defs.size)
-          end
-          @documents.each { |document| want_loose_macros(@documents.path(document)) }
-        end
+        @macros.expanded(event, @root, @semantic, @documents.paths)
         sweep
         @macros.finished(@root, @semantic, event.target)
       end
 
       def macros_failed(event : Index::MacrosFailed) : Nil
-        macros_broken(event.target, event.reason)
+        @macros.failed(event)
         sweep
         @macros.finished(@root, @semantic, event.target)
       end
 
       def macros_unavailable(event : Index::MacrosUnavailable) : Nil
-        case event.target
-        in .main?
-          @macro_status = MacrosOff.new(event.reason)
-          notify_macros
-        in .spec?, .loose?
-          notify_target_macros(event.target, Stage::Unavailable, event.reason, 0)
-        end
+        @macros.unavailable(event)
         sweep
         @macros.finished(@root, @semantic, event.target)
       end
@@ -324,27 +270,8 @@ module Heucristic
         document = @documents.open(
           text_document.uri.to_s, text_document.version, text_document.text
         )
-        want_spec_macros(@documents.path(document))
-        want_loose_macros(@documents.path(document))
+        @macros.opened(@documents.path(document), @root, @semantic)
         analyse(document, Immediacy::Now)
-      end
-
-      private def want_loose_macros(path : String) : Nil
-        return unless @compiled.has_key?(Index::MacroTarget::Main)
-        return unless ProjectFiles.include?(path, @root)
-        return if path.starts_with?(File.join(@root, "spec") + "/")
-        return if compiled_files.includes?(path) || @loose.includes?(path)
-
-        @loose << path
-        @macros.loose(@loose.to_a)
-        @macros.start(@root, @semantic, :loose)
-      end
-
-      private def want_spec_macros(path : String) : Nil
-        return if @spec_wanted || !path.starts_with?(File.join(@root, "spec") + "/")
-
-        @spec_wanted = true
-        @macros.start(@root, @semantic, :spec) if @indexed
       end
 
       private def did_change(notification : Protocol::Notification) : Outcome
@@ -421,9 +348,9 @@ module Heucristic
           @workspace,
           @types,
           @methods.descendants,
-          @macro_status.is_a?(MacrosDone),
+          @macros.done?,
           @documents.dirty,
-          compiled_files,
+          @macros.compiled_files,
           @root,
           shim_roots,
           @documents.paths,
@@ -764,7 +691,7 @@ module Heucristic
           unordered = @methods.missing(call.name, receiver)
           return Answer.note(unordered.detail) if unordered.reason.ambiguous?
 
-          return Answer.note("no `#{call.name}` indexed on #{receiver}#{macro_hint}")
+          return Answer.note("no `#{call.name}` indexed on #{receiver}#{@macros.hint}")
         end
 
         site = Resolve::Receiver::Site.new(
@@ -885,109 +812,13 @@ module Heucristic
         return Silence.new if params.is_a?(DecodedParams::Invalid)
 
         @documents.saved(params.text_document.uri.to_s)
-        @macros.start(@root, @semantic, :main)
-        @macros.start(@root, @semantic, :spec) if @spec_wanted
-        @macros.start(@root, @semantic, :loose) unless @loose.empty?
+        @macros.saved(@root, @semantic)
         @compiler.start(@root, @executable)
         Silence.new
       end
 
-      private def notify_macros : Nil
-        payload = case (status = @macro_status)
-                  in MacrosPending
-                    {
-                      status:     Stage::Pending.wire,
-                      defs:       0,
-                      elapsed_ms: 0.0,
-                      reason:     nil,
-                      target:     MAIN,
-                    }
-                  in MacrosDone
-                    {
-                      status:     Stage::Done.wire,
-                      defs:       status.defs,
-                      elapsed_ms: status.elapsed_ms,
-                      reason:     status.excluded.note(@root),
-                      target:     MAIN,
-                    }
-                  in MacrosStale
-                    {
-                      status:     Stage::Stale.wire,
-                      defs:       status.defs,
-                      elapsed_ms: 0.0,
-                      reason:     status.reason,
-                      target:     MAIN,
-                    }
-                  in MacrosOff
-                    {
-                      status:     Stage::Unavailable.wire,
-                      defs:       0,
-                      elapsed_ms: 0.0,
-                      reason:     status.reason,
-                      target:     MAIN,
-                    }
-                  end
-        @transport.send(Protocol::Encoder.notification(Notice::Macros.method, payload))
-      end
-
-      private def generated_defs : Int32
-        @generated[Index::MacroTarget::Main]?.try(&.defs.size) || 0
-      end
-
-      private def compiled_files : Set(String)
-        all = Set(String).new
-        @compiled.each_value { |files| all.concat(files) }
-        all
-      end
-
-      private def macros_broken(target : Index::MacroTarget, reason : String) : Nil
-        case target
-        in .main?
-          @macro_status = MacrosStale.new(reason, generated_defs)
-          notify_macros
-        in .spec?, .loose?
-          defs = @generated[target]?.try(&.defs.size) || 0
-          notify_target_macros(target, Stage::Stale, reason, defs)
-        end
-      end
-
-      private def notify_target_macros(
-        target : Index::MacroTarget,
-        stage : Stage,
-        reason : String?,
-        defs : Int32,
-      ) : Nil
-        payload = {
-          status:     stage.wire,
-          defs:       defs,
-          elapsed_ms: 0.0,
-          reason:     reason,
-          target:     target.wire,
-        }
-        @transport.send(Protocol::Encoder.notification(Notice::Macros.method, payload))
-      end
-
-      private def macro_hint : String
-        case (status = @macro_status)
-        in MacrosPending         then "; macros are still expanding"
-        in MacrosStale           then "; macros could not be expanded (#{status.reason})"
-        in MacrosOff, MacrosDone then ""
-        end
-      end
-
-      private def site_of(entry : Index::Entry) : Index::MacroSite?
-        sites = @macro_sites[entry.path]?
-        return unless sites
-
-        sites[entry.name_span.start_line.to_i + 1]?
-      end
-
-      private def provenance(entry : Index::Entry) : String?
-        site_of(entry).try { |site| "# #{site.provenance(@root)}" }
-      end
-
       private def locate(entry : Index::Entry) : LSProtocol::Location?
-        site = site_of(entry)
+        site = @macros.site_of(entry)
         unless site
           return if Index::MacroTarget.generated?(entry.path)
 
@@ -1048,7 +879,7 @@ module Heucristic
       ) : String
         signature = @receiver.signature(entry, receiver, arguments, site)
         lines = ["# #{entry.qualified}"]
-        provenance(entry).try { |line| lines << line }
+        @macros.provenance(entry, @root).try { |line| lines << line }
         lines << signature
         returning = @receiver.return_type(entry, receiver, arguments, site)
         lines << "# returns #{returning}" if returning.is_a?(Resolve::Unknown)
@@ -1059,7 +890,7 @@ module Heucristic
         case entry
         in Index::Def
           lines = ["# #{entry.qualified}"]
-          provenance(entry).try { |line| lines << line }
+          @macros.provenance(entry, @root).try { |line| lines << line }
           lines << entry.signature
           fence(lines)
         in Index::Namespace
