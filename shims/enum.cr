@@ -9,4 +9,7 @@ end
 abstract struct Enum
   def self.each(& : self -> U) : U? forall U
   end
+
+  def self.new(value : self) : self
+  end
 end

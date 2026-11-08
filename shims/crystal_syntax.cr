@@ -57,3 +57,8 @@ class Crystal::Parser
   def wants_doc=(@wants_doc : Bool) : Bool
   end
 end
+
+class Crystal::NumberLiteral
+  def self.new(value : Number) : self
+  end
+end

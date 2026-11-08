@@ -19,3 +19,8 @@ class File
   def self.tempfile(suffix : String? = nil, *, dir : String = Dir.tempdir, encoding = nil, invalid = nil, & : File ->) : File
   end
 end
+
+class File
+  def self.new(filename : Path | String, mode = "r", perm = DEFAULT_CREATE_PERMISSIONS, encoding = nil, invalid = nil, blocking = nil) : self
+  end
+end

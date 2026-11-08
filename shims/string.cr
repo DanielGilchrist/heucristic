@@ -36,4 +36,16 @@ class String
 
   def each_char : Iterator(Char)
   end
+
+  def self.new(slice : Bytes, *, truncate_at_null : Bool = false) : String
+  end
+
+  def self.new(chars : UInt8*) : String
+  end
+
+  def self.new(chars : UInt8*, bytesize, size = 0) : String
+  end
+
+  def self.new(capacity : Int, &) : String
+  end
 end

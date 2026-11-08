@@ -18,3 +18,8 @@ class TCPSocket
   def tcp_keepalive_count=(val : Int) : typeof(val)
   end
 end
+
+struct Socket::IPAddress
+  def self.new(address : String, port : Int32) : self
+  end
+end
