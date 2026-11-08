@@ -588,7 +588,20 @@ module Heucristic
         constructed = instance_methods(type, constructor)
         return explicit if constructed.empty?
 
+        searched = levels(type)
+        explicit_depth = depth_of(explicit, searched)
+        constructed_depth = depth_of(constructed, searched)
+        return constructed if constructed_depth < explicit_depth
+        return explicit if explicit_depth < constructed_depth
+
         most_specific(explicit + constructed, call)
+      end
+
+      private def depth_of(defs : Array(Index::Def), searched : Array(String)) : Int32
+        defs.min_of do |entry|
+          owner = entry.owner
+          owner.is_a?(String) ? (searched.index(owner) || searched.size) : searched.size
+        end
       end
 
       private def extended_methods(type : String, call : Call) : Array(Index::Def)

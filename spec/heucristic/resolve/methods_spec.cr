@@ -513,3 +513,24 @@ describe Heucristic::Resolve::Methods, "new next to initialize" do
     lines.should contain(1)
   end
 end
+
+describe Heucristic::Resolve::Methods, "new on a subclass with its own initialize" do
+  source = <<-CR
+    class Parent
+      def self.new(x : Int32)
+      end
+    end
+
+    class Child < Parent
+      def initialize(x)
+      end
+    end
+    CR
+
+  it "picks the closer initialize over an inherited explicit self.new" do
+    call = Heucristic::Resolve::Methods::Call.new("new", 1, false)
+    found = lookup_meta(source, "Child", call)
+
+    found.map(&.qualified).should eq(["Child#initialize"])
+  end
+end
