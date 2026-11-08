@@ -65,6 +65,8 @@ module Heucristic
         end
       end
 
+      record ConstructionKey, call : CallKey, visiting : Array(Visit)
+
       record CachedCall, node : Crystal::Call, context : Syntax::Context, result : Resolution
 
       record Site,
@@ -111,6 +113,10 @@ module Heucristic
         locals : Array(Binding) = Array(Binding).new,
         visiting : Array(Visit) = Array(Visit).new,
       ) : Resolution
+        if locals.empty? && !visiting.empty? && Syntax::WellKnown::New.named?(call.name)
+          return constructed_result(call, context, visiting)
+        end
+
         unless locals.empty? && visiting.empty?
           return computed_result(call, context, locals, visiting)
         end
@@ -1043,6 +1049,24 @@ module Heucristic
       ) : Resolution
         @memos.typed_values[value.object_id] = typed if locals.empty? && !unsettled?(typed)
         typed
+      end
+
+      private def constructed_result(
+        call : Crystal::Call,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+      ) : Resolution
+        key = ConstructionKey.new(CallKey.of(call, context), visiting)
+        cached = @memos.constructions[key]?
+        return cached.result if cached && cached.context.same_as?(context)
+
+        exhausted = @depth_exhausted
+        result = computed_result(call, context, Array(Binding).new, visiting)
+        if exhausted == @depth_exhausted && !unsettled?(result)
+          stored = ConstructionKey.new(key.call, visiting.dup)
+          @memos.constructions[stored] = CachedCall.new(call, context.copy, result)
+        end
+        result
       end
 
       private def unsettled?(typed : Resolution) : Bool

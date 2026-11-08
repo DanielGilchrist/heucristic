@@ -3809,6 +3809,30 @@ describe Heucristic::Resolve::Receiver, "constructor calls with a class-level ne
     receiver_of_size(source, "Child.new(1).size").should eq("Int32")
     receiver_of_size(source, "Factory.new(1).size").should start_with("unknown")
   end
+
+  it "types a variable assigned from a constructor call the same way on every reference" do
+    variables = <<-CR
+      #{source}
+
+      def reuse
+        plain = Plain.new(1)
+        child = Child.new(1)
+        plain.size
+        plain.size
+        child.size
+        child.size
+      end
+      CR
+
+    references = %w[plain.size child.size]
+    answers = variables.lines.each_with_index.compact_map do |text, index|
+      next unless references.includes?(text.strip)
+
+      column = text.index!(text.strip) + text.strip.rindex!("size") + 1
+      receiver_at(variables, index + 1, column)
+    end
+    answers.to_a.should eq(%w[Plain Plain Int32 Int32])
+  end
 end
 
 describe Heucristic::Resolve::Receiver, "a written self.new without a return restriction" do

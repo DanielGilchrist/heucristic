@@ -9,6 +9,7 @@ module Heucristic
       getter facts : Hash(UInt64, BodyFacts)
       getter typed_values : Hash(UInt64, Resolution)
       getter call_results : Hash(Receiver::CallKey, Receiver::CachedCall)
+      getter constructions : Hash(Receiver::ConstructionKey, Receiver::CachedCall)
       getter block_inputs : Hash({UInt64, Int32}, Resolution)
       getter yield_scopes : Hash(UInt64, Resolution | Receiver::Unscoped)
       getter expanded : Hash(UInt64, MacroExpansions::Expanded | Syntax::Broken)
@@ -19,6 +20,7 @@ module Heucristic
         @facts = Hash(UInt64, BodyFacts).new
         @typed_values = Hash(UInt64, Resolution).new
         @call_results = Hash(Receiver::CallKey, Receiver::CachedCall).new
+        @constructions = Hash(Receiver::ConstructionKey, Receiver::CachedCall).new
         @block_inputs = Hash({UInt64, Int32}, Resolution).new
         @yield_scopes = Hash(UInt64, Resolution | Receiver::Unscoped).new
         @expanded = Hash(UInt64, MacroExpansions::Expanded | Syntax::Broken).new
@@ -43,6 +45,7 @@ module Heucristic
         @facts.clear
         @typed_values.clear
         @call_results.clear
+        @constructions.clear
         @block_inputs.clear
         @yield_scopes.clear
         @expanded.clear
