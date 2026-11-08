@@ -451,9 +451,6 @@ module Heucristic
         end
         return alongside_initialize(type, call, found) unless found.empty?
 
-        extended = extended_methods(type, call)
-        return extended unless extended.empty?
-
         if Syntax::WellKnown::New.named?(call.name)
           constructor = initializer_call(call)
           constructed = instance_methods(type, constructor)
@@ -461,6 +458,9 @@ module Heucristic
 
           implicit = default_constructor(type, call)
           return implicit unless implicit.empty?
+        else
+          extended = extended_methods(type, call)
+          return extended unless extended.empty?
         end
 
         first_level(type, call) { |entry| entry.receiver.metaclass? && call.accepts?(entry) }

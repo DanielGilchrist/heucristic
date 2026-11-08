@@ -271,6 +271,30 @@ describe Heucristic::Resolve::Methods do
     lookup(source, "Fibers", "detach", 1).should eq(["Fibers#detach"])
   end
 
+  it "never reaches the new of an extended module (compiler: inherited initialize wins)" do
+    source = <<-CR
+      module Factory
+        def new(x : Int32) : String
+        end
+      end
+
+      class Parent
+        def initialize(x : Int32)
+        end
+      end
+
+      class Child < Parent
+        extend Factory
+      end
+
+      class Lone
+        extend Factory
+      end
+      CR
+    lookup_meta(source, "Child", "new", 1).should eq(["Parent#initialize"])
+    lookup_meta(source, "Lone", "new", 1).should be_empty
+  end
+
   it "does not extend a class's metaclass with the extend self of a module it includes" do
     source = <<-CR
       module Checks
