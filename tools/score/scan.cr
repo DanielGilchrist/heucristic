@@ -1,19 +1,14 @@
 require "../../src/heucristic/index/accessor"
 require "../../src/heucristic/syntax/uses"
 require "./audit"
+require "./call_targets"
 require "./corpus"
 require "./options"
 require "./outcome"
+require "./statements"
 
 module Score
   class Scan
-    STATEMENTS   = {"require", "raise", "puts", "p", "pp"}
-    DECLARATIONS = {
-      "record", "delegate", "def_equals", "def_hash", "def_equals_and_hash", "forward_missing_to",
-      "def_clone",
-    }
-    SKIPPED = Heucristic::Index::Accessor.names + STATEMENTS.to_a + DECLARATIONS.to_a
-
     def initialize(@corpus : Corpus, @options : Options) : Nil
     end
 
@@ -47,7 +42,7 @@ module Score
       version = @corpus.workspace.crystal_version
       Heucristic::Syntax::Uses.in(tree, path, version).calls.each do |site|
         call = site.call
-        next if SKIPPED.includes?(call.name) && call.obj.nil?
+        next if Statements::NAMES.includes?(call.name) && call.obj.nil?
         next if inside_macro_arguments?(site.context.ancestors)
         location = call.name_location
         next unless location
@@ -58,7 +53,8 @@ module Score
         end
         outcomes << Outcome.new(
           path, location.line_number, location.column_number, call.name, result,
-          targets_of(call, site.context), interpolated?(site.context.ancestors)
+          CallTargets.new(@corpus.receiver).of(call, site.context),
+          interpolated?(site.context.ancestors)
         )
       end
     end
@@ -104,21 +100,6 @@ module Score
       puts "check: #{on_line} calls on the line"
     end
 
-    private def targets_of(
-      call : Crystal::Call,
-      context : Heucristic::Syntax::Context,
-    ) : Array(Heucristic::Index::Def)
-      receiver = @corpus.receiver
-      typed = receiver.of_call(call, context)
-      return Array(Heucristic::Index::Def).new if typed.is_a?(Heucristic::Resolve::Unknown)
-
-      if call.obj.nil? && Heucristic::Syntax::WellKnown::Super.named?(call.name)
-        receiver.super_targets(call, context)
-      else
-        receiver.implementations(typed, receiver.shape_of(call, context))
-      end
-    end
-
     private def report(outcomes : Array(Outcome), elapsed : Time::Span) : Nil
       resolved, unknown = outcomes.partition(&.result.is_a?(Heucristic::Resolve::Resolved))
       puts "#{outcomes.size} calls in #{@corpus.root}/src scored in " \
@@ -156,7 +137,7 @@ module Score
     end
 
     private def declaration?(name : String) : Bool
-      DECLARATIONS.includes?(name) || !Heucristic::Index::Accessor.from_name(name).nil?
+      Statements::DECLARATIONS.includes?(name) || !Heucristic::Index::Accessor.from_name(name).nil?
     end
 
     private def percent(part : Int32, whole : Int32) : String
