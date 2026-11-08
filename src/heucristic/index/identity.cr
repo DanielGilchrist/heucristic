@@ -10,8 +10,8 @@ module Heucristic
       end
 
       def parent : Owner
-        enclosing = name.rpartition("::")[0]
-        enclosing.empty? ? TopLevel.new : Public.new(enclosing)
+        separator = name.rindex("::")
+        separator ? Public.new(name[0, separator]) : TopLevel.new
       end
 
       def to_s(io : IO) : Nil
@@ -29,8 +29,8 @@ module Heucristic
       end
 
       def parent : Owner
-        enclosing = name.rpartition("::")[0]
-        enclosing.empty? ? TopLevel.new : FilePrivate.new(enclosing, path)
+        separator = name.rindex("::")
+        separator ? FilePrivate.new(name[0, separator], path) : TopLevel.new
       end
 
       def to_s(io : IO) : Nil
