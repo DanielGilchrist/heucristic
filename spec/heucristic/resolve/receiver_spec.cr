@@ -37,7 +37,7 @@ private def receiver_of(marker : String) : String
 
   workspace = Heucristic::Index::Workspace.new
   text = Heucristic::Document::Text.new(SOURCE)
-  workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree))
+  workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree, SPEC_CRYSTAL))
   types = Heucristic::Resolve::Types.new(workspace)
   methods = Heucristic::Resolve::Methods.new(workspace, types)
   shims = Heucristic::Index::Shims.new
@@ -46,7 +46,7 @@ private def receiver_of(marker : String) : String
   line = SOURCE.lines.index!(&.includes?(marker)) + 1
   column = SOURCE.lines[line - 1].index!(marker) + 1
   target = Heucristic::Syntax::Cursor.find(
-    tree, Heucristic::Document::Point.new(line, column), "a.cr"
+    tree, Heucristic::Document::Point.new(line, column), "a.cr", SPEC_CRYSTAL
   )
   case target
   in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s
@@ -3435,7 +3435,9 @@ describe Heucristic::Resolve::Receiver, "memoised call results" do
     build = -> : Heucristic::Resolve::Receiver {
       workspace = Heucristic::Index::Workspace.new
       workspace.update(
-        Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+        Heucristic::Index::Collector.collect(
+          "a.cr", Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+        )
       )
       types = Heucristic::Resolve::Types.new(workspace)
       methods = Heucristic::Resolve::Methods.new(workspace, types)
@@ -3445,7 +3447,7 @@ describe Heucristic::Resolve::Receiver, "memoised call results" do
       line = source.lines.index!(&.includes?(marker)) + 1
       column = source.lines[line - 1].index!(".done") + 2
       target = Heucristic::Syntax::Cursor.find(
-        tree, Heucristic::Document::Point.new(line, column), "a.cr"
+        tree, Heucristic::Document::Point.new(line, column), "a.cr", SPEC_CRYSTAL
       )
       case target
       in Heucristic::Syntax::OnCall then receiver.of_call(target.node, target.context).to_s
@@ -3494,13 +3496,17 @@ describe Heucristic::Resolve::Receiver, "memo contexts that share a fingerprint"
 
     workspace = Heucristic::Index::Workspace.new
     workspace.update(
-      Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+      Heucristic::Index::Collector.collect(
+        "a.cr", Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+      )
     )
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     shims = Heucristic::Index::Shims.new
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
-    target = Heucristic::Syntax::Cursor.find(tree, Heucristic::Document::Point.new(5, 7), "a.cr")
+    target = Heucristic::Syntax::Cursor.find(
+      tree, Heucristic::Document::Point.new(5, 7), "a.cr", SPEC_CRYSTAL
+    )
     raise "cursor did not land on a call" unless target.is_a?(Heucristic::Syntax::OnCall)
 
     narrowed = target.context

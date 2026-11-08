@@ -6,7 +6,7 @@ private def ancestors_of(source : String, name : String) : String
 
   workspace = Heucristic::Index::Workspace.new
   text = Heucristic::Document::Text.new(source)
-  workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree))
+  workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree, SPEC_CRYSTAL))
   chain = Heucristic::Resolve::Types.new(workspace).ancestors(name)
   chain.is_a?(Heucristic::Resolve::Unknown) ? chain.to_s : chain.join(", ")
 end
@@ -101,7 +101,7 @@ private def ancestors_in(files : Array({String, String}), name : String) : Strin
     raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
     text = Heucristic::Document::Text.new(source)
-    workspace.update(Heucristic::Index::Collector.collect(path, text, tree))
+    workspace.update(Heucristic::Index::Collector.collect(path, text, tree, SPEC_CRYSTAL))
   end
   chain = Heucristic::Resolve::Types.new(workspace).ancestors(name)
   chain.is_a?(Heucristic::Resolve::Unknown) ? chain.to_s : chain.join(", ")

@@ -7,14 +7,23 @@ module Heucristic
     class Cursor < Scoped
       getter target : Target?
 
-      def self.find(tree : Crystal::ASTNode, point : Document::Point, path : String?) : Target?
-        cursor = new(point, path)
+      def self.find(
+        tree : Crystal::ASTNode,
+        point : Document::Point,
+        path : String?,
+        version : CrystalVersion::Detected,
+      ) : Target?
+        cursor = new(point, path, version)
         tree.accept(cursor)
         cursor.target
       end
 
-      def initialize(@point : Document::Point, path : String?) : Nil
-        super(path)
+      def initialize(
+        @point : Document::Point,
+        path : String?,
+        version : CrystalVersion::Detected,
+      ) : Nil
+        super(path, version)
       end
 
       def visit(node : Crystal::Def) : Bool
@@ -83,7 +92,7 @@ module Heucristic
       protected def expansion_of(
         node : Crystal::MacroIf,
       ) : Index::MacroText::Expansion | Index::MacroText::Undecidable
-        Index::MacroText.expand_at(node, @point)
+        Index::MacroText.expand_at(node, @point, @version)
       end
 
       private def segment_at(node : Crystal::Path, location : Crystal::Location) : Int32

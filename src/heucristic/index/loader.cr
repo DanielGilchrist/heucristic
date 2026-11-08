@@ -1,6 +1,7 @@
 require "../fibers"
 require "../disk"
 require "../log"
+require "../crystal_version"
 require "../syntax"
 require "./collector"
 require "./indexed"
@@ -14,7 +15,12 @@ module Heucristic
 
       REPORT_EVERY = 32
 
-      def load(roots : Array(String), shim_roots : Array(String), events : Channel(Event)) : Nil
+      def load(
+        roots : Array(String),
+        shim_roots : Array(String),
+        version : CrystalVersion::Detected,
+        events : Channel(Event),
+      ) : Nil
         started = Time.instant
         generated, shim_paths = glob(shim_roots).partition { |path| generated?(path) }
         shim_set = shim_paths.to_set
@@ -26,7 +32,7 @@ module Heucristic
         project = roots.first?
         Fibers.detach(:indexer) do
           Fibers.parallel(:indexer, workers) do |worker|
-            index_slice(paths, worker, workers, results, project)
+            index_slice(paths, worker, workers, results, project, version)
           end
         end
 
@@ -53,23 +59,32 @@ module Heucristic
         path.includes?("/generated/")
       end
 
-      def index_path(path : String, project : String?) : Indexed?
+      def index_path(
+        path : String,
+        project : String?,
+        version : CrystalVersion::Detected,
+      ) : Indexed?
         source = Disk.read(path)
         if source.is_a?(Disk::Unreadable)
           Log.info("skipping #{path}: #{source.reason}")
           return
         end
 
-        index_source(path, source, project)
+        index_source(path, source, version, project)
       end
 
-      def index_source(path : String, source : String, project : String? = nil) : Indexed?
+      def index_source(
+        path : String,
+        source : String,
+        version : CrystalVersion::Detected,
+        project : String? = nil,
+      ) : Indexed?
         tree = Syntax.parse(source, path)
         return if tree.is_a?(Syntax::Broken)
 
         text = Document::Text.new(source)
-        file = Collector.collect(path, text, tree)
-        sites = project && path.starts_with?(project) ? Sites.of(path, text, tree) : nil
+        file = Collector.collect(path, text, tree, version)
+        sites = project && path.starts_with?(project) ? Sites.of(path, text, tree, version) : nil
         Indexed.new(file, sites)
       end
 
@@ -79,10 +94,11 @@ module Heucristic
         workers : Int32,
         results : Channel(Indexed?),
         project : String?,
+        version : CrystalVersion::Detected,
       ) : Nil
         index = worker
         while index < paths.size
-          results.send(index_path(paths[index], project))
+          results.send(index_path(paths[index], project, version))
           index += workers
         end
       end

@@ -15,7 +15,9 @@ private def lookup(
 
   workspace = Heucristic::Index::Workspace.new
   workspace.update(
-    Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+    Heucristic::Index::Collector.collect(
+      "a.cr", Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+    )
   )
   types = Heucristic::Resolve::Types.new(workspace)
   scope = Heucristic::Resolve::Scope::TOP
@@ -43,7 +45,9 @@ private def lookup_meta(
 
   workspace = Heucristic::Index::Workspace.new
   workspace.update(
-    Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+    Heucristic::Index::Collector.collect(
+      "a.cr", Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+    )
   )
   types = Heucristic::Resolve::Types.new(workspace)
   meta = Heucristic::Resolve::MetaRef.new(
@@ -63,7 +67,9 @@ describe Heucristic::Resolve::Methods, "top-level defs" do
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
       workspace.update(
-        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+        Heucristic::Index::Collector.collect(
+          path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+        )
       )
     end
     types = Heucristic::Resolve::Types.new(workspace)
@@ -93,7 +99,9 @@ describe Heucristic::Resolve::Methods, "compiled targets" do
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
       workspace.update(
-        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+        Heucristic::Index::Collector.collect(
+          path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+        )
       )
     end
     types = Heucristic::Resolve::Types.new(workspace)
@@ -127,7 +135,9 @@ private def private_generated_methods(*declared : {String, String}) : Heucristic
     raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
     workspace.update(
-      Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+      Heucristic::Index::Collector.collect(
+        path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+      )
     )
   end
   generated = Heucristic::Index::MacroTarget::Spec.generated_path
@@ -141,7 +151,7 @@ private def private_generated_methods(*declared : {String, String}) : Heucristic
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
   text = Heucristic::Document::Text.new(source)
-  collected = Heucristic::Index::Collector.collect(generated, text, tree)
+  collected = Heucristic::Index::Collector.collect(generated, text, tree, SPEC_CRYSTAL)
   shims = Heucristic::Index::Shims.new
   loaded = Heucristic::Index::LoadedFiles.new(declared.map(&.[0]).to_set, Array(String).new)
   workspace.update(Heucristic::Index::Generated.merge(collected, sites, workspace, shims, loaded))
@@ -159,7 +169,9 @@ describe Heucristic::Resolve::Methods, "file-private types" do
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
       workspace.update(
-        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+        Heucristic::Index::Collector.collect(
+          path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+        )
       )
     end
     types = Heucristic::Resolve::Types.new(workspace)
@@ -387,7 +399,9 @@ describe Heucristic::Resolve::Methods do
     raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
     workspace = Heucristic::Index::Workspace.new
     workspace.update(
-      Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+      Heucristic::Index::Collector.collect(
+        "a.cr", Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+      )
     )
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
@@ -511,7 +525,9 @@ describe Heucristic::Resolve::Methods, "virtual receivers" do
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
       workspace.update(
-        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+        Heucristic::Index::Collector.collect(
+          path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+        )
       )
     end
     types = Heucristic::Resolve::Types.new(workspace)
@@ -562,7 +578,9 @@ describe Heucristic::Resolve::Methods, "loaded files" do
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
       workspace.update(
-        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+        Heucristic::Index::Collector.collect(
+          path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+        )
       )
     end
     types = Heucristic::Resolve::Types.new(workspace)
@@ -703,7 +721,9 @@ describe Heucristic::Resolve::Methods, "include and extend order" do
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
       workspace.update(
-        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+        Heucristic::Index::Collector.collect(
+          path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+        )
       )
     end
     types = Heucristic::Resolve::Types.new(workspace)
@@ -729,7 +749,9 @@ describe Heucristic::Resolve::Methods, "missing" do
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
       workspace.update(
-        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+        Heucristic::Index::Collector.collect(
+          path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+        )
       )
     end
     types = Heucristic::Resolve::Types.new(workspace)
@@ -769,7 +791,9 @@ describe Heucristic::Resolve::Methods, "dispatch on union arguments" do
 
     workspace = Heucristic::Index::Workspace.new
     workspace.update(
-      Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+      Heucristic::Index::Collector.collect(
+        "a.cr", Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+      )
     )
     types = Heucristic::Resolve::Types.new(workspace)
     none = Array(Heucristic::Resolve::Resolution).new

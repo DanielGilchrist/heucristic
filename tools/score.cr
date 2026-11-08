@@ -23,10 +23,16 @@ module Score
       return 1
     end
 
+    version = Heucristic::CrystalEnv.version
+    if version.is_a?(Heucristic::CrystalVersion::Unknown)
+      STDERR.puts version.reason
+      return 1
+    end
+
     events = Channel(Heucristic::Index::Event).new(64)
     shim_roots = Heucristic::Server::ShimRoots.for(options.root)
     Heucristic::Fibers.detach(:indexer) do
-      Heucristic::Index::Loader.load([options.root] + stdlib, shim_roots, events)
+      Heucristic::Index::Loader.load([options.root] + stdlib, shim_roots, version, events)
     end
     finished = loop do
       event = events.receive
@@ -34,6 +40,7 @@ module Score
     end
 
     workspace = Heucristic::Index::Workspace.new
+    workspace.crystal_version = version
     workspace.replace_all(finished.files)
     shims = Heucristic::Index::Shims.new
     shims.replace_all(finished.shims)

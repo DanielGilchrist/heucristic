@@ -6,7 +6,7 @@ private def workspace(source : String) : Heucristic::Index::Workspace
 
   workspace = Heucristic::Index::Workspace.new
   text = Heucristic::Document::Text.new(source)
-  workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree))
+  workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree, SPEC_CRYSTAL))
   workspace
 end
 
@@ -279,7 +279,9 @@ describe Heucristic::Resolve::Types, "aliases declared once per platform" do
       raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
       workspace.update(
-        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+        Heucristic::Index::Collector.collect(
+          path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+        )
       )
     end
     types = Heucristic::Resolve::Types.new(workspace)

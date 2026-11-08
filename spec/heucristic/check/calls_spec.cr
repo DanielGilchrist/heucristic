@@ -28,7 +28,7 @@ private def codes(source : String) : Array(String)
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
   workspace = Heucristic::Index::Workspace.new
-  workspace.update(Heucristic::Index::Collector.collect(path, text, tree))
+  workspace.update(Heucristic::Index::Collector.collect(path, text, tree, SPEC_CRYSTAL))
   types = Heucristic::Resolve::Types.new(workspace)
   methods = Heucristic::Resolve::Methods.new(workspace, types)
   receiver = Heucristic::Resolve::Receiver.new(
@@ -41,7 +41,7 @@ private def codes(source : String) : Array(String)
   calls = Heucristic::Check::Calls.new(
     Heucristic::Check::Environment.new(workspace, types, methods, receiver, settled, "/project")
   )
-  sites = Heucristic::Index::Sites.of(path, text, tree)
+  sites = Heucristic::Index::Sites.of(path, text, tree, SPEC_CRYSTAL)
   calls.run(sites).findings.map(&.rule.to_s.underscore)
 end
 

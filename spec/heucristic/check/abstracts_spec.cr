@@ -7,7 +7,9 @@ private def unimplemented(source : String) : Array(String)
 
   workspace = Heucristic::Index::Workspace.new
   workspace.update(
-    Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+    Heucristic::Index::Collector.collect(
+      path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+    )
   )
   types = Heucristic::Resolve::Types.new(workspace)
   methods = Heucristic::Resolve::Methods.new(workspace, types)
@@ -23,7 +25,7 @@ private def unimplemented(source : String) : Array(String)
     workspace, types, methods, receiver, settled, "/project"
   )
   text = Heucristic::Document::Text.new(source)
-  sites = Heucristic::Index::Sites.of(path, text, tree)
+  sites = Heucristic::Index::Sites.of(path, text, tree, SPEC_CRYSTAL)
   Heucristic::Check::Abstracts.new(environment).run(sites, findings)
   findings.map(&.message)
 end

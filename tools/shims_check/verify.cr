@@ -57,6 +57,7 @@ module ShimsCheck
       shims : Heucristic::Index::Shims,
       applicable : Set(String),
       shim_roots : Array(String),
+      version : Heucristic::CrystalVersion::Detected,
     ) : Int32
       source = File.read(PROBES)
       tree = Heucristic::Syntax.parse(source, PROBES)
@@ -65,8 +66,8 @@ module ShimsCheck
         return 1
       end
 
-      resolver = resolver_for(files, shims, source, tree, shim_roots)
-      sites = Heucristic::Syntax::Uses.in(tree, PROBES).calls
+      resolver = resolver_for(files, shims, source, tree, shim_roots, version)
+      sites = Heucristic::Syntax::Uses.in(tree, PROBES, version).calls
       covered = covered_shims(sites, resolver, shims)
       probes = Array(Probe).new
       unresolved = Array(Unresolved).new
@@ -96,11 +97,13 @@ module ShimsCheck
       source : String,
       tree : Crystal::ASTNode,
       shim_roots : Array(String),
+      version : Heucristic::CrystalVersion::Detected,
     ) : Resolver
       workspace = Heucristic::Index::Workspace.new
+      workspace.crystal_version = version
       workspace.replace_all(files)
       text = Heucristic::Document::Text.new(source)
-      workspace.update(Heucristic::Index::Collector.collect(PROBES, text, tree))
+      workspace.update(Heucristic::Index::Collector.collect(PROBES, text, tree, version))
       types = Heucristic::Resolve::Types.new(workspace)
       methods = Heucristic::Resolve::Methods.new(workspace, types)
       loaded = expand(workspace, shims, shim_roots)
@@ -131,7 +134,9 @@ module ShimsCheck
       return if generated.is_a?(Heucristic::Syntax::Broken)
 
       text = Heucristic::Document::Text.new(result.source)
-      collected = Heucristic::Index::Collector.collect(path, text, generated)
+      collected = Heucristic::Index::Collector.collect(
+        path, text, generated, workspace.crystal_version
+      )
       merged = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims,
         Heucristic::Index::LoadedFiles.new(result.files.to_set, shim_roots))
       workspace.update(merged)

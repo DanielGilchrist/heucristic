@@ -17,7 +17,7 @@ private def generic_findings(body : String) : Array(String)
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
   workspace = Heucristic::Index::Workspace.new
-  workspace.update(Heucristic::Index::Collector.collect(path, text, tree))
+  workspace.update(Heucristic::Index::Collector.collect(path, text, tree, SPEC_CRYSTAL))
   types = Heucristic::Resolve::Types.new(workspace)
   methods = Heucristic::Resolve::Methods.new(workspace, types)
   receiver = Heucristic::Resolve::Receiver.new(
@@ -30,7 +30,7 @@ private def generic_findings(body : String) : Array(String)
   environment = Heucristic::Check::Environment.new(
     workspace, types, methods, receiver, settled, "/project"
   )
-  sites = Heucristic::Index::Sites.of(path, text, tree)
+  sites = Heucristic::Index::Sites.of(path, text, tree, SPEC_CRYSTAL)
   findings = Array(Heucristic::Check::Finding).new
   Heucristic::Check::Generics.new(environment).run(sites, findings)
   findings.map(&.message)

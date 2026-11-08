@@ -13,8 +13,9 @@ module Heucristic
         enclosing : Array(String),
         type_vars : Array(String),
         path : String?,
+        version : CrystalVersion::Detected,
       ) : Array(Site)
-        finder = new(enclosing, type_vars, definition, path)
+        finder = new(enclosing, type_vars, definition, path, version)
         definition.body.accept(finder)
         finder.sites
       end
@@ -24,8 +25,9 @@ module Heucristic
         type_vars : Array(String),
         definition : Crystal::Def,
         path : String?,
+        version : CrystalVersion::Detected,
       ) : Nil
-        super(enclosing, type_vars, definition, path)
+        super(enclosing, type_vars, definition, path, version)
         @sites = Array(Site).new
       end
 

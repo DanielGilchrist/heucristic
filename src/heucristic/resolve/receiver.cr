@@ -1205,7 +1205,9 @@ module Heucristic
 
         owner = entry.owner
         enclosing = owner.is_a?(String) ? [owner] : Array(String).new
-        sites = Syntax::YieldSites.in(definition, enclosing, entry.free_vars, entry.path)
+        sites = Syntax::YieldSites.in(
+          definition, enclosing, entry.free_vars, entry.path, @workspace.crystal_version
+        )
         visiting = Array(Visit){DefVisit.new(entry.qualified)}
         scopes = Array(Resolution).new
         sites.each do |site|

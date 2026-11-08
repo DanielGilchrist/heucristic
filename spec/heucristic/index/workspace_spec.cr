@@ -4,7 +4,9 @@ private def file(path : String, source : String) : Heucristic::Index::File
   tree = Heucristic::Syntax.parse(source, path)
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
-  Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+  Heucristic::Index::Collector.collect(
+    path, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+  )
 end
 
 describe Heucristic::Index::Workspace do

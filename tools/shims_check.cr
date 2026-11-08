@@ -1,8 +1,10 @@
 require "../src/heucristic/index/loader"
+require "../src/heucristic/index/shim_coverage"
 require "../src/heucristic/index/shims"
 require "../src/heucristic/index/workspace"
 require "../src/heucristic/crystal_env"
 require "../src/heucristic/server/shim_roots"
+require "./shims_check/coverage"
 require "./shims_check/verify"
 
 module ShimsCheck
@@ -15,10 +17,16 @@ module ShimsCheck
       return 1
     end
 
+    version = Heucristic::CrystalEnv.version
+    if version.is_a?(Heucristic::CrystalVersion::Unknown)
+      STDERR.puts version.reason
+      return 1
+    end
+
     events = Channel(Heucristic::Index::Event).new(64)
     shim_roots = Heucristic::Server::ShimRoots.for(Dir.current)
     Heucristic::Fibers.detach(:indexer) do
-      Heucristic::Index::Loader.load(roots, shim_roots, events)
+      Heucristic::Index::Loader.load(roots, shim_roots, version, events)
     end
     finished = loop do
       event = events.receive
@@ -70,10 +78,17 @@ module ShimsCheck
     report("generated defs the stdlib now declares in source", duplicated)
     report("shims for shards this project does not install", absent)
     structural = orphans.empty? && redundant.empty? && duplicated.empty? ? 0 : 1
-    return structural unless args.includes?("--verify")
+    return clean(structural, version) unless args.includes?("--verify")
 
-    verified = Verify.run(finished.files, shims, applicable, shim_roots)
-    structural == 0 && verified == 0 ? 0 : 1
+    verified = Verify.run(finished.files, shims, applicable, shim_roots, version)
+    clean(structural + verified, version)
+  end
+
+  private def clean(failures : Int32, version : Heucristic::CrystalVersion::Known) : Int32
+    return 1 unless failures == 0
+
+    Coverage.stamp(version)
+    0
   end
 
   private def indexed_owner?(

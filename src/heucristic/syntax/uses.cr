@@ -25,14 +25,18 @@ module Heucristic
       getter instance_vars : Array(InstanceVarSite)
       getter multi_assigned : Set(String)
 
-      def self.in(tree : Crystal::ASTNode, path : String?) : Uses
-        uses = new(path)
+      def self.in(
+        tree : Crystal::ASTNode,
+        path : String?,
+        version : CrystalVersion::Detected,
+      ) : Uses
+        uses = new(path, version)
         tree.accept(uses)
         uses
       end
 
-      def initialize(path : String?) : Nil
-        super(path)
+      def initialize(path : String?, version : CrystalVersion::Detected) : Nil
+        super(path, version)
         @calls = Array(CallSite).new
         @paths = Array(PathSite).new
         @cases = Array(CaseSite).new

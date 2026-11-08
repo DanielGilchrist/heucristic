@@ -19,7 +19,9 @@ def receiver_at(
 
   workspace = Heucristic::Index::Workspace.new
   workspace.update(
-    Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+    Heucristic::Index::Collector.collect(
+      "a.cr", Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+    )
   )
   workspace.expand(Heucristic::Index::MacroTarget::Main, expansions)
   types = Heucristic::Resolve::Types.new(workspace)
@@ -27,7 +29,7 @@ def receiver_at(
   shims = Heucristic::Index::Shims.new
   receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
   target = Heucristic::Syntax::Cursor.find(
-    tree, Heucristic::Document::Point.new(line, column), "a.cr"
+    tree, Heucristic::Document::Point.new(line, column), "a.cr", SPEC_CRYSTAL
   )
   case target
   in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s
@@ -76,7 +78,9 @@ def receiver_across(files : Hash(String, String), path : String, line_text : Str
 
     trees[name] = tree
     workspace.update(
-      Heucristic::Index::Collector.collect(name, Heucristic::Document::Text.new(source), tree)
+      Heucristic::Index::Collector.collect(
+        name, Heucristic::Document::Text.new(source), tree, SPEC_CRYSTAL
+      )
     )
   end
   types = Heucristic::Resolve::Types.new(workspace)
@@ -87,7 +91,7 @@ def receiver_across(files : Hash(String, String), path : String, line_text : Str
   line = source.lines.index!(&.includes?(line_text)) + 1
   column = source.lines[line - 1].index!(line_text) + line_text.rindex!("size") + 1
   point = Heucristic::Document::Point.new(line, column)
-  target = Heucristic::Syntax::Cursor.find(trees[path], point, path)
+  target = Heucristic::Syntax::Cursor.find(trees[path], point, path, SPEC_CRYSTAL)
   raise "cursor did not land on a call in #{path}" unless target.is_a?(Heucristic::Syntax::OnCall)
 
   receiver.of_call(target.node, target.context).to_s

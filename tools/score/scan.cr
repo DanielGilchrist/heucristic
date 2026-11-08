@@ -44,7 +44,8 @@ module Score
       tree = Heucristic::Syntax.parse(File.read(path), path)
       return unless tree.is_a?(Crystal::ASTNode)
 
-      Heucristic::Syntax::Uses.in(tree, path).calls.each do |site|
+      version = @corpus.workspace.crystal_version
+      Heucristic::Syntax::Uses.in(tree, path, version).calls.each do |site|
         call = site.call
         next if SKIPPED.includes?(call.name) && call.obj.nil?
         next if inside_macro_arguments?(site.context.ancestors)

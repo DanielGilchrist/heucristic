@@ -104,7 +104,7 @@ module Heucristic
 
         shim_roots = ShimRoots.for(root)
         text = Document::Text.new(event.source)
-        collected = Index::Collector.collect(path, text, tree)
+        collected = Index::Collector.collect(path, text, tree, @workspace.crystal_version)
         file = Index::Generated.merge(collected, event.sites, @workspace, @shims,
           Index::LoadedFiles.new(event.files.to_set, shim_roots))
         @generated[event.target] = file

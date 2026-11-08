@@ -27,6 +27,10 @@ module Heucristic
         @compiled = Compiled::NONE
       end
 
+      def crystal_version : CrystalVersion::Detected
+        @workspace.crystal_version
+      end
+
       def invalidate : Nil
         @ancestors.invalidate
         @located.clear

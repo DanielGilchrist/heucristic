@@ -94,7 +94,9 @@ module Heucristic
       def of_instance_var(name : String, owner : String) : Array(LSProtocol::Location)
         found = Array(LSProtocol::Location).new
         @workspace.each_sites do |sites|
-          Syntax::InstanceVarUses.of(sites.tree, sites.path, name, owner).each do |location|
+          Syntax::InstanceVarUses.of(
+            sites.tree, sites.path, name, owner, @workspace.crystal_version
+          ).each do |location|
             add(found, sites, location, name.size)
           end
         end

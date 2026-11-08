@@ -1,3 +1,4 @@
+require "../crystal_version"
 require "./file"
 require "./table"
 require "./sites"
@@ -21,7 +22,10 @@ module Heucristic
         end
       end
 
+      getter crystal_version : CrystalVersion::Detected
+
       def initialize : Nil
+        @crystal_version = CrystalVersion::Unknown.new("Crystal version not detected")
         @files = Hash(String, File).new
         @defs = Table(Def).new
         @defs_by_owner = Table(Def).new
@@ -40,6 +44,10 @@ module Heucristic
         @call_uses = Table(CallUse).new
         @path_uses = Table(PathUse).new
         @expansions = Hash(MacroTarget, Hash(MacroExpansion::Key, MacroExpansion)).new
+      end
+
+      def crystal_version=(version : CrystalVersion::Detected) : CrystalVersion::Detected
+        @crystal_version = version
       end
 
       def size : Int32

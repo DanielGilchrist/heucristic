@@ -27,6 +27,7 @@ require "./resolver_caches"
 require "./macro_state"
 require "./answerer"
 require "./source_paths"
+require "./crystal_detection"
 require "./references"
 require "./parameter_hint"
 require "./symbols"
@@ -135,6 +136,10 @@ module Heucristic
 
       def handle(response : Protocol::Response) : Outcome
         Silence.new
+      end
+
+      def detect_crystal : CrystalVersion::Detected
+        @workspace.crystal_version = CrystalDetection.detect
       end
 
       def index_roots : Array(String)
@@ -372,8 +377,9 @@ module Heucristic
         return unless tree
 
         path = @documents.path(document)
-        changed = @workspace.update(Index::Collector.collect(path, document.text, tree))
-        @workspace.update_sites(Index::Sites.of(path, document.text, tree))
+        version = @workspace.crystal_version
+        changed = @workspace.update(Index::Collector.collect(path, document.text, tree, version))
+        @workspace.update_sites(Index::Sites.of(path, document.text, tree, version))
         @receiver.forget(path)
         return unless changed
 
@@ -393,7 +399,7 @@ module Heucristic
         return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
 
         path = @documents.path(document)
-        target = Syntax::Cursor.find(tree, point, path)
+        target = Syntax::Cursor.find(tree, point, path, @workspace.crystal_version)
         return reply(request.id, nil) unless target
 
         answer = answer_at(uri, params.position)
@@ -464,7 +470,7 @@ module Heucristic
         return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
 
         path = @documents.path(document)
-        target = Syntax::Cursor.find(tree, point, path)
+        target = Syntax::Cursor.find(tree, point, path, @workspace.crystal_version)
         return reply(request.id, nil) unless target
 
         answer = answer_at(uri, params.position)
@@ -557,7 +563,7 @@ module Heucristic
         return Answer.note("position is outside the document") if point.is_a?(Document::OutOfRange)
 
         path = @documents.path(document)
-        target = Syntax::Cursor.find(tree, point, path)
+        target = Syntax::Cursor.find(tree, point, path, @workspace.crystal_version)
         unless target
           return Answer.note(NO_TARGET)
         end

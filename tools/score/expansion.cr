@@ -94,7 +94,7 @@ module Score
         return
       end
       text = Heucristic::Document::Text.new(result.source)
-      collected = Heucristic::Index::Collector.collect(path, text, tree)
+      collected = Heucristic::Index::Collector.collect(path, text, tree, @workspace.crystal_version)
       loaded = Heucristic::Index::LoadedFiles.new(
         result.files.to_set, Heucristic::Server::ShimRoots.for(@root)
       )

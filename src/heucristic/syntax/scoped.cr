@@ -3,13 +3,14 @@ require "./target"
 require "./defined_variables"
 require "../syntax"
 require "../index/macro_text"
+require "../crystal_version"
 require "../index/synthesized"
 require "../index/record_head"
 
 module Heucristic
   module Syntax
     class Scoped < Crystal::Visitor
-      def initialize(@path : String?) : Nil
+      def initialize(@path : String?, @version : CrystalVersion::Detected) : Nil
         @enclosing = Array(String).new
         @type_vars = Array(String).new
         @defs = Array(Crystal::Def).new
@@ -22,6 +23,7 @@ module Heucristic
         type_vars : Array(String),
         definition : Crystal::Def,
         @path : String?,
+        @version : CrystalVersion::Detected,
       ) : Nil
         @enclosing = enclosing.dup
         @type_vars = type_vars.dup
@@ -111,7 +113,7 @@ module Heucristic
       protected def expansion_of(
         node : Crystal::MacroIf,
       ) : Index::MacroText::Expansion | Index::MacroText::Undecidable
-        Index::MacroText.expand(node)
+        Index::MacroText.expand(node, @version)
       end
 
       protected def context : Context

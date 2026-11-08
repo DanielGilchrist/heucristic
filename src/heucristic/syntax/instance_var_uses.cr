@@ -12,14 +12,20 @@ module Heucristic
         path : String?,
         name : String,
         owner : String,
+        version : CrystalVersion::Detected,
       ) : Array(Crystal::Location)
-        finder = new(path, name, owner)
+        finder = new(path, name, owner, version)
         tree.accept(finder)
         finder.locations
       end
 
-      def initialize(path : String?, @name : String, @owner : String) : Nil
-        super(path)
+      def initialize(
+        path : String?,
+        @name : String,
+        @owner : String,
+        version : CrystalVersion::Detected,
+      ) : Nil
+        super(path, version)
         @locations = Array(Crystal::Location).new
       end
 

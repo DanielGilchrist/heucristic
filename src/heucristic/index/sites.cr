@@ -1,6 +1,7 @@
 require "compiler/crystal/syntax"
 require "../document/text"
 require "../syntax/uses"
+require "../crystal_version"
 
 module Heucristic
   module Index
@@ -16,8 +17,13 @@ module Heucristic
       defs : Array(Syntax::Uses::DefSite),
       instance_vars : Array(Syntax::Uses::InstanceVarSite),
       multi_assigned : Set(String) do
-      def self.of(path : String, text : Document::Text, tree : Crystal::ASTNode) : Sites
-        uses = Syntax::Uses.in(tree, path)
+      def self.of(
+        path : String,
+        text : Document::Text,
+        tree : Crystal::ASTNode,
+        version : CrystalVersion::Detected,
+      ) : Sites
+        uses = Syntax::Uses.in(tree, path, version)
         new(
           path, text, tree, uses.calls, uses.paths, uses.cases, uses.generics, uses.controls,
           uses.def_sites, uses.instance_vars, uses.multi_assigned,

@@ -46,12 +46,14 @@ module Heucristic
         tree = Syntax.parse(probe.source, request.path)
         return Array(LSProtocol::CompletionItem).new if tree.is_a?(Syntax::Broken)
 
-        @workspace.update(Index::Collector.collect(request.path, probe, tree))
+        @workspace.update(Index::Collector.collect(
+          request.path, probe, tree, @workspace.crystal_version
+        ))
         @types.invalidate
         point = probe.point_at(start)
         return Array(LSProtocol::CompletionItem).new if point.is_a?(Document::OutOfRange)
 
-        target = Syntax::Cursor.find(tree, point, request.path)
+        target = Syntax::Cursor.find(tree, point, request.path, @workspace.crystal_version)
         items = case target
                 in Syntax::OnCall then calls(target, prefix)
                 in Syntax::OnPath then paths(target, prefix)

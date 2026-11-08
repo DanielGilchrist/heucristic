@@ -5,7 +5,7 @@ private def target_at(source : String, line : Int32, column : Int32) : Heucristi
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
   Heucristic::Syntax::Cursor.find(
-    tree, Heucristic::Document::Point.new(line, column), "a.cr"
+    tree, Heucristic::Document::Point.new(line, column), "a.cr", SPEC_CRYSTAL
   )
 end
 
@@ -54,7 +54,7 @@ describe Heucristic::Syntax::Cursor do
     tree = Heucristic::Syntax.parse(region, "a.cr")
     raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
-    uses = Heucristic::Syntax::Uses.in(tree, "a.cr")
+    uses = Heucristic::Syntax::Uses.in(tree, "a.cr", SPEC_CRYSTAL)
     receivers = uses.calls.select(&.call.name.==("ru_maxrss")).map(&.call.obj.class.name)
     receivers.should eq(["Crystal::Var"])
   end

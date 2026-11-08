@@ -6,8 +6,8 @@ private def misplaced(source : String) : Array(String)
 
   text = Heucristic::Document::Text.new(source)
   workspace = Heucristic::Index::Workspace.new
-  workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree))
-  sites = Heucristic::Index::Sites.of("a.cr", text, tree)
+  workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree, SPEC_CRYSTAL))
+  sites = Heucristic::Index::Sites.of("a.cr", text, tree, SPEC_CRYSTAL)
   findings = Array(Heucristic::Check::Finding).new
   types = Heucristic::Resolve::Types.new(workspace)
   methods = Heucristic::Resolve::Methods.new(workspace, types)

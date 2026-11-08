@@ -1,3 +1,5 @@
+require "./crystal_version"
+
 module Heucristic
   module CrystalEnv
     extend self
@@ -12,9 +14,21 @@ module Heucristic
     end
 
     def crystal_path : String | Unavailable
+      variable("CRYSTAL_PATH")
+    end
+
+    def version : CrystalVersion::Detected
+      raw = variable("CRYSTAL_VERSION")
+      case raw
+      in Unavailable then CrystalVersion::Unknown.new(raw.reason)
+      in String      then CrystalVersion.parse(raw)
+      end
+    end
+
+    private def variable(name : String) : String | Unavailable
       output = IO::Memory.new
       status = Process.run(
-        "crystal", {"env", "CRYSTAL_PATH"}, output: output, error: Process::Redirect::Close
+        "crystal", {"env", name}, output: output, error: Process::Redirect::Close
       )
       return Unavailable.new("crystal env exited #{status.exit_code}") unless status.success?
 

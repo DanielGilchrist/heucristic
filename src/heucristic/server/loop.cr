@@ -76,10 +76,11 @@ module Heucristic
       end
 
       private def start_indexing : Nil
+        version = @session.detect_crystal
         roots = @session.index_roots
         shim_roots = @session.shim_roots
         events = @events
-        Fibers.detach(:indexer) { Index::Loader.load(roots, shim_roots, events) }
+        Fibers.detach(:indexer) { Index::Loader.load(roots, shim_roots, version, events) }
       end
 
       private def indexing(event : Index::Event) : Nil

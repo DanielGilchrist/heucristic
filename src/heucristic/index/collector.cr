@@ -11,6 +11,7 @@ require "./signature"
 require "./evident"
 require "./macro_text"
 require "./macro_body"
+require "../crystal_version"
 require "../syntax"
 require "../syntax/well_known"
 
@@ -19,13 +20,22 @@ module Heucristic
     class Collector < Crystal::Visitor
       FLAG_MEMBERS = %w[None All]
 
-      def self.collect(path : String, text : Document::Text, tree : Crystal::ASTNode) : File
-        collector = new(path, text)
+      def self.collect(
+        path : String,
+        text : Document::Text,
+        tree : Crystal::ASTNode,
+        version : CrystalVersion::Detected,
+      ) : File
+        collector = new(path, text, version)
         tree.accept(collector)
         collector.file
       end
 
-      def initialize(@path : String, @text : Document::Text) : Nil
+      def initialize(
+        @path : String,
+        @text : Document::Text,
+        @version : CrystalVersion::Detected,
+      ) : Nil
         @file_private = nil
         @defs = Array(Def).new
         @namespaces = Array(Namespace).new
@@ -289,7 +299,7 @@ module Heucristic
       end
 
       def visit(node : Crystal::MacroIf) : Bool
-        expanded = MacroText.expand(node)
+        expanded = MacroText.expand(node, @version)
         if expanded.is_a?(MacroText::Undecidable)
           mark_opaque
           return false

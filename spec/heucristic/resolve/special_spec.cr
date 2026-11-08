@@ -5,7 +5,7 @@ private def special_of(source : String) : Heucristic::Resolve::Special?
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
 
   text = Heucristic::Document::Text.new(source)
-  index = Heucristic::Index::Collector.collect("a.cr", text, tree)
+  index = Heucristic::Index::Collector.collect("a.cr", text, tree, SPEC_CRYSTAL)
   Heucristic::Resolve::Special.for(index.defs.first)
 end
 
