@@ -309,6 +309,50 @@ describe Heucristic::Resolve::Methods do
     lookup_meta(source, "Lone", "new", 0).should eq(["Lone.new"])
   end
 
+  it "never reaches the allocate of an extended module (the compiler's primitive wins)" do
+    source = <<-CR
+      module Pool
+        def allocate : Int32
+        end
+      end
+
+      class Lone
+        extend Pool
+      end
+
+      class Own
+        extend Pool
+
+        def self.allocate : Float64
+        end
+      end
+      CR
+    lookup_meta(source, "Lone", "allocate", 0).should be_empty
+    lookup_meta(source, "Own", "allocate", 0).should eq(["Own.allocate"])
+  end
+
+  it "reaches an allocate only on the class that defines it, or on a module" do
+    source = <<-CR
+      class Par
+        def self.allocate : Int32
+        end
+      end
+
+      class Chi < Par
+      end
+
+      module SelfEx
+        extend self
+
+        def allocate : String
+        end
+      end
+      CR
+    lookup_meta(source, "Par", "allocate", 0).should eq(["Par.allocate"])
+    lookup_meta(source, "Chi", "allocate", 0).should be_empty
+    lookup_meta(source, "SelfEx", "allocate", 0).should eq(["SelfEx#allocate"])
+  end
+
   it "does not extend a class's metaclass with the extend self of a module it includes" do
     source = <<-CR
       module Checks

@@ -618,6 +618,8 @@ module Heucristic
       end
 
       private def class_methods(type : String, call : Call) : Array(Index::Def)
+        return own_allocate(type, call) if primitive_allocate?(type, call)
+
         found = first_level(type, call) do |entry|
           entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
         end
@@ -774,7 +776,19 @@ module Heucristic
         end
       end
 
+      private def primitive_allocate?(type : String, call : Call) : Bool
+        Syntax::WellKnown::Allocate.named?(call.name) && !@workspace.module?(type)
+      end
+
+      private def own_allocate(type : String, call : Call) : Array(Index::Def)
+        first_level(type, call) do |entry|
+          entry.receiver.metaclass? && entry.owner == type && call.accepts?(entry)
+        end
+      end
+
       private def extended_methods(type : String, call : Call) : Array(Index::Def)
+        return Array(Index::Def).new if primitive_allocate?(type, call)
+
         found = extended_pass(type, call, true)
         found.empty? ? extended_pass(type, call, false) : found
       end
