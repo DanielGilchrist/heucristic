@@ -11,14 +11,13 @@ require "../protocol/encoder"
 require "../protocol/transport"
 require "../resolve/compiled"
 require "../resolve/methods"
-require "../resolve/receiver"
-require "../resolve/types"
 require "../syntax"
 require "./macro_lookup"
 require "./macro_status"
 require "./macros"
 require "./notice"
 require "./project_files"
+require "./resolver_caches"
 require "./shim_roots"
 require "./stage"
 
@@ -32,9 +31,8 @@ module Heucristic
         @transport : Protocol::Transport,
         @workspace : Index::Workspace,
         @shims : Index::Shims,
-        @types : Resolve::Types,
         @methods : Resolve::Methods,
-        @receiver : Resolve::Receiver,
+        @caches : ResolverCaches,
       ) : Nil
         @runner = Macros.new(events)
         @status = MacrosPending.new
@@ -112,9 +110,7 @@ module Heucristic
         @generated[event.target] = file
         @workspace.update(file)
         @workspace.expand(event.target, event.expansions)
-        @types.invalidate
-        @methods.invalidate
-        @receiver.invalidate
+        @caches.invalidate
         sites = @sites[path] = Hash(Int32, Index::MacroSite).new
         event.sites.each { |site| sites[site.line] = site }
         @compiled[event.target] = event.files.to_set

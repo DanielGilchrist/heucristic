@@ -23,6 +23,7 @@ require "./outcome"
 require "./answer"
 require "./progress"
 require "./options"
+require "./resolver_caches"
 require "./macro_state"
 require "./answerer"
 require "./source_paths"
@@ -72,9 +73,8 @@ module Heucristic
         @types = Resolve::Types.new(@workspace)
         @methods = Resolve::Methods.new(@workspace, @types)
         @receiver = Resolve::Receiver.new(@workspace, @shims, @types, @methods)
-        @macros = MacroState.new(
-          events, @transport, @workspace, @shims, @types, @methods, @receiver
-        )
+        @caches = ResolverCaches.new(@types, @methods, @receiver)
+        @macros = MacroState.new(events, @transport, @workspace, @shims, @methods, @caches)
         @references = References.new(@workspace, @types, @receiver)
         @hints = ParameterHint.new(@workspace, @types, @receiver, @references)
         @sources = SourcePaths.new
@@ -153,9 +153,7 @@ module Heucristic
         @workspace.replace_all(event.files)
         @workspace.replace_sites(event.sites)
         @macros.restore
-        @types.invalidate
-        @methods.invalidate
-        @receiver.invalidate
+        @caches.invalidate
         @documents.each { |document| index_document(document) }
         @transport.send(Protocol::Encoder.notification(
           Notice::Indexed.method,
@@ -377,9 +375,7 @@ module Heucristic
         @receiver.forget(path)
         return unless changed
 
-        @types.invalidate
-        @methods.invalidate
-        @receiver.invalidate
+        @caches.invalidate
       end
 
       private def rename(request : Protocol::Request) : Outcome
