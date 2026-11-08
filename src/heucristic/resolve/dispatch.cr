@@ -44,7 +44,7 @@ module Heucristic
 
       def result(
         receiver : Resolved,
-        call : Methods::Call,
+        call : Methods::CallShape,
         site : Receiver::Site = Receiver::Site::NONE,
       ) : Resolution
         if receiver.is_a?(UnionRef)
@@ -62,7 +62,7 @@ module Heucristic
         end
         return receiver if receiver.is_a?(TypeRef) && receiver.is?(:no_return)
         if receiver.is_a?(MetaRef) && call.name == "|"
-          other = call.arguments[0]?
+          other = call.types[0]?
           return UnionRef.new([receiver, other] of Resolution) if other.is_a?(MetaRef)
         end
 
@@ -91,7 +91,7 @@ module Heucristic
         forward_receiver(handler, Array(Visit){DefVisit.of(handler)}) if handler
       end
 
-      def overridden?(below : Resolved, receiver : TypeRef, call : Methods::Call) : Bool
+      def overridden?(below : Resolved, receiver : TypeRef, call : Methods::CallShape) : Bool
         return true unless below.is_a?(TypeRef)
 
         @methods.defined_between?(below.identity, receiver.identity, call.name)
@@ -99,8 +99,8 @@ module Heucristic
 
       private def across_constructions(
         receiver : Resolved,
-        leaves : Array(Methods::Call),
-        call : Methods::Call,
+        leaves : Array(Methods::CallShape),
+        call : Methods::CallShape,
         site : Receiver::Site,
       ) : Resolution
         results = leaves.map { |leaf| result(receiver, leaf, site) }.uniq!
@@ -113,7 +113,7 @@ module Heucristic
 
       private def missing_forward(
         receiver : Resolved,
-        call : Methods::Call,
+        call : Methods::CallShape,
         site : Receiver::Site,
       ) : Resolution?
         handler = missing_handler(receiver)
@@ -150,7 +150,7 @@ module Heucristic
 
       private def virtual(
         receiver : Resolved,
-        call : Methods::Call,
+        call : Methods::CallShape,
         site : Receiver::Site,
       ) : Resolution
         concrete = @methods.virtual_receivers(receiver, call.caller_path)
@@ -173,11 +173,11 @@ module Heucristic
       private def overloads(
         defs : Array(Index::Def),
         receiver : Resolved,
-        call : Methods::Call,
+        call : Methods::CallShape,
         site : Receiver::Site,
       ) : Resolution
         results = Array(Resolution).new(defs.size)
-        defs.each { |entry| results << @typer.return_type(entry, receiver, call.arguments, site) }
+        defs.each { |entry| results << @typer.return_type(entry, receiver, call.types, site) }
         cover = @methods.covering(receiver, call)
         if cover
           return @unions.union(results) if cover.complete
@@ -189,7 +189,7 @@ module Heucristic
 
         distinct = results.uniq
         return distinct[0] if distinct.size == 1
-        if call.arguments.empty? && !call.block
+        if call.types.empty? && !call.block?
           annotated = distinct.reject do |candidate|
             candidate.is_a?(Unknown) && candidate.reason.no_annotation?
           end
@@ -205,7 +205,7 @@ module Heucristic
         defs : Array(Index::Def),
         direct : Resolution,
         receiver : Resolved,
-        call : Methods::Call,
+        call : Methods::CallShape,
         site : Receiver::Site,
       ) : Resolution
         return direct unless receiver.is_a?(TypeRef)
@@ -213,7 +213,7 @@ module Heucristic
         subclasses = @methods.concrete_subclasses(receiver, call.caller_path)
         return direct if subclasses.empty?
 
-        key = DispatchVisit.new(receiver, call.name, call.arity)
+        key = DispatchVisit.new(receiver, call.name, call.given)
         return key.cycle if site.visiting.includes?(key)
 
         virtual_only = @methods.abstract_class?(receiver.identity)

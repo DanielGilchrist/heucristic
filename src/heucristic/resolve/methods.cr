@@ -24,68 +24,94 @@ module Heucristic
         end
       end
 
-      record Call,
-        name : String,
-        arity : Int32,
-        block : Bool,
-        arguments : Array(Resolution),
-        named : Array(String),
-        named_arguments : Array(Binding) = Array(Binding).new,
-        implicit : Bool = false,
-        caller_path : String? = nil,
-        precisions : Array(Precision) = Array(Precision).new do
-        def self.new(name : String, arity : Int32, block : Bool) : Call
-          new(name, arity, block, Array(Resolution).new, Array(String).new)
+      struct CallShape
+        record Argument, type : Resolution, precision : Precision do
+          def bound? : Bool
+            precision.bound?
+          end
+
+          def with_type(replacement : Resolution) : Argument
+            Argument.new(replacement, precision)
+          end
         end
 
-        def self.new(
-          name : String,
-          arity : Int32,
-          block : Bool,
-          arguments : Array(Resolution),
-        ) : Call
-          new(name, arity, block, arguments, Array(String).new)
+        getter name : String
+        getter given : Int32
+        getter? block : Bool
+        getter arguments : Array(Argument)
+        getter types : Array(Resolution)
+        getter named : Array(Binding)
+        getter? implicit : Bool
+        getter caller_path : String?
+
+        def_equals_and_hash name, given, block?, arguments, named, implicit?, caller_path
+
+        def initialize(
+          @name : String,
+          @given : Int32,
+          @block : Bool,
+          @arguments : Array(Argument) = Array(Argument).new,
+          @named : Array(Binding) = Array(Binding).new,
+          @implicit : Bool = false,
+          @caller_path : String? = nil,
+        ) : Nil
+          @types = @arguments.map(&.type)
+        end
+
+        def self.of_types(name : String, types : Array(Resolution), block : Bool) : CallShape
+          arguments = types.map { |type| Argument.new(type, :bound) }
+          new(name, types.size, block, arguments)
+        end
+
+        def with_types(replacements : Array(Resolution)) : CallShape
+          replaced = arguments.map_with_index do |argument, index|
+            argument.with_type(replacements[index])
+          end
+          CallShape.new(name, given, block?, replaced, named, implicit?, caller_path)
+        end
+
+        def named?(external_name : String) : Bool
+          named.any? { |binding| binding.name == external_name }
         end
 
         def bound?(index : Int32) : Bool
-          precision = precisions[index]?
-          precision.nil? || precision.bound?
+          arguments[index].bound?
         end
 
         def accepts?(entry : Index::Def) : Bool
-          positional_satisfied?(entry) && entry.yields == block && keywords_satisfied?(entry)
+          positional_satisfied?(entry) && entry.yields == block? && keywords_satisfied?(entry)
         end
 
         def complaint(entry : Index::Def) : Index::ArgumentComplaint?
-          Index::ArgumentCheck.new(entry.parameters, arity, named).complaint
+          Index::ArgumentCheck.new(entry.parameters, given, named.map(&.name)).complaint
         end
 
         private def positional_satisfied?(entry : Index::Def) : Bool
           positional = entry.parameters.select(&.kind.positional?)
-          by_name = positional.count { |parameter| named.includes?(parameter.external_name) }
+          by_name = positional.count { |parameter| named?(parameter.external_name) }
           required = positional.count { |parameter| parameter.default.nil? }
           required_by_name = positional.count do |parameter|
-            parameter.default.nil? && named.includes?(parameter.external_name)
+            parameter.default.nil? && named?(parameter.external_name)
           end
-          return false if arity + by_name > positional.size && !entry.arity.splat
+          return false if given + by_name > positional.size && !entry.arity.splat
 
-          arity >= required - required_by_name
+          given >= required - required_by_name
         end
 
         private def keywords_satisfied?(entry : Index::Def) : Bool
           required = entry.parameters.all? do |parameter|
             next true unless parameter.kind.keyword?
 
-            parameter.default || named.includes?(parameter.external_name)
+            parameter.default || named?(parameter.external_name)
           end
           return false unless required
           return true if entry.parameters.any?(&.kind.double_splat?)
 
-          named.all? do |name|
+          named.all? do |binding|
             entry.parameters.any? do |parameter|
               next false unless parameter.kind.keyword? || parameter.kind.positional?
 
-              parameter.external_name == name
+              parameter.external_name == binding.name
             end
           end
         end
@@ -116,7 +142,7 @@ module Heucristic
         @extended.clear
       end
 
-      def class_macros(receiver : Resolution, call : Call) : Array(Index::MacroDef)
+      def class_macros(receiver : Resolution, call : CallShape) : Array(Index::MacroDef)
         found = Array(Index::MacroDef).new
         return found unless receiver.is_a?(MetaRef)
 
@@ -127,11 +153,11 @@ module Heucristic
         @workspace.macros(call.name).select do |entry|
           owner = entry.owner
           owner.is_a?(Index::Identity) && owners.includes?(owner) &&
-            entry.arity.accepts?(call.arity)
+            entry.arity.accepts?(call.given)
         end
       end
 
-      def dispatch(receiver : Resolution, call : Call) : Array(Index::Def)
+      def dispatch(receiver : Resolution, call : CallShape) : Array(Index::Def)
         found = lookup(receiver, call)
         return virtual_lookup(receiver, call) if found.empty?
 
@@ -140,14 +166,14 @@ module Heucristic
 
       def reached(
         receiver : Resolution,
-        call : Call,
+        call : CallShape,
         found : Array(Index::Def),
       ) : Array(Index::Def)
         cover = covering(receiver, call)
         cover ? cover.defs : found
       end
 
-      def covering(receiver : Resolution, call : Call) : Covering?
+      def covering(receiver : Resolution, call : CallShape) : Covering?
         reach = reach_of(receiver)
         return if reach.nil? || constructing?(reach, call)
         return unless partial?(reach, receiver, call)
@@ -164,7 +190,7 @@ module Heucristic
         walk(reach, receiver, call, leaves)
       end
 
-      def construction_leaves(receiver : Resolution, call : Call) : Array(Call)?
+      def construction_leaves(receiver : Resolution, call : CallShape) : Array(CallShape)?
         reach = reach_of(receiver)
         return unless reach && constructing?(reach, call)
         return if leaf_count(call) > LEAF_LIMIT
@@ -173,7 +199,7 @@ module Heucristic
         leaves if leaves.size > 1 && diverge?(receiver, leaves)
       end
 
-      def virtual_lookup(receiver : Resolution, call : Call) : Array(Index::Def)
+      def virtual_lookup(receiver : Resolution, call : CallShape) : Array(Index::Def)
         found = Array(Index::Def).new
         virtual_receivers(receiver, call.caller_path).each do |below|
           defs = lookup(below, call)
@@ -229,17 +255,17 @@ module Heucristic
         end
       end
 
-      def compatible?(entry : Index::Def, call : Call, receiver : Resolution? = nil) : Bool
+      def compatible?(entry : Index::Def, call : CallShape, receiver : Resolution? = nil) : Bool
         rejected_argument(entry, call, receiver: receiver).nil?
       end
 
       def rejected_argument(
         entry : Index::Def,
-        call : Call,
+        call : CallShape,
         admission : Admission = :overload,
         receiver : Resolution? = nil,
       ) : Rejected?
-        return if call.arguments.all?(Unknown)
+        return if call.types.all?(Unknown)
 
         positional = entry.parameters.select(&.kind.positional?)
         owner = entry.owner
@@ -247,7 +273,7 @@ module Heucristic
         type_vars = entry.free_vars + owner_vars
         scope = Scope.new(owner, type_vars, receiver_bindings(receiver, owner), entry.path)
         splat = entry.parameters.find(&.kind.splat?)
-        call.arguments.each_with_index do |argument, index|
+        call.types.each_with_index do |argument, index|
           parameter = positional[index]? || splat
           restriction = parameter.try(&.restriction)
           next if argument.is_a?(Unknown) || !restriction.is_a?(Syntax::Type)
@@ -262,14 +288,14 @@ module Heucristic
         nil
       end
 
-      def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
+      def lookup(receiver : Resolution, call : CallShape) : Array(Index::Def)
         found = case receiver
                 in TypeRef          then instance_methods(receiver.identity, call, receiver)
                 in MetaRef          then metaclass_methods(receiver.of, call)
                 in UnionRef         then union_methods(receiver, call)
                 in TypeVar, Unknown then Array(Index::Def).new
                 end
-        return found unless found.empty? && call.implicit
+        return found unless found.empty? && call.implicit?
 
         top_level(call)
       end
@@ -370,7 +396,7 @@ module Heucristic
       def lookup_super(
         receiver : Resolved,
         owner : Index::Identity,
-        call : Call,
+        call : CallShape,
       ) : Array(Index::Def)
         case receiver
         in TypeRef
@@ -388,7 +414,7 @@ module Heucristic
         end
       end
 
-      private def constructing?(reach : Reach, call : Call) : Bool
+      private def constructing?(reach : Reach, call : CallShape) : Bool
         reach.metaclass && Syntax::WellKnown::New.named?(call.name)
       end
 
@@ -405,8 +431,8 @@ module Heucristic
       private def walk(
         reach : Reach,
         receiver : Resolution,
-        call : Call,
-        leaves : Array(Call),
+        call : CallShape,
+        leaves : Array(CallShape),
       ) : Covering?
         uncovered = leaves.dup
         candidates = @workspace.named(call.name)
@@ -425,7 +451,7 @@ module Heucristic
         found.empty? ? nil : Covering.new(found, uncovered.empty?)
       end
 
-      private def partial?(reach : Reach, receiver : Resolution, call : Call) : Bool
+      private def partial?(reach : Reach, receiver : Resolution, call : CallShape) : Bool
         indexes = splittable(call)
         return false if indexes.empty?
 
@@ -443,59 +469,59 @@ module Heucristic
       private def partially_admits?(
         entry : Index::Def,
         receiver : Resolution,
-        call : Call,
+        call : CallShape,
         index : Int32,
       ) : Bool
-        union = call.arguments[index]
+        union = call.types[index]
         return false unless union.is_a?(UnionRef)
 
         unknown = Unknown.new(:unsupported, "probe")
-        probe = Array(Resolution).new(call.arguments.size) { unknown }
+        probe = Array(Resolution).new(call.types.size) { unknown }
         probe[index] = union
-        return false if compatible?(entry, call.copy_with(arguments: probe), receiver)
+        return false if compatible?(entry, call.with_types(probe), receiver)
 
         union.members.any? do |member|
           probe[index] = member
-          compatible?(entry, call.copy_with(arguments: probe), receiver)
+          compatible?(entry, call.with_types(probe), receiver)
         end
       end
 
-      private def splittable(call : Call) : Array(Int32)
+      private def splittable(call : CallShape) : Array(Int32)
         indexes = Array(Int32).new
-        call.arguments.each_with_index do |argument, index|
+        call.types.each_with_index do |argument, index|
           indexes << index if argument.is_a?(UnionRef) && argument.members.none?(Unknown)
         end
         indexes
       end
 
-      private def leaf_count(call : Call) : Int32
+      private def leaf_count(call : CallShape) : Int32
         count = 1
         splittable(call).each do |index|
-          argument = call.arguments[index]
+          argument = call.types[index]
           count *= argument.members.size if argument.is_a?(UnionRef)
           return count if count > LEAF_LIMIT
         end
         count
       end
 
-      private def leaf_calls(call : Call) : Array(Call)
+      private def leaf_calls(call : CallShape) : Array(CallShape)
         leaves = [call]
         splittable(call).each do |index|
-          argument = call.arguments[index]
+          argument = call.types[index]
           next unless argument.is_a?(UnionRef)
 
           leaves = leaves.flat_map do |leaf|
             argument.members.map do |member|
-              arguments = leaf.arguments.dup
-              arguments[index] = member
-              leaf.copy_with(arguments: arguments)
+              types = leaf.types.dup
+              types[index] = member
+              leaf.with_types(types)
             end
           end
         end
         leaves
       end
 
-      private def diverge?(receiver : Resolution, calls : Array(Call)) : Bool
+      private def diverge?(receiver : Resolution, calls : Array(CallShape)) : Bool
         first = lookup(receiver, calls[0])
         calls.each(within: 1..) do |call|
           return true unless same_defs?(first, lookup(receiver, call))
@@ -563,7 +589,7 @@ module Heucristic
 
       private def instance_methods(
         type : Index::Identity,
-        call : Call,
+        call : CallShape,
         receiver : TypeRef? = nil,
       ) : Array(Index::Def)
         found = first_level(type, call) do |entry|
@@ -575,7 +601,7 @@ module Heucristic
         found.empty? ? includer_methods(type, call) : found
       end
 
-      private def includer_methods(type : Index::Identity, call : Call) : Array(Index::Def)
+      private def includer_methods(type : Index::Identity, call : CallShape) : Array(Index::Def)
         return Array(Index::Def).new if @including.includes?(type)
         return Array(Index::Def).new unless @workspace.module?(type)
 
@@ -609,7 +635,7 @@ module Heucristic
         names.uniq!
       end
 
-      private def class_methods(type : Index::Identity, call : Call) : Array(Index::Def)
+      private def class_methods(type : Index::Identity, call : CallShape) : Array(Index::Def)
         return own_allocate(type, call) if primitive_allocate?(type, call)
 
         found = first_level(type, call) do |entry|
@@ -632,7 +658,7 @@ module Heucristic
         first_level(type, call) { |entry| entry.receiver.metaclass? && call.accepts?(entry) }
       end
 
-      private def union_methods(receiver : UnionRef, call : Call) : Array(Index::Def)
+      private def union_methods(receiver : UnionRef, call : CallShape) : Array(Index::Def)
         receiver.members.flat_map { |member| lookup(member, call) }.uniq!
       end
 
@@ -668,14 +694,14 @@ module Heucristic
         found
       end
 
-      private def metaclass_methods(of : TypeRef | TypeVar, call : Call) : Array(Index::Def)
+      private def metaclass_methods(of : TypeRef | TypeVar, call : CallShape) : Array(Index::Def)
         return class_methods(CoreType::Object.identity, call) if of.is_a?(TypeVar)
 
         found = class_methods(of.identity, call)
         found.empty? ? instance_methods(CoreType::Class.identity, call) : found
       end
 
-      private def top_level(call : Call) : Array(Index::Def)
+      private def top_level(call : CallShape) : Array(Index::Def)
         candidates = @workspace.named(call.name).select do |entry|
           entry.owner.is_a?(Index::TopLevel) && entry.visible_from?(call.caller_path) &&
             own?(entry, call.caller_path) && call.accepts?(entry) && compatible?(entry, call)
@@ -687,7 +713,7 @@ module Heucristic
         mixed_in_at_top_level(call)
       end
 
-      private def mixed_in_at_top_level(call : Call) : Array(Index::Def)
+      private def mixed_in_at_top_level(call : CallShape) : Array(Index::Def)
         found = Array(Index::Def).new
         @workspace.mixins_of(Index::TopLevel.new).each do |mixin|
           next unless mixin.kind.include?
@@ -700,8 +726,8 @@ module Heucristic
         found.uniq!
       end
 
-      private def default_constructor(type : Index::Identity, call : Call) : Array(Index::Def)
-        return Array(Index::Def).new if call.arity > 0 || call.block || !call.named.empty?
+      private def default_constructor(type : Index::Identity, call : CallShape) : Array(Index::Def)
+        return Array(Index::Def).new if call.given > 0 || call.block? || !call.named.empty?
 
         searched = levels(type)
         initialize = Syntax::WellKnown::Initialize.method_name
@@ -728,20 +754,19 @@ module Heucristic
         )]
       end
 
-      private def initializer_call(call : Call) : Call
-        Call.new(
+      private def initializer_call(call : CallShape) : CallShape
+        CallShape.new(
           Syntax::WellKnown::Initialize.method_name,
-          call.arity,
-          call.block,
+          call.given,
+          call.block?,
           call.arguments,
           call.named,
-          call.named_arguments,
         )
       end
 
       private def alongside_initialize(
         type : Index::Identity,
-        call : Call,
+        call : CallShape,
         explicit : Array(Index::Def),
       ) : Array(Index::Def)
         return explicit unless Syntax::WellKnown::New.named?(call.name)
@@ -766,17 +791,17 @@ module Heucristic
         end
       end
 
-      private def primitive_allocate?(type : Index::Identity, call : Call) : Bool
+      private def primitive_allocate?(type : Index::Identity, call : CallShape) : Bool
         Syntax::WellKnown::Allocate.named?(call.name) && !@workspace.module?(type)
       end
 
-      private def own_allocate(type : Index::Identity, call : Call) : Array(Index::Def)
+      private def own_allocate(type : Index::Identity, call : CallShape) : Array(Index::Def)
         first_level(type, call) do |entry|
           entry.receiver.metaclass? && entry.owner == type && call.accepts?(entry)
         end
       end
 
-      private def extended_methods(type : Index::Identity, call : Call) : Array(Index::Def)
+      private def extended_methods(type : Index::Identity, call : CallShape) : Array(Index::Def)
         return Array(Index::Def).new if primitive_allocate?(type, call)
 
         found = extended_pass(type, call, true)
@@ -785,7 +810,7 @@ module Heucristic
 
       private def extended_pass(
         type : Index::Identity,
-        call : Call,
+        call : CallShape,
         strict : Bool,
       ) : Array(Index::Def)
         extending_levels(type).each do |level|
@@ -801,7 +826,7 @@ module Heucristic
 
       private def extended_at(
         level : Index::Identity,
-        call : Call,
+        call : CallShape,
         strict : Bool,
       ) : Array(Index::Def)
         declared = extended_declared(level)
@@ -814,7 +839,7 @@ module Heucristic
       private def first_extended(
         declared : Array(Index::Mixin),
         level : Index::Identity,
-        call : Call,
+        call : CallShape,
         strict : Bool,
       ) : Array(Index::Def)
         declared.reverse_each do |mixin|
@@ -829,7 +854,7 @@ module Heucristic
 
       private def any_extended(
         level : Index::Identity,
-        call : Call,
+        call : CallShape,
         strict : Bool,
       ) : Array(Index::Def)
         found = Array(Index::Def).new
@@ -844,7 +869,7 @@ module Heucristic
 
       private def extended_instance(
         module_name : Index::Identity,
-        call : Call,
+        call : CallShape,
         strict : Bool,
       ) : Array(Index::Def)
         return instance_methods(module_name, call) unless strict
@@ -866,7 +891,7 @@ module Heucristic
 
       private def first_level(
         type : Index::Identity,
-        call : Call,
+        call : CallShape,
         after : Index::Identity? = nil,
         & : Index::Def -> Bool
       ) : Array(Index::Def)
@@ -876,7 +901,7 @@ module Heucristic
           searched = searched[(start + 1)..]
         end
         gathered = Array(Index::Def).new
-        undecided = call.arguments.any?(Unknown)
+        undecided = call.types.any?(Unknown)
         searched.each do |level|
           next if candidates.none? { |entry| entry.owner == level }
 
@@ -904,7 +929,7 @@ module Heucristic
         end
       end
 
-      private def most_specific(found : Array(Index::Def), call : Call) : Array(Index::Def)
+      private def most_specific(found : Array(Index::Def), call : CallShape) : Array(Index::Def)
         return found if found.size < 2
 
         fixed = found.reject(&.arity.splat)
@@ -923,7 +948,7 @@ module Heucristic
         bound.is_a?(Unknown) ? none : bound
       end
 
-      private def stricter?(candidate : Index::Def, other : Index::Def, call : Call) : Bool
+      private def stricter?(candidate : Index::Def, other : Index::Def, call : CallShape) : Bool
         left = candidate.parameters.select(&.kind.positional?)
         right = other.parameters.select(&.kind.positional?)
         return false unless left.size == right.size
@@ -931,7 +956,7 @@ module Heucristic
         strictly = false
         left.each_with_index do |mine, index|
           theirs = right[index]
-          known = call.arguments[index]?.try { |argument| !argument.is_a?(Unknown) } || false
+          known = call.types[index]?.try { |argument| !argument.is_a?(Unknown) } || false
           mine_restricted = !mine.restriction.is_a?(Index::Unrestricted)
           theirs_restricted = !theirs.restriction.is_a?(Index::Unrestricted)
           return false if mine_restricted != theirs_restricted && !known
@@ -1006,9 +1031,7 @@ module Heucristic
           end
           return declared unless declared.empty?
         end
-        none = Array(Resolution).new
-        call = Call.new(Syntax::WellKnown::New.method_name, 0, false, none, Array(String).new,
-          caller_path: caller_path)
+        call = CallShape.new(Syntax::WellKnown::New.method_name, 0, false, caller_path: caller_path)
         default_constructor(type, call)
       end
     end

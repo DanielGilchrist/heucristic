@@ -34,11 +34,12 @@ module ShimsCheck
     end
 
     stdlib = Hash(String, Heucristic::Index::Def).new
-    by_shape = Hash(String, Array(Heucristic::Index::Def)).new
+    by_unrestricted = Hash(String, Array(Heucristic::Index::Def)).new
     finished.files.each do |file|
       file.defs.each do |entry|
         stdlib[entry.identity] = entry
-        (by_shape[entry.shape] ||= Array(Heucristic::Index::Def).new) << entry
+        (by_unrestricted[entry.unrestricted_identity] ||= Array(Heucristic::Index::Def).new) <<
+          entry
       end
     end
     shims = Heucristic::Index::Shims.new
@@ -59,7 +60,7 @@ module ShimsCheck
     end
     shims.each do |shim|
       target = stdlib[shim.identity]?
-      target ||= by_shape[shim.shape]?.try do |candidates|
+      target ||= by_unrestricted[shim.unrestricted_identity]?.try do |candidates|
         candidates.find { |candidate| shims.find(candidate) == shim }
       end
       if target.nil? && !indexed_owner?(shim, finished.files, shim_roots)

@@ -59,7 +59,7 @@ module Heucristic
         parameter : Index::Parameter,
       ) : Resolve::Resolution?
         shape = @receiver.shape_of(use.call, use.context)
-        named = shape.named_arguments.find(&.name.==(parameter.external_name))
+        named = shape.named.find(&.name.==(parameter.external_name))
         return named.value if named
         return unless parameter.kind.positional?
 
@@ -71,7 +71,7 @@ module Heucristic
           detail = "a splat argument spreads into `#{parameter.name}`"
           return Resolve::Unknown.new(:unsupported, detail)
         end
-        shape.arguments[index]?
+        shape.types[index]?
       end
 
       private def default(entry : Index::Def, parameter : Index::Parameter) : Resolve::Resolution

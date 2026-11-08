@@ -59,7 +59,7 @@ module Heucristic
 
       def of(
         receiver : Resolved,
-        shape : Methods::Call,
+        shape : Methods::CallShape,
         index : Int32,
         parameters : Int32,
       ) : Resolution
@@ -85,7 +85,7 @@ module Heucristic
 
         inputs = Array(Resolution).new(defs.size)
         defs.each do |entry|
-          inputs << for_def(entry, receiver, shape.arguments, index, parameters)
+          inputs << for_def(entry, receiver, shape.types, index, parameters)
         end
         @unions.union(inputs)
       end

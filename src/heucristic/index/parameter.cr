@@ -39,7 +39,7 @@ module Heucristic
         Parameter.new(name, external_name, rendered, default, kind, default_type)
       end
 
-      def shape : String
+      def unrestricted_identity : String
         String.build do |io|
           write_prefix(io)
           io << external_name

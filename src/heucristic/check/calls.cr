@@ -580,8 +580,8 @@ module Heucristic
             io << "' to be " << rejected.expected << ", not " << rejected.actual
           else
             io << "no overload matches '" << qualified << "' with type"
-            io << (shape.arguments.size == 1 ? " " : "s ")
-            shape.arguments.join(io, ", ")
+            io << (shape.types.size == 1 ? " " : "s ")
+            shape.types.join(io, ", ")
             io << "\n\nOverloads are:"
             fitting.each { |entry| io << "\n - " << entry.signature }
           end

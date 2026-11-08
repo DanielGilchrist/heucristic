@@ -66,7 +66,7 @@ private def result_of(
   arity : Int32,
   block : Bool,
 ) : String
-  receiver.dispatch.result(target, Heucristic::Resolve::Methods::Call.new(name, arity, block)).to_s
+  receiver.dispatch.result(target, call_shape(name, arity, block)).to_s
 end
 
 describe Heucristic::Resolve::Receiver, "with shims" do
@@ -138,9 +138,9 @@ describe Heucristic::Resolve::Receiver, "typeof a parameter in a shim" do
     int64 = type_ref("Int64")
 
     arguments = [int64] of Heucristic::Resolve::Resolution
-    explicit = Heucristic::Resolve::Methods::Call.new("with_index", 1, false, arguments)
+    explicit = call_shape("with_index", 1, false, arguments)
     receiver.dispatch.result(counter, explicit).to_s.should eq("Iterator(Tuple(String, Int64))")
-    defaulted = Heucristic::Resolve::Methods::Call.new("with_index", 0, false)
+    defaulted = call_shape("with_index", 0, false)
     receiver.dispatch.result(counter, defaulted).to_s.should eq("Iterator(Tuple(String, Int32))")
   end
 end
@@ -155,7 +155,7 @@ describe Heucristic::Resolve::Methods, "generated number shims" do
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     int32 = type_ref("Int32")
 
-    found = methods.lookup(int32, Heucristic::Resolve::Methods::Call.new("<<", 1, false))
+    found = methods.lookup(int32, call_shape("<<", 1, false))
 
     found.map(&.path).should eq(["int.cr"])
   end

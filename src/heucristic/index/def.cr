@@ -99,8 +99,8 @@ module Heucristic
         "#{qualified}(#{parameters.map(&.identity).join(", ")})"
       end
 
-      def shape : String
-        "#{qualified}(#{parameters.map(&.shape).join(", ")})"
+      def unrestricted_identity : String
+        "#{qualified}(#{parameters.map(&.unrestricted_identity).join(", ")})"
       end
     end
   end

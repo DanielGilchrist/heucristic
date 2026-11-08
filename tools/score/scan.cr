@@ -74,7 +74,7 @@ module Score
       puts "#{call.name} at #{at.text}: #{result}"
       puts "  receiver: #{typed}"
       shape = receiver.shape_of(call, site.context)
-      puts "  arguments: #{shape.arguments.join(", ")} precisions: #{shape.precisions}"
+      puts "  arguments: #{shape.types.join(", ")} precisions: #{shape.arguments.map(&.precision)}"
       if typed.is_a?(Heucristic::Resolve::Resolved)
         @corpus.methods.named_on(typed, call.name, site.context.path).each do |entry|
           rejected = @corpus.methods.rejected_argument(entry, shape, admission: :check)

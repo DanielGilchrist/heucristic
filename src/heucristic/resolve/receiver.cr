@@ -160,25 +160,25 @@ module Heucristic
         context : Syntax::Context,
         locals : Array(Binding) = Array(Binding).new,
         visiting : Array(Visit) = Array(Visit).new,
-      ) : Methods::Call
-        arguments = Array(Resolution).new(call.args.size)
-        call.args.each { |argument| arguments << type_of(argument, context, visiting, locals) }
-        named = call.named_args.try(&.map(&.name)) || Array(String).new
-        named_arguments = Array(Binding).new
+      ) : Methods::CallShape
+        arguments = Array(Methods::CallShape::Argument).new(call.args.size)
+        call.args.each do |argument|
+          type = type_of(argument, context, visiting, locals)
+          arguments << Methods::CallShape::Argument.new(type, Precision.of(argument))
+        end
+        named = Array(Binding).new
         call.named_args.try &.each do |argument|
           value = type_of(argument.value, context, visiting, locals)
-          named_arguments << Binding.new(argument.name, value)
+          named << Binding.new(argument.name, value)
         end
-        Methods::Call.new(
+        Methods::CallShape.new(
           call.name,
           call.args.size,
           blocky?(call),
           arguments,
           named,
-          named_arguments,
           call.obj.nil?,
           context.path,
-          call.args.map { |argument| Precision.of(argument) },
         )
       end
 
@@ -266,7 +266,7 @@ module Heucristic
         end
       end
 
-      def implementations(receiver : Resolved, shape : Methods::Call) : Array(Index::Def)
+      def implementations(receiver : Resolved, shape : Methods::CallShape) : Array(Index::Def)
         found = @methods.dispatch(receiver, shape).dup
         return found if found.empty? || !receiver.is_a?(TypeRef)
 
@@ -405,7 +405,7 @@ module Heucristic
       private def super_result(
         call : Crystal::Call,
         receiver : Resolved,
-        shape : Methods::Call,
+        shape : Methods::CallShape,
         site : Site,
       ) : Resolution
         definition = site.context.def_node
@@ -422,7 +422,7 @@ module Heucristic
         end
 
         results = Array(Resolution).new(defs.size)
-        defs.each { |entry| results << return_type(entry, receiver, shape.arguments, site) }
+        defs.each { |entry| results << return_type(entry, receiver, shape.types, site) }
         distinct = results.uniq
         return distinct[0] if distinct.size == 1
 
@@ -513,7 +513,7 @@ module Heucristic
         return @unions.union([@narrowing.falsey(current), value] of Resolution) if node.op == "&&"
         return current if current.is_a?(Unknown)
 
-        dispatch.result(current, Methods::Call.new(node.op, 1, false, [value] of Resolution))
+        dispatch.result(current, Methods::CallShape.of_types(node.op, [value] of Resolution, false))
       end
 
       private def hash_literal(
@@ -1216,7 +1216,7 @@ module Heucristic
         scoped = defs.select(&.with_yield)
         return Unscoped.new if scoped.empty?
 
-        @unions.union(scoped.map { |entry| with_scope(entry, target, shape.arguments) })
+        @unions.union(scoped.map { |entry| with_scope(entry, target, shape.types) })
       end
 
       private def with_scope(
@@ -1326,7 +1326,7 @@ module Heucristic
         delegate = type_of(target, context, visiting, Array(Binding).new)
         return delegate if delegate.is_a?(Unknown)
 
-        shape = Methods::Call.new(entry.name, arguments.size, !site.block.nil?, arguments)
+        shape = Methods::CallShape.of_types(entry.name, arguments, !site.block.nil?)
         dispatch.result(delegate, shape, Site.new(site.block, site.context, site.locals, visiting))
       end
 
@@ -1567,7 +1567,7 @@ module Heucristic
                    end
         return receiver if receiver.is_a?(Unknown)
 
-        shape = Methods::Call.new(pointer.name, arguments.size, false, arguments)
+        shape = Methods::CallShape.of_types(pointer.name, arguments, false)
         dispatch.result(receiver, shape)
       end
 
@@ -1666,11 +1666,11 @@ module Heucristic
 
       private def parent_call(
         call : Crystal::Call,
-        shape : Methods::Call,
+        shape : Methods::CallShape,
         definition : Crystal::Def,
-      ) : Methods::Call
-        arity = call.has_parentheses? ? shape.arity : definition.args.size
-        Methods::Call.new(definition.name, arity, shape.block, shape.arguments, shape.named)
+      ) : Methods::CallShape
+        given = call.has_parentheses? ? shape.given : definition.args.size
+        Methods::CallShape.new(definition.name, given, shape.block?, shape.arguments, shape.named)
       end
 
       private def computed_result(
@@ -1704,7 +1704,7 @@ module Heucristic
 
         shape = shape_of(call, context, locals, visiting)
         site = Site.new(
-          call.block, context, locals, visiting, shape.named_arguments, call.block_arg
+          call.block, context, locals, visiting, shape.named, call.block_arg
         )
         if call.obj.nil? && Syntax::WellKnown::Super.named?(call.name)
           return super_result(call, receiver, shape, site)

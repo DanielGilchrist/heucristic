@@ -198,7 +198,7 @@ module Heucristic
           call.block, target.context, Array(Resolve::Binding).new, Array(Resolve::Visit).new
         )
         sections = found.map do |entry|
-          describe_resolved(entry, receiver, shape.arguments, site, root)
+          describe_resolved(entry, receiver, shape.types, site, root)
         end
         entries = Array(Index::Entry).new(found.size)
         found.each { |entry| entries << entry }

@@ -5,7 +5,7 @@ module Heucristic
     class Shims
       def initialize : Nil
         @by_identity = Hash(String, Def).new
-        @by_shape = Hash(String, Array(Def)).new
+        @by_unrestricted = Hash(String, Array(Def)).new
       end
 
       def size : Int32
@@ -14,18 +14,20 @@ module Heucristic
 
       def replace_all(files : Array(File)) : Nil
         @by_identity.clear
-        @by_shape.clear
+        @by_unrestricted.clear
         files.each do |file|
           file.defs.each do |entry|
             @by_identity[entry.identity] = entry
-            (@by_shape[entry.shape] ||= Array(Def).new) << entry
+            (@by_unrestricted[entry.unrestricted_identity] ||= Array(Def).new) << entry
           end
         end
       end
 
       def find(entry : Def) : Def?
         exact = @by_identity[entry.identity]?
-        exact || @by_shape[entry.shape]?.try(&.find { |shim| refines?(shim, entry) })
+        exact || @by_unrestricted[entry.unrestricted_identity]?.try do |candidates|
+          candidates.find { |shim| refines?(shim, entry) }
+        end
       end
 
       def each(& : Def ->) : Nil

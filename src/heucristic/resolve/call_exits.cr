@@ -29,14 +29,11 @@ module Heucristic
       private def no_return_call?(call : Crystal::Call, receiver : Resolution) : Bool
         return false if receiver.is_a?(Unknown)
 
-        shape = Methods::Call.new(
+        shape = Methods::CallShape.new(
           call.name,
           call.args.size,
           !call.block.nil?,
-          Array(Resolution).new,
-          Array(String).new,
-          Array(Binding).new,
-          call.obj.nil?,
+          implicit: call.obj.nil?,
         )
         defs = @methods.lookup(receiver, shape)
         !defs.empty? && defs.all? { |entry| @typer.no_return?(entry) }

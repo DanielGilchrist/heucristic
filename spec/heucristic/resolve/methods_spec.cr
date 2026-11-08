@@ -1,14 +1,14 @@
 require "../../spec_helper"
 
 private def lookup(source : String, receiver : String, name : String, arity : Int32) : Array(String)
-  call = Heucristic::Resolve::Methods::Call.new(name, arity, false)
+  call = call_shape(name, arity, false)
   lookup(source, receiver, call).map(&.qualified)
 end
 
 private def lookup(
   source : String,
   receiver : String,
-  call : Heucristic::Resolve::Methods::Call,
+  call : Heucristic::Resolve::Methods::CallShape,
 ) : Array(Heucristic::Index::Def)
   tree = Heucristic::Syntax.parse(source, "a.cr")
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
@@ -31,14 +31,14 @@ private def lookup_meta(
   name : String,
   arity : Int32,
 ) : Array(String)
-  call = Heucristic::Resolve::Methods::Call.new(name, arity, false)
+  call = call_shape(name, arity, false)
   lookup_meta(source, receiver, call).map(&.qualified)
 end
 
 private def lookup_meta(
   source : String,
   receiver : String,
-  call : Heucristic::Resolve::Methods::Call,
+  call : Heucristic::Resolve::Methods::CallShape,
 ) : Array(Heucristic::Index::Def)
   tree = Heucristic::Syntax.parse(source, "a.cr")
   raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
@@ -76,13 +76,12 @@ describe Heucristic::Resolve::Methods, "top-level defs" do
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     object = Heucristic::Resolve::TypeRef.of(:object)
     none = Array(Heucristic::Resolve::Resolution).new
-    bindings = Array(Heucristic::Resolve::Binding).new
-    from_a = Heucristic::Resolve::Methods::Call.new(
-      "with_roots", 0, true, none, Array(String).new, bindings, true, "a.cr"
+    from_a = call_shape(
+      "with_roots", 0, true, none, Array(String).new, true, "a.cr"
     )
     methods.lookup(object, from_a).map(&.path).should eq(["a.cr"])
-    from_c = Heucristic::Resolve::Methods::Call.new(
-      "with_roots", 0, true, none, Array(String).new, bindings, true, "c.cr"
+    from_c = call_shape(
+      "with_roots", 0, true, none, Array(String).new, true, "c.cr"
     )
     methods.lookup(object, from_c).map(&.path).should eq(["b.cr"])
   end
@@ -411,8 +410,8 @@ describe Heucristic::Resolve::Methods do
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     list = type_ref("List")
 
-    with_block = methods.lookup(list, Heucristic::Resolve::Methods::Call.new("each", 0, true))
-    without = methods.lookup(list, Heucristic::Resolve::Methods::Call.new("each", 0, false))
+    with_block = methods.lookup(list, call_shape("each", 0, true))
+    without = methods.lookup(list, call_shape("each", 0, false))
     with_block.map(&.signature).should eq(["def each(& : Int32 ->) : Nil"])
     without.map(&.signature).should eq(["def each : Int32"])
   end
@@ -434,8 +433,8 @@ describe Heucristic::Resolve::Methods do
     unknown = Heucristic::Resolve::Unknown.new(:no_annotation, "x")
     floats = [float, float] of Heucristic::Resolve::Resolution
     unknowns = [unknown, unknown] of Heucristic::Resolve::Resolution
-    typed = Heucristic::Resolve::Methods::Call.new("min", 2, false, floats)
-    untyped = Heucristic::Resolve::Methods::Call.new("min", 2, false, unknowns)
+    typed = call_shape("min", 2, false, floats)
+    untyped = call_shape("min", 2, false, unknowns)
     lookup(source, "Calc", typed).map(&.signature).should eq(
       ["def min(a : Float64, b : Float64) : Float64"]
     )
@@ -456,10 +455,10 @@ describe Heucristic::Resolve::Methods do
       end
       CR
     string = type_ref("String")
-    one = Heucristic::Resolve::Methods::Call.new(
+    one = call_shape(
       "glob", 1, false, [string] of Heucristic::Resolve::Resolution
     )
-    hidden = Heucristic::Resolve::Methods::Call.new(
+    hidden = call_shape(
       "glob", 1, false, [string] of Heucristic::Resolve::Resolution, ["hidden"]
     )
     lookup_meta(source, "Dir", one).map(&.return_type.to_s).should eq(["Array(String)"])
@@ -483,7 +482,7 @@ describe Heucristic::Resolve::Methods do
       CR
     string = type_ref("String")
     symbol = type_ref("Symbol")
-    call = Heucristic::Resolve::Methods::Call.new(
+    call = call_shape(
       "record", 2, false, [string, symbol] of Heucristic::Resolve::Resolution
     )
     lookup(source, "Store", call).map(&.signature).should eq(
@@ -499,16 +498,16 @@ describe Heucristic::Resolve::Methods do
       end
       CR
     int = type_ref("Int32")
-    by_name = Heucristic::Resolve::Methods::Call.new(
+    by_name = call_shape(
       "new", 0, false, Array(Heucristic::Resolve::Resolution).new, ["x", "y"]
     )
-    mixed = Heucristic::Resolve::Methods::Call.new(
+    mixed = call_shape(
       "new", 1, false, [int] of Heucristic::Resolve::Resolution, ["y", "label"]
     )
-    missing = Heucristic::Resolve::Methods::Call.new(
+    missing = call_shape(
       "new", 0, false, Array(Heucristic::Resolve::Resolution).new, ["x"]
     )
-    too_many = Heucristic::Resolve::Methods::Call.new(
+    too_many = call_shape(
       "new", 3, false, [int, int, int] of Heucristic::Resolve::Resolution, ["x"]
     )
     lookup_meta(source, "Point", by_name).size.should eq(1)
@@ -610,7 +609,7 @@ describe Heucristic::Resolve::Methods, "new next to initialize" do
     CR
 
   it "keeps initialize beside an explicit self.new with unrestricted parameters" do
-    call = Heucristic::Resolve::Methods::Call.new("new", 1, false)
+    call = call_shape("new", 1, false)
     lines = lookup_meta(source, "Handler", call).map(&.name_span.start_line)
 
     lines.should contain(1)
@@ -631,7 +630,7 @@ describe Heucristic::Resolve::Methods, "new on a subclass with its own initializ
     CR
 
   it "picks the closer initialize over an inherited explicit self.new" do
-    call = Heucristic::Resolve::Methods::Call.new("new", 1, false)
+    call = call_shape("new", 1, false)
     found = lookup_meta(source, "Child", call)
 
     found.map(&.qualified).should eq(["Child#initialize"])
@@ -708,7 +707,7 @@ describe Heucristic::Resolve::Methods, "include and extend order" do
       CR
     count = Heucristic::Resolve::TypeRef.of(:int32)
     arguments = [count] of Heucristic::Resolve::Resolution
-    call = Heucristic::Resolve::Methods::Call.new("bytes", 1, false, arguments)
+    call = call_shape("bytes", 1, false, arguments)
     lookup_meta(source, "Secure", call).map(&.qualified).should eq(["Base#bytes"])
   end
 
@@ -733,7 +732,7 @@ describe Heucristic::Resolve::Methods, "include and extend order" do
     meta = Heucristic::Resolve::MetaRef.new(
       type_ref("C")
     )
-    call = Heucristic::Resolve::Methods::Call.new("f", 0, false)
+    call = call_shape("f", 0, false)
     found = Heucristic::Resolve::Methods.new(workspace, types).lookup(meta, call)
     found.map(&.qualified).sort!.should eq(["X#f", "Y#f"])
   end
@@ -802,7 +801,7 @@ describe Heucristic::Resolve::Methods, "dispatch on union arguments" do
     text = type_ref("Text")
     blank = type_ref("Blank")
     either = Heucristic::Resolve::UnionRef.new([text, blank] of Heucristic::Resolve::Resolution)
-    call = Heucristic::Resolve::Methods::Call.new(
+    call = call_shape(
       "same", 1, false, [either] of Heucristic::Resolve::Resolution
     )
     found = Heucristic::Resolve::Methods.new(workspace, types).dispatch(text, call)

@@ -31,7 +31,7 @@ module Heucristic
         context : Syntax::Context,
         outcome : Unknown,
         receiver : Resolved,
-        shape : Methods::Call,
+        shape : Methods::CallShape,
         locals : Array(Binding),
         visiting : Array(Visit),
       ) : Resolution
