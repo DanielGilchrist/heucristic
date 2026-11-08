@@ -799,14 +799,10 @@ module Heucristic
         in Crystal::Var then variable(node.name, context, visiting, locals)
         in Crystal::InstanceVar, Crystal::ClassVar
           instance_var_types.of(node.name, context, visiting)
-        in Crystal::Call        then result_of(node, context, locals, visiting)
-        in Crystal::Path        then constant(node, context, visiting)
-        in Crystal::ImplicitObj then case_subject(context, visiting, locals)
-        in Crystal::If, Crystal::Unless
-          branches = Array(Resolution).new(2)
-          branches << type_of(node.then, context.inside(node, node.then), visiting, locals)
-          branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
-          @unions.union(branches)
+        in Crystal::Call                then result_of(node, context, locals, visiting)
+        in Crystal::Path                then constant(node, context, visiting)
+        in Crystal::ImplicitObj         then case_subject(context, visiting, locals)
+        in Crystal::If, Crystal::Unless then branch_value(node, context, visiting, locals)
         in Crystal::Return, Crystal::Break, Crystal::Next
           TypeRef.of(:no_return)
         in Crystal::Case             then case_value(node, context, visiting, locals)
@@ -817,44 +813,16 @@ module Heucristic
         in Crystal::Yield            then yielded_result(context)
         in Crystal::SizeOf, Crystal::InstanceSizeOf, Crystal::AlignOf, Crystal::InstanceAlignOf
           TypeRef.of(:int32)
-        in Crystal::RangeLiteral
-          bounds = Array(Resolution).new(2)
-          bounds << type_of(node.from, context, visiting, locals)
-          bounds << type_of(node.to, context, visiting, locals)
-          bounds.find(&.is_a?(Unknown)) || TypeRef.of(:range, bounds)
-        in Crystal::Or
-          left = type_of(node.left, context.inside(node, node.left), visiting, locals)
-          right = type_of(node.right, context.inside(node, node.right), visiting, locals)
-          @unions.union([@narrowing.truthy(left), right] of Resolution)
-        in Crystal::And
-          left = type_of(node.left, context.inside(node, node.left), visiting, locals)
-          right = type_of(node.right, context.inside(node, node.right), visiting, locals)
-          @unions.union([@narrowing.falsey(left), right] of Resolution)
-        in Crystal::ArrayLiteral
-          collection = literal_collection(node, context)
-          elements(node.elements, context, visiting, locals) do |inner|
-            TypeRef.new(collection, [inner] of Resolution)
-          end
-        in Crystal::HashLiteral then hash_literal(node, context, visiting, locals)
-        in Crystal::TupleLiteral
-          members = Array(Resolution).new(node.elements.size)
-          node.elements.each { |element| members << type_of(element, context, visiting, locals) }
-          members.find(&.is_a?(Unknown)) || TypeRef.of(:tuple, members)
-        in Crystal::NamedTupleLiteral
-          members = Array(Resolution).new(node.entries.size)
-          node.entries.each { |entry| members << type_of(entry.value, context, visiting, locals) }
-          unknown = members.find(&.is_a?(Unknown))
-          unknown || TypeRef.new(CoreType::NamedTuple.type_name, members, node.entries.map(&.key))
-        in Crystal::Nop then TypeRef.of(:nil)
-        in Crystal::TypeOf
-          members = Array(Resolution).new(node.expressions.size)
-          node.expressions.each { |inner| members << type_of(inner, context, visiting, locals) }
-          members.find(&.is_a?(Unknown)) || @unions.metaclass_of(@unions.union(members))
-        in Crystal::Expressions
-          last = node.expressions.last?
-          return TypeRef.of(:nil) unless last
-
-          type_of(last, context.inside(node, last), visiting, locals)
+        in Crystal::RangeLiteral      then range_value(node, context, visiting, locals)
+        in Crystal::Or                then or_value(node, context, visiting, locals)
+        in Crystal::And               then and_value(node, context, visiting, locals)
+        in Crystal::ArrayLiteral      then array_value(node, context, visiting, locals)
+        in Crystal::HashLiteral       then hash_literal(node, context, visiting, locals)
+        in Crystal::TupleLiteral      then tuple_value(node, context, visiting, locals)
+        in Crystal::NamedTupleLiteral then named_tuple_value(node, context, visiting, locals)
+        in Crystal::Nop               then TypeRef.of(:nil)
+        in Crystal::TypeOf            then typeof_value(node, context, visiting, locals)
+        in Crystal::Expressions       then expressions_value(node, context, visiting, locals)
         in Crystal::ASTNode
           Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
         end
@@ -969,45 +937,16 @@ module Heucristic
         visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
-        key = variable_key(name, context)
         steps.reduce(base) do |current, step|
           case step
           in Flow::Assigned
-            at = context.at(step.within)
-            typed = value_type(step.value, locals) ||
-                    remember_value(
-                      step.value,
-                      type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
-                      locals,
-                    )
-          in Flow::Branched then branched(current, step, name, context, visiting, locals)
+            narrow_assigned(current, step, name, context, visiting, locals)
+          in Flow::Branched
+            branched(current, step, name, context, visiting, locals)
           in Flow::Reassigned
-            values = Array(Resolution).new(step.values.size + 1)
-            values << current unless step.definite
-            seeded_locals = seeded(locals, name, current)
-            step.values.each do |item|
-              at = context.at(step.within + item.path)
-              typed = value_type(item.value, locals) ||
-                      remember_value(
-                        item.value, type_of(item.value, at, visiting + [key], seeded_locals), locals
-                      )
-              values << (looped?(step, item) ? settled(name, current, item.value, typed) : typed)
-            end
-            @unions.union(values)
+            narrow_reassigned(current, step, name, context, visiting, locals)
           in Flow::OrAssigned
-            at = context.at(step.within)
-            typed = value_type(step.value, locals) ||
-                    remember_value(
-                      step.value,
-                      type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
-                      locals,
-                    )
-            present = @narrowing.truthy(current)
-            if present.is_a?(TypeRef) && present.is?(:nil)
-              typed
-            else
-              @unions.union([present, typed] of Resolution)
-            end
+            narrow_or_assigned(current, step, name, context, visiting, locals)
           in Flow::Truthy, Flow::IsA, Flow::RespondsTo
             @narrowing.apply(current, step, context)
           in Flow::Declared
@@ -1036,79 +975,13 @@ module Heucristic
 
         facts = facts_of(body)
         rescued = facts.rescued(name)
-        if rescued && context.ancestors.any?(&.same?(rescued))
-          return rescued_type(rescued, context)
-        end
-
-        if definition && (parameter = definition.args.find(&.name.==(name)))
-          restriction = parameter.restriction
-          unless restriction
-            return Unknown.new(:no_annotation, "parameter #{name} has no type restriction")
-          end
-          typed = @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
-          return typed if typed.is_a?(Unknown)
-          return typed unless definition.splat_index == definition.args.index(parameter)
-
-          return TypeRef.of(:tuple, [typed] of Resolution)
-        end
-
-        if definition && (block_arg = definition.block_arg) && block_arg.name == name
-          restriction = block_arg.restriction
-          unless restriction
-            return Unknown.new(:no_annotation, "block parameter #{name} has no type restriction")
-          end
-
-          return @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
-        end
-
-        if (declaration = facts.declaration(name))
-          restriction = Syntax::TypeReader.read(declaration.declared_type)
-          return @types.resolve(restriction, Scope.of(context))
-        end
-
-        key = variable_key(name, context)
-        return key.cycle if visiting.includes?(key)
-
-        if (from_block = block_parameter(name, context, locals, visiting + [key]))
-          return from_block
-        end
-
-        return rescued_type(rescued, context) if rescued
-
-        assignments = facts.assigned(name)
-        if assignments.empty?
-          return Unknown.new(
-            :no_annotation, "#{name} is not a parameter and is never assigned here"
-          )
-        end
-        if steps.any? { |step| Narrowing.assigning?(step) }
-          return TypeRef.of(:nil)
-        end
-
-        assignments = same_block(assignments, facts.reassigned(name), context)
-        assigned = Array(Resolution).new(assignments.size)
-        deferred = Array(Crystal::ASTNode).new
-        key = variable_key(name, context)
-        assignments.each do |value|
-          typed = value_type(value, locals) ||
-                  remember_value(value, type_of(value, context, visiting + [key], locals), locals)
-          if typed.is_a?(Unknown) && typed.reason.cycle?
-            deferred << value
-          else
-            assigned << typed
-          end
-        end
-        return @unions.union(assigned) if deferred.empty?
-
-        seed = @unions.union(assigned)
-        return Unknown.new(:cycle, name) if seed.is_a?(Unknown)
-
-        seeded_locals = seeded(locals, name, seed)
-        deferred.each do |value|
-          typed = type_of(value, context, visiting + [key], seeded_locals)
-          assigned << settled(name, seed, value, typed)
-        end
-        @unions.union(assigned)
+        from_active_rescue(rescued, context) ||
+          from_parameter(name, definition, context) ||
+          from_block_arg(name, definition, context) ||
+          from_declaration(name, facts, context) ||
+          from_block_parameter(name, context, locals, visiting) ||
+          from_rescue(rescued, context) ||
+          from_assignments(name, facts, context, visiting, locals, steps)
       end
 
       private def branched(
@@ -1824,6 +1697,291 @@ module Heucristic
 
       private def macro_expansions : MacroExpansions
         @macro_expansions ||= MacroExpansions.new(@workspace, @methods, @memos, self)
+      end
+
+      private def branch_value(
+        node : Crystal::If | Crystal::Unless,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        branches = Array(Resolution).new(2)
+        branches << type_of(node.then, context.inside(node, node.then), visiting, locals)
+        branches << type_of(node.else, context.inside(node, node.else), visiting, locals)
+        @unions.union(branches)
+      end
+
+      private def range_value(
+        node : Crystal::RangeLiteral,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        bounds = Array(Resolution).new(2)
+        bounds << type_of(node.from, context, visiting, locals)
+        bounds << type_of(node.to, context, visiting, locals)
+        bounds.find(&.is_a?(Unknown)) || TypeRef.of(:range, bounds)
+      end
+
+      private def or_value(
+        node : Crystal::Or,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        left = type_of(node.left, context.inside(node, node.left), visiting, locals)
+        right = type_of(node.right, context.inside(node, node.right), visiting, locals)
+        @unions.union([@narrowing.truthy(left), right] of Resolution)
+      end
+
+      private def and_value(
+        node : Crystal::And,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        left = type_of(node.left, context.inside(node, node.left), visiting, locals)
+        right = type_of(node.right, context.inside(node, node.right), visiting, locals)
+        @unions.union([@narrowing.falsey(left), right] of Resolution)
+      end
+
+      private def array_value(
+        node : Crystal::ArrayLiteral,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        collection = literal_collection(node, context)
+        elements(node.elements, context, visiting, locals) do |inner|
+          TypeRef.new(collection, [inner] of Resolution)
+        end
+      end
+
+      private def tuple_value(
+        node : Crystal::TupleLiteral,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        members = Array(Resolution).new(node.elements.size)
+        node.elements.each { |element| members << type_of(element, context, visiting, locals) }
+        members.find(&.is_a?(Unknown)) || TypeRef.of(:tuple, members)
+      end
+
+      private def named_tuple_value(
+        node : Crystal::NamedTupleLiteral,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        members = Array(Resolution).new(node.entries.size)
+        node.entries.each { |entry| members << type_of(entry.value, context, visiting, locals) }
+        unknown = members.find(&.is_a?(Unknown))
+        unknown || TypeRef.new(CoreType::NamedTuple.type_name, members, node.entries.map(&.key))
+      end
+
+      private def typeof_value(
+        node : Crystal::TypeOf,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        members = Array(Resolution).new(node.expressions.size)
+        node.expressions.each { |inner| members << type_of(inner, context, visiting, locals) }
+        members.find(&.is_a?(Unknown)) || @unions.metaclass_of(@unions.union(members))
+      end
+
+      private def expressions_value(
+        node : Crystal::Expressions,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        last = node.expressions.last?
+        return TypeRef.of(:nil) unless last
+
+        type_of(last, context.inside(node, last), visiting, locals)
+      end
+
+      private def narrow_assigned(
+        current : Resolution,
+        step : Flow::Assigned,
+        name : String,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        key = variable_key(name, context)
+        at = context.at(step.within)
+        value_type(step.value, locals) ||
+          remember_value(
+            step.value,
+            type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
+            locals,
+          )
+      end
+
+      private def narrow_reassigned(
+        current : Resolution,
+        step : Flow::Reassigned,
+        name : String,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        key = variable_key(name, context)
+        values = Array(Resolution).new(step.values.size + 1)
+        values << current unless step.definite
+        seeded_locals = seeded(locals, name, current)
+        step.values.each do |item|
+          at = context.at(step.within + item.path)
+          typed = value_type(item.value, locals) ||
+                  remember_value(
+                    item.value, type_of(item.value, at, visiting + [key], seeded_locals), locals
+                  )
+          values << (looped?(step, item) ? settled(name, current, item.value, typed) : typed)
+        end
+        @unions.union(values)
+      end
+
+      private def narrow_or_assigned(
+        current : Resolution,
+        step : Flow::OrAssigned,
+        name : String,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        key = variable_key(name, context)
+        at = context.at(step.within)
+        typed = value_type(step.value, locals) ||
+                remember_value(
+                  step.value,
+                  type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
+                  locals,
+                )
+        present = @narrowing.truthy(current)
+        return typed if present.is_a?(TypeRef) && present.is?(:nil)
+
+        @unions.union([present, typed] of Resolution)
+      end
+
+      private def from_active_rescue(
+        rescued : Crystal::Rescue?,
+        context : Syntax::Context,
+      ) : Resolution?
+        return unless rescued && context.ancestors.any?(&.same?(rescued))
+
+        rescued_type(rescued, context)
+      end
+
+      private def from_rescue(rescued : Crystal::Rescue?, context : Syntax::Context) : Resolution?
+        rescued_type(rescued, context) if rescued
+      end
+
+      private def from_parameter(
+        name : String,
+        definition : Crystal::Def?,
+        context : Syntax::Context,
+      ) : Resolution?
+        return unless definition
+        parameter = definition.args.find(&.name.==(name))
+        return unless parameter
+
+        restriction = parameter.restriction
+        unless restriction
+          return Unknown.new(:no_annotation, "parameter #{name} has no type restriction")
+        end
+        typed = @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
+        return typed if typed.is_a?(Unknown)
+        return typed unless definition.splat_index == definition.args.index(parameter)
+
+        TypeRef.of(:tuple, [typed] of Resolution)
+      end
+
+      private def from_block_arg(
+        name : String,
+        definition : Crystal::Def?,
+        context : Syntax::Context,
+      ) : Resolution?
+        return unless definition
+        block_arg = definition.block_arg
+        return unless block_arg && block_arg.name == name
+
+        restriction = block_arg.restriction
+        unless restriction
+          return Unknown.new(:no_annotation, "block parameter #{name} has no type restriction")
+        end
+
+        @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
+      end
+
+      private def from_declaration(
+        name : String,
+        facts : BodyFacts,
+        context : Syntax::Context,
+      ) : Resolution?
+        declaration = facts.declaration(name)
+        return unless declaration
+
+        restriction = Syntax::TypeReader.read(declaration.declared_type)
+        @types.resolve(restriction, Scope.of(context))
+      end
+
+      private def from_block_parameter(
+        name : String,
+        context : Syntax::Context,
+        locals : Array(Binding),
+        visiting : Array(Visit),
+      ) : Resolution?
+        key = variable_key(name, context)
+        return key.cycle if visiting.includes?(key)
+
+        block_parameter(name, context, locals, visiting + [key])
+      end
+
+      private def from_assignments(
+        name : String,
+        facts : BodyFacts,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+        steps : Array(Flow::Step),
+      ) : Resolution
+        assignments = facts.assigned(name)
+        if assignments.empty?
+          return Unknown.new(
+            :no_annotation, "#{name} is not a parameter and is never assigned here"
+          )
+        end
+        if steps.any? { |step| Narrowing.assigning?(step) }
+          return TypeRef.of(:nil)
+        end
+
+        assignments = same_block(assignments, facts.reassigned(name), context)
+        assigned = Array(Resolution).new(assignments.size)
+        deferred = Array(Crystal::ASTNode).new
+        key = variable_key(name, context)
+        assignments.each do |value|
+          typed = value_type(value, locals) ||
+                  remember_value(value, type_of(value, context, visiting + [key], locals), locals)
+          if typed.is_a?(Unknown) && typed.reason.cycle?
+            deferred << value
+          else
+            assigned << typed
+          end
+        end
+        return @unions.union(assigned) if deferred.empty?
+
+        seed = @unions.union(assigned)
+        return Unknown.new(:cycle, name) if seed.is_a?(Unknown)
+
+        seeded_locals = seeded(locals, name, seed)
+        deferred.each do |value|
+          typed = type_of(value, context, visiting + [key], seeded_locals)
+          assigned << settled(name, seed, value, typed)
+        end
+        @unions.union(assigned)
       end
     end
   end
