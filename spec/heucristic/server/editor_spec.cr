@@ -29,4 +29,14 @@ describe "hover and definition at editor positions" do
       client.definition(URI_A, 0, 7).result.try(&.raw).should be_nil
     end
   end
+
+  it "says what a builtin without source is and gives no definition" do
+    source = "def stop : NoReturn\n  exit\nend\n"
+    with_document(source) do |client|
+      text = hover_text(client.hover(URI_A, 0, 13)).to_s
+      text.should contain("built into the compiler")
+      text.should contain("the type of an expression that never returns")
+      client.definition(URI_A, 0, 13).result.try(&.raw).should be_nil
+    end
+  end
 end

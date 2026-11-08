@@ -30,6 +30,11 @@ module Heucristic
         {"Exception", "Reference"}, {"Enum", "Value"}, {"Proc", "Value"}, {"Union", "Value"},
       }
 
+      SUMMARIES = {
+        "NoReturn" => "the type of an expression that never returns",
+        "Void"     => "C's void, only meaningful in lib bindings and behind a pointer",
+      }
+
       ABSTRACT = {"Object", "Value", "Number", "Int", "Float", "Struct", "Enum"}
 
       CONSTANTS = {
@@ -56,6 +61,10 @@ module Heucristic
         in Index::Public      then abstract?(identity.name)
         in Index::FilePrivate then false
         end
+      end
+
+      def self.summary(name : String) : String?
+        SUMMARIES[name]?
       end
 
       def self.constant?(name : String) : Bool

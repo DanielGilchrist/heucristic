@@ -1,5 +1,6 @@
 require "../index/identity"
 require "../index/workspace"
+require "../resolve/builtins"
 require "./answer"
 
 module Heucristic
@@ -15,7 +16,10 @@ module Heucristic
         nested = @workspace.enclosed(identity)
         return implied(identity, nested, root) unless nested.empty?
 
-        Answer.note("`#{identity}` has no declaration of its own")
+        case identity
+        in Index::Public      then provided(identity)
+        in Index::FilePrivate then Answer.note("`#{identity}` has no declaration of its own")
+        end
       end
 
       private def implied(
@@ -31,8 +35,31 @@ module Heucristic
         Answer.described("#{header}\n\n#{places.join('\n')}")
       end
 
-      private def fence(*lines : String) : String
+      private def provided(identity : Index::Public) : Answer
+        name = identity.name
+        unless Resolve::Builtins.includes?(name)
+          return Answer.note("`#{name}` has no declaration of its own")
+        end
+
+        lines = ["# built into the compiler, no source file declares it"]
+        Resolve::Builtins.summary(name).try { |summary| lines << "# #{summary}" }
+        lines << builtin(name)
+        Answer.described(fence(lines))
+      end
+
+      private def builtin(name : String) : String
+        case (superclass = Resolve::Builtins.superclass(name))
+        in String                          then "#{name} < #{superclass}"
+        in Resolve::Builtins::NoSuperclass then name
+        end
+      end
+
+      private def fence(lines : Array(String)) : String
         "```crystal\n#{lines.join('\n')}\n```"
+      end
+
+      private def fence(*lines : String) : String
+        fence(lines.to_a)
       end
     end
   end
