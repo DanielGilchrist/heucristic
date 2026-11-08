@@ -5,12 +5,16 @@ require "./workspace"
 require "./accessor"
 require "./synthesized"
 require "./loaded_files"
+require "../syntax/type"
 require "../syntax/well_known"
 
 module Heucristic
   module Index
     module Generated
       extend self
+
+      EQUALITY_MACROS = {"def_equals", "def_equals_and_hash", "record"}
+      BOOLEAN         = Syntax::Named.new(["Bool"], true)
 
       def merge(
         file : File,
@@ -29,8 +33,10 @@ module Heucristic
             synthesized?(entry, macros, workspace, loaded)
         end
         kept.map! do |entry|
-          path = privately[entry.name_span.start_line.to_i + 1]?
-          path ? entry.copy_with(private_path: path) : entry
+          line = entry.name_span.start_line.to_i + 1
+          path = privately[line]?
+          entry = entry.copy_with(private_path: path) if path
+          equality?(entry, macros[line]?) ? entry.copy_with(return_type: BOOLEAN) : entry
         end
         macros_kept = file.macros.reject do |entry|
           workspace.macros(entry.name).any? do |existing|
@@ -48,6 +54,12 @@ module Heucristic
           macros_kept,
           file.opaque,
         )
+      end
+
+      private def equality?(entry : Def, macro_name : String?) : Bool
+        return false unless macro_name && EQUALITY_MACROS.includes?(macro_name)
+
+        entry.name == "==" && entry.return_type.is_a?(Unrestricted)
       end
 
       private def synthesized?(
