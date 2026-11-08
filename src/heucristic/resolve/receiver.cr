@@ -217,7 +217,7 @@ module Heucristic
         site : Site = Site::NONE,
       ) : Resolution
         receiver = owning(entry, receiver)
-        constructed = constructed_type(entry, receiver, site)
+        constructed = constructed_type(entry, receiver)
         return constructed if constructed
 
         special = Special.for(entry)
@@ -602,20 +602,16 @@ module Heucristic
       private def constructed_type(
         entry : Index::Def,
         receiver : Resolved,
-        site : Site,
       ) : Resolution?
         return unless receiver.is_a?(MetaRef)
 
-        if Syntax::WellKnown::Initialize.named?(entry.name)
-          return receiver.of
-        end
-        return unless Syntax::WellKnown::New.named?(entry.name)
+        return receiver.of if Syntax::WellKnown::Initialize.named?(entry.name)
 
         instance = receiver.of
         proc_class = instance.is_a?(TypeRef) && instance.is?(:proc)
-        return unless entry.return_type.is_a?(Index::Unrestricted)
+        return unless proc_class && Syntax::WellKnown::New.named?(entry.name)
 
-        receiver.of if site.block.nil? || proc_class
+        receiver.of if entry.return_type.is_a?(Index::Unrestricted)
       end
 
       private def special_type(
@@ -785,6 +781,22 @@ module Heucristic
           Unknown.new(:no_annotation, "#{collection} does not state its element type")
       end
 
+      private def constructed(
+        call : Crystal::Call,
+        evident : Syntax::Type,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        written = @types.resolve(evident, Scope.of(context))
+        return written unless Syntax::WellKnown::New.named?(call.name)
+
+        found = result_of(call, context, locals, visiting)
+        return found unless found.is_a?(Unknown)
+
+        found.reason.unresolved_name? || found.reason.free_variable? ? written : found
+      end
+
       private def typed(
         node : Crystal::ASTNode,
         context : Syntax::Context,
@@ -793,7 +805,10 @@ module Heucristic
       ) : Resolution
         return constant(node, context, visiting) if node.is_a?(Crystal::Path)
         evident = Index::Evident.type(node)
-        return @types.resolve(evident, Scope.of(context)) if evident.is_a?(Syntax::Type)
+        if evident.is_a?(Syntax::Type)
+          return constructed(node, evident, context, visiting, locals) if node.is_a?(Crystal::Call)
+          return @types.resolve(evident, Scope.of(context))
+        end
 
         case node
         in Crystal::Var then variable(node.name, context, visiting, locals)

@@ -3763,3 +3763,91 @@ describe Heucristic::Resolve::Receiver, "union arguments to class methods" do
     )
   end
 end
+
+describe Heucristic::Resolve::Receiver, "constructor calls with a class-level new" do
+  source = <<-CR
+    class Plain
+      def initialize(x : Int32)
+      end
+    end
+
+    class Factory
+      def initialize(x : Int32)
+      end
+
+      def self.new(x : Int32) : Int32
+        1
+      end
+    end
+
+    class Parent
+      def initialize(x : Int32)
+      end
+    end
+
+    class Child < Parent
+      def self.new(x : Int32) : Int32
+        1
+      end
+    end
+
+    def probe
+      Plain.new(1).size
+      Factory.new(1).size
+      Child.new(1).size
+    end
+    CR
+
+  it "types a constructor call from the new the compiler picks, not as an instance by default" do
+    receiver_of_size(source, "Plain.new(1).size").should eq("Plain")
+    receiver_of_size(source, "Child.new(1).size").should eq("Int32")
+    receiver_of_size(source, "Factory.new(1).size").should start_with("unknown")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "a written self.new without a return restriction" do
+  source = <<-CR
+    class Other
+    end
+
+    class Weird
+      def self.new
+        Other.new
+      end
+    end
+
+    class Both
+      def initialize(x : Int32)
+      end
+
+      def self.new(x : Int32)
+        1
+      end
+    end
+
+    class Default
+      def initialize(x : Int32)
+      end
+    end
+
+    def probe
+      Weird.new.size
+      Both.new(1).size
+      Default.new(1).size
+    end
+    CR
+
+  it "is unknown, while the initialize-derived new is the instance" do
+    receiver_of_size(source, "Weird.new.size").should start_with("unknown (no annotation")
+    receiver_of_size(source, "Both.new(1).size").should start_with("unknown")
+    receiver_of_size(source, "Default.new(1).size").should eq("Default")
+  end
+
+  it "is unknown when a macro generated it" do
+    files = {
+      "a.cr"     => "class MacroNew\nend\n\nMacroNew.new.size\n",
+      "<macros>" => "class MacroNew\n  def self.new\n    Other.new\n  end\nend\n",
+    }
+    receiver_across(files, "a.cr", "MacroNew.new.size").should start_with("unknown (no annotation")
+  end
+end
