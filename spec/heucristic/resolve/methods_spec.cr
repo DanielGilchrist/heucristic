@@ -681,3 +681,47 @@ describe Heucristic::Resolve::Methods, "missing" do
     answer.reason.ambiguous?.should be_true
   end
 end
+
+describe Heucristic::Resolve::Methods, "dispatch on union arguments" do
+  source = <<-CR
+    class Base
+      def same(other) : Int32
+      end
+    end
+
+    module Twice
+      def same(other : Text) : Symbol
+      end
+    end
+
+    class Text < Base
+      include Twice
+
+      def same(other : Text) : Bool
+      end
+    end
+
+    class Blank
+    end
+    CR
+
+  it "lists each member's overload and the ancestor overloads up to full coverage" do
+    tree = Heucristic::Syntax.parse(source, "a.cr")
+    raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+    workspace = Heucristic::Index::Workspace.new
+    workspace.update(
+      Heucristic::Index::Collector.collect("a.cr", Heucristic::Document::Text.new(source), tree)
+    )
+    types = Heucristic::Resolve::Types.new(workspace)
+    none = Array(Heucristic::Resolve::Resolution).new
+    text = Heucristic::Resolve::TypeRef.new("Text", none)
+    blank = Heucristic::Resolve::TypeRef.new("Blank", none)
+    either = Heucristic::Resolve::UnionRef.new([text, blank] of Heucristic::Resolve::Resolution)
+    call = Heucristic::Resolve::Methods::Call.new(
+      "same", 1, false, [either] of Heucristic::Resolve::Resolution
+    )
+    found = Heucristic::Resolve::Methods.new(workspace, types).dispatch(text, call)
+    found.map(&.qualified).sort!.should eq(["Base#same", "Text#same", "Twice#same"])
+  end
+end

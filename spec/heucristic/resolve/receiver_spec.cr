@@ -3523,3 +3523,164 @@ describe Heucristic::Resolve::Receiver, "memo contexts that share a fingerprint"
     receiver.result_of(target.node, widened).to_s.should eq(expected)
   end
 end
+
+describe Heucristic::Resolve::Receiver, "union arguments" do
+  source = <<-CR
+    class Base
+      def same(other) : Int32
+      end
+    end
+
+    class Text < Base
+      def same(other : Text) : Bool
+      end
+    end
+
+    class Blank
+    end
+
+    class Fmt
+      def f(x : Int32) : Int32
+      end
+
+      def f(x : String) : String
+      end
+
+      def wrap(x : T) : Array(T) forall T
+      end
+    end
+
+    class Use
+      def run(
+        fmt : Fmt,
+        text : Text,
+        either : Text | Blank,
+        mixed : Int32 | String,
+        odd : Int32 | Symbol,
+      ) : Nil
+        text.same(either).size
+        fmt.f(mixed).size
+        fmt.f(odd).size
+        fmt.wrap(mixed).size
+      end
+    end
+    CR
+
+  it "types a call per member when an overload admits only some of them (compiler: Bool | Int32)" do
+    receiver_of_size(source, "text.same(either).size").should eq("Bool | Int32")
+  end
+
+  it "selects each member's overload from the user's overloads (compiler: Int32 | String)" do
+    receiver_of_size(source, "fmt.f(mixed).size").should eq("Int32 | String")
+  end
+
+  it "gives up when a member has no overload (compiler: no overload matches Symbol)" do
+    receiver_of_size(source, "fmt.f(odd).size").should eq(
+      "unknown (unresolved name: no overload of `f` accepts every member of its arguments)"
+    )
+  end
+
+  it "keeps the whole union when one overload covers every member (Array(Int32 | String))" do
+    receiver_of_size(source, "fmt.wrap(mixed).size").should eq("Array(Int32 | String)")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "union arguments across ancestors" do
+  source = <<-CR
+    class Par
+      def h(x : Int32) : Int64
+      end
+
+      def h(x : String) : Float64
+      end
+    end
+
+    class Chi < Par
+      def h(x : Int32) : Bool
+      end
+    end
+
+    class Whole < Par
+      def h(x : Int32 | String) : Bool
+      end
+    end
+
+    class Each < Par
+      def h(x : Int32) : Bool
+      end
+
+      def h(x : String) : Char
+      end
+    end
+
+    module Extra
+      def h(x : Int32) : Char
+      end
+    end
+
+    class Mixed
+      include Extra
+
+      def h(x : String) : Int64
+      end
+    end
+
+    class Pair
+      def g(a : Int32, b : Int32) : Int64
+      end
+
+      def g(a : String, b : Int32) : Float64
+      end
+
+      def g(a : Int32, b : String) : Bool
+      end
+
+      def g(a : String, b : String) : Char
+      end
+    end
+
+    class Use
+      def run(
+        chi : Chi,
+        whole : Whole,
+        each : Each,
+        mixed : Mixed,
+        virt : Par,
+        pair : Pair,
+        u : Int32 | String,
+        v : Int32 | String,
+      ) : Nil
+        chi.h(u).size
+        whole.h(u).size
+        each.h(u).size
+        mixed.h(u).size
+        virt.h(u).size
+        pair.g(u, v).size
+      end
+    end
+    CR
+
+  it "keeps the overridden parent overload reachable (compiler: Bool | Float64 | Int64)" do
+    receiver_of_size(source, "chi.h(u).size").should eq("Bool | Int64 | Float64")
+  end
+
+  it "stops at a closer def covering the whole union (compiler: Bool)" do
+    receiver_of_size(source, "whole.h(u).size").should eq("Bool")
+  end
+
+  it "stops at a closer def per member (compiler: Bool | Char)" do
+    receiver_of_size(source, "each.h(u).size").should eq("Bool | Char")
+  end
+
+  it "walks an included module then the parent (compiler: Char | Int64)" do
+    receiver_of_size(source, "mixed.h(u).size").should eq("Int64 | Char")
+  end
+
+  it "adds the subclass overrides of a virtual receiver (compiler: all four)" do
+    receiver_of_size(source, "virt.h(u).size").should eq("Int64 | Float64 | Bool | Char")
+  end
+
+  it "splits over every union argument (compiler: Bool | Char | Float64 | Int64)" do
+    receiver_of_size(source, "pair.g(u, v).size").should eq("Int64 | Float64 | Bool | Char")
+  end
+end

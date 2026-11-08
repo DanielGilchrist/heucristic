@@ -12,7 +12,11 @@ require "./descendants"
 module Heucristic
   module Resolve
     class Methods
+      LEAF_LIMIT = 64
+
       record Rejected, index : Int32, expected : Resolution, actual : Resolved
+
+      record Covering, defs : Array(Index::Def), complete : Bool
 
       record Call,
         name : String,
@@ -124,7 +128,30 @@ module Heucristic
 
       def dispatch(receiver : Resolution, call : Call) : Array(Index::Def)
         found = lookup(receiver, call)
-        found.empty? ? virtual_lookup(receiver, call) : found
+        return virtual_lookup(receiver, call) if found.empty?
+
+        reached(receiver, call, found)
+      end
+
+      def reached(
+        receiver : Resolution,
+        call : Call,
+        found : Array(Index::Def),
+      ) : Array(Index::Def)
+        cover = covering(receiver, call)
+        cover ? cover.defs : found
+      end
+
+      def covering(receiver : Resolution, call : Call) : Covering?
+        return unless receiver.is_a?(TypeRef) && partial?(receiver, call)
+
+        count = leaf_count(call)
+        return Covering.new(Array(Index::Def).new, false) if count > LEAF_LIMIT
+
+        leaves = leaf_calls(call)
+        return unless diverge?(receiver, leaves)
+
+        walk(receiver, call, leaves)
       end
 
       def virtual_lookup(receiver : Resolution, call : Call) : Array(Index::Def)
@@ -343,6 +370,112 @@ module Heucristic
           end
         in UnionRef, TypeVar then Array(Index::Def).new
         end
+      end
+
+      private def walk(receiver : TypeRef, call : Call, leaves : Array(Call)) : Covering?
+        uncovered = leaves.dup
+        candidates = @workspace.named(call.name)
+        found = Array(Index::Def).new
+        levels(receiver.name).each do |level|
+          at_level = candidates.select do |entry|
+            entry.owner == level && entry.receiver.instance? && own?(entry, call.caller_path) &&
+              call.accepts?(entry) && leaves.any? { |leaf| compatible?(entry, leaf, receiver) }
+          end
+          next if at_level.empty?
+
+          found.concat(unredefined(at_level))
+          uncovered.reject! { |leaf| at_level.any? { |entry| compatible?(entry, leaf, receiver) } }
+          break if uncovered.empty?
+        end
+        found.empty? ? nil : Covering.new(found, uncovered.empty?)
+      end
+
+      private def partial?(receiver : TypeRef, call : Call) : Bool
+        indexes = splittable(call)
+        return false if indexes.empty?
+
+        candidates = @workspace.named(call.name)
+        levels(receiver.name).each do |level|
+          candidates.each do |entry|
+            next unless entry.owner == level && entry.receiver.instance? && call.accepts?(entry)
+
+            return true if indexes.any? { |index| partially_admits?(entry, receiver, call, index) }
+          end
+        end
+        false
+      end
+
+      private def partially_admits?(
+        entry : Index::Def,
+        receiver : TypeRef,
+        call : Call,
+        index : Int32,
+      ) : Bool
+        union = call.arguments[index]
+        return false unless union.is_a?(UnionRef)
+
+        unknown = Unknown.new(:unsupported, "probe")
+        probe = Array(Resolution).new(call.arguments.size) { unknown }
+        probe[index] = union
+        return false if compatible?(entry, call.copy_with(arguments: probe), receiver)
+
+        union.members.any? do |member|
+          probe[index] = member
+          compatible?(entry, call.copy_with(arguments: probe), receiver)
+        end
+      end
+
+      private def splittable(call : Call) : Array(Int32)
+        indexes = Array(Int32).new
+        call.arguments.each_with_index do |argument, index|
+          indexes << index if argument.is_a?(UnionRef) && argument.members.none?(Unknown)
+        end
+        indexes
+      end
+
+      private def leaf_count(call : Call) : Int32
+        count = 1
+        splittable(call).each do |index|
+          argument = call.arguments[index]
+          count *= argument.members.size if argument.is_a?(UnionRef)
+          return count if count > LEAF_LIMIT
+        end
+        count
+      end
+
+      private def leaf_calls(call : Call) : Array(Call)
+        leaves = [call]
+        splittable(call).each do |index|
+          argument = call.arguments[index]
+          next unless argument.is_a?(UnionRef)
+
+          leaves = leaves.flat_map do |leaf|
+            argument.members.map do |member|
+              arguments = leaf.arguments.dup
+              arguments[index] = member
+              leaf.copy_with(arguments: arguments)
+            end
+          end
+        end
+        leaves
+      end
+
+      private def diverge?(receiver : Resolution, calls : Array(Call)) : Bool
+        first = lookup(receiver, calls[0])
+        calls.each(within: 1..) do |call|
+          return true unless same_defs?(first, lookup(receiver, call))
+        end
+        false
+      end
+
+      private def same_defs?(left : Array(Index::Def), right : Array(Index::Def)) : Bool
+        return false unless left.size == right.size
+
+        left.each_with_index do |entry, index|
+          other = right[index]
+          return false unless entry.path == other.path && entry.name_span == other.name_span
+        end
+        true
       end
 
       private def admits_any?(expected : Resolution, argument : UnionRef) : Bool

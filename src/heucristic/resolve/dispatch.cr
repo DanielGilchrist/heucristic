@@ -78,6 +78,7 @@ module Heucristic
         end
         return virtual(receiver, call, site) if defs.empty?
 
+        defs = @methods.reached(receiver, call, defs)
         direct = overloads(defs, receiver, call, site)
         through_subclasses(defs, direct, receiver, call, site)
       end
@@ -160,6 +161,15 @@ module Heucristic
       ) : Resolution
         results = Array(Resolution).new(defs.size)
         defs.each { |entry| results << @typer.return_type(entry, receiver, call.arguments, site) }
+        cover = @methods.covering(receiver, call)
+        if cover
+          return @unions.union(results) if cover.complete
+
+          return Unknown.new(
+            :unresolved_name, "no overload of `#{call.name}` accepts every member of its arguments"
+          )
+        end
+
         distinct = results.uniq
         return distinct[0] if distinct.size == 1
         if call.arguments.empty? && !call.block
@@ -204,6 +214,8 @@ module Heucristic
 
           below_defs = @methods.lookup(below, call)
           next if below_defs.empty?
+
+          below_defs = @methods.reached(below, call, below_defs)
           next unless selfish || seen.add?(DefinitionKey.of(below_defs))
 
           outcome = overloads(below_defs, below, call, inner)
