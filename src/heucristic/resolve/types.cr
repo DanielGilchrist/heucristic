@@ -5,6 +5,7 @@ require "./scope"
 require "./builtins"
 require "./ancestors"
 require "./compiled"
+require "./lookup"
 
 module Heucristic
   module Resolve
@@ -15,8 +16,7 @@ module Heucristic
         namespace : Index::Owner,
         type_vars : Array(String),
         path : String?,
-        ancestors : Bool,
-        constants : Bool
+        lookup : Lookup
 
       def initialize(@workspace : Index::Workspace) : Nil
         @following = Array(String).new
@@ -62,32 +62,32 @@ module Heucristic
       end
 
       def resolve(type : Syntax::Type, scope : Scope) : Resolution
-        resolve(type, scope, true)
+        resolve(type, scope, :inherited)
       end
 
       def resolve_lexically(type : Syntax::Type, scope : Scope) : Resolution
-        resolve(type, scope, false)
+        resolve(type, scope, :lexical)
       end
 
       def locate(path : Syntax::Named, scope : Scope) : String | Unknown
-        locate(path, scope, true, false)
+        locate(path, scope, :inherited)
       end
 
       def locate_any(path : Syntax::Named, scope : Scope) : String | Unknown
-        locate(path, scope, true, true)
+        locate(path, scope, :any)
       end
 
       private NIL = Syntax::Named.of(:nil)
 
-      private def resolve(type : Syntax::Type, scope : Scope, with_ancestors : Bool) : Resolution
+      private def resolve(type : Syntax::Type, scope : Scope, lookup : Lookup) : Resolution
         case type
-        in Syntax::Named      then resolve_named(type, scope, Array(String).new, with_ancestors)
-        in Syntax::Generic    then resolve_generic(type, scope, with_ancestors)
-        in Syntax::Union      then resolve_union(type.members, scope, with_ancestors)
-        in Syntax::Nilable    then resolve_nilable(type, scope, with_ancestors)
-        in Syntax::Metaclass  then resolve_metaclass(type, scope, with_ancestors)
+        in Syntax::Named      then resolve_named(type, scope, Array(String).new, lookup)
+        in Syntax::Generic    then resolve_generic(type, scope, lookup)
+        in Syntax::Union      then resolve_union(type.members, scope, lookup)
+        in Syntax::Nilable    then resolve_nilable(type, scope, lookup)
+        in Syntax::Metaclass  then resolve_metaclass(type, scope, lookup)
         in Syntax::SelfType   then resolve_self(scope)
-        in Syntax::Proc       then resolve_proc(type, scope, with_ancestors)
+        in Syntax::Proc       then resolve_proc(type, scope, lookup)
         in Syntax::Splat      then resolve_splat(type, scope)
         in Syntax::TypeOf     then scope.bound(type.to_s) || Unknown.new(:unsupported, type.to_s)
         in Syntax::Underscore then Unknown.new(:unsupported, type.to_s)
@@ -98,24 +98,22 @@ module Heucristic
       private def locate(
         path : Syntax::Named,
         scope : Scope,
-        with_ancestors : Bool,
-        constants : Bool,
+        lookup : Lookup,
       ) : String | Unknown
         key = LocateKey.new(
           path.names, path.global?, scope.namespace, scope.type_vars, scope.path,
-          with_ancestors, constants,
+          lookup,
         )
         cached = @located[key]?
         return cached unless cached.nil?
 
-        @located[key] = search(path, scope, with_ancestors, constants)
+        @located[key] = search(path, scope, lookup)
       end
 
       private def search(
         path : Syntax::Named,
         scope : Scope,
-        with_ancestors : Bool,
-        constants : Bool,
+        lookup : Lookup,
       ) : String | Unknown
         first = path.names[0]
         rest = path.names[1..]
@@ -126,13 +124,13 @@ module Heucristic
         scopes = path.global? ? [Index::TopLevel.new] of Index::Owner : scope.chain
         scopes.concat(top_level_includes(scope)) unless path.global?
         scopes.each do |prefix|
-          search_in(prefix, with_ancestors) do |namespace|
+          search_in(prefix, lookup) do |namespace|
             head = qualify(namespace, first)
-            next unless declared?(head, constants, scope)
+            next unless declared?(head, lookup, scope)
 
             return head if rest.empty?
 
-            return descend(through_alias(head, scope), rest, constants, scope)
+            return descend(through_alias(head, scope), rest, lookup, scope)
           end
         end
 
@@ -142,12 +140,12 @@ module Heucristic
       private def descend(
         head : String,
         rest : Array(String),
-        constants : Bool,
+        lookup : Lookup,
         scope : Scope,
       ) : String | Unknown
         current = head
         rest.each_with_index do |segment, position|
-          found = child_of(current, segment, constants, scope)
+          found = child_of(current, segment, lookup, scope)
           return Unknown.new(:unresolved_name, "#{current}::#{segment}") unless found
 
           current = position == rest.size - 1 ? found : through_alias(found, scope)
@@ -158,11 +156,11 @@ module Heucristic
       private def child_of(
         parent : String,
         segment : String,
-        constants : Bool,
+        lookup : Lookup,
         scope : Scope,
       ) : String?
         direct = "#{parent}::#{segment}"
-        return direct if declared?(direct, constants, scope)
+        return direct if declared?(direct, lookup, scope)
         return direct if enum_member?(parent, direct, scope)
         return if @descending.includes?(parent)
 
@@ -173,7 +171,7 @@ module Heucristic
 
           chain.each do |ancestor|
             inherited = "#{ancestor}::#{segment}"
-            return inherited if declared?(inherited, constants, scope)
+            return inherited if declared?(inherited, lookup, scope)
           end
           nil
         ensure
@@ -195,7 +193,7 @@ module Heucristic
           next unless target.is_a?(Syntax::Named)
 
           full = target.names.join("::")
-          included << full if declared?(full, false, scope)
+          included << full if declared?(full, :lexical, scope)
         end
         included
       end
@@ -212,17 +210,17 @@ module Heucristic
 
         owner = name.rpartition("::")[0]
         owner_scope = Scope.new(owner, Array(String).new, Array(Binding).new, scope.path)
-        resolved = resolve_named(target, owner_scope, [name], false)
+        resolved = resolve_named(target, owner_scope, [name], :lexical)
         resolved.is_a?(TypeRef) ? resolved.name : name
       end
 
       private def search_in(
         namespace : Index::Owner,
-        with_ancestors : Bool,
+        lookup : Lookup,
         & : Index::Owner ->
       ) : Nil
         yield namespace
-        return unless namespace.is_a?(String) && with_ancestors
+        return unless namespace.is_a?(String) && lookup.ancestors?
 
         chain = @ancestors.of(namespace, self)
         return if chain.is_a?(Unknown)
@@ -241,7 +239,7 @@ module Heucristic
         type : Syntax::Named,
         scope : Scope,
         visiting : Array(String),
-        with_ancestors : Bool,
+        lookup : Lookup,
       ) : Resolution
         if type.names.size == 1 && !type.global?
           name = type.names[0]
@@ -250,13 +248,13 @@ module Heucristic
           return TypeVar.new(name) if scope.type_vars.includes?(name)
         end
 
-        located = locate(type, scope, with_ancestors, false)
+        located = locate(type, scope, lookup)
         if located.is_a?(Unknown)
           inherited = inherited_type_var(type, scope) if located.reason.unresolved_name?
           return inherited || located
         end
 
-        follow(located, visiting, with_ancestors, scope)
+        follow(located, visiting, lookup, scope)
       end
 
       private def inherited_type_var(type : Syntax::Named, scope : Scope) : Resolution?
@@ -294,7 +292,7 @@ module Heucristic
       private def follow(
         full : String,
         visiting : Array(String),
-        with_ancestors : Bool,
+        lookup : Lookup,
         scope : Scope,
       ) : Resolution
         aliases = visible_aliases(full, scope)
@@ -319,9 +317,9 @@ module Heucristic
         @following << full
         begin
           if target.is_a?(Syntax::Named)
-            resolve_named(target, scope, visiting + [full], with_ancestors)
+            resolve_named(target, scope, visiting + [full], lookup)
           else
-            resolve(target, scope, with_ancestors)
+            resolve(target, scope, lookup)
           end
         ensure
           @following.pop
@@ -333,12 +331,12 @@ module Heucristic
         known.empty? ? aliases : known
       end
 
-      private def declared?(name : String, constants : Bool, scope : Scope) : Bool
+      private def declared?(name : String, lookup : Lookup, scope : Scope) : Bool
         namespaces = @workspace.namespaces(name)
         return true if namespaces.any? { |entry| visible?(entry.private_path, scope) }
         return true unless visible_aliases(name, scope).empty?
         return true if @workspace.encloses?(name)
-        if constants
+        if lookup.constants?
           return true if Builtins.constant?(name)
           constants_named = @workspace.constants(name)
           return true if constants_named.any? { |entry| visible?(entry.private_path, scope) }
@@ -358,9 +356,9 @@ module Heucristic
       private def resolve_generic(
         type : Syntax::Generic,
         scope : Scope,
-        with_ancestors : Bool,
+        lookup : Lookup,
       ) : Resolution
-        base = resolve_named(type.base, scope, Array(String).new, with_ancestors)
+        base = resolve_named(type.base, scope, Array(String).new, lookup)
         return base unless base.is_a?(TypeRef)
         unless type.named_arguments.empty?
           unless type.arguments.empty? && base.is?(:named_tuple)
@@ -369,7 +367,7 @@ module Heucristic
 
           labelled = Array(Resolution).new(type.named_arguments.size)
           type.named_arguments.each do |argument|
-            labelled << resolve(argument.type, scope, with_ancestors)
+            labelled << resolve(argument.type, scope, lookup)
           end
           return TypeRef.new(base.name, labelled, type.named_arguments.map(&.name))
         end
@@ -380,7 +378,7 @@ module Heucristic
           if pack
             arguments.concat(pack.arguments)
           else
-            arguments << resolve(argument, scope, with_ancestors)
+            arguments << resolve(argument, scope, lookup)
           end
         end
         return union_of(arguments) if base.name == CoreType::Union.type_name
@@ -391,13 +389,13 @@ module Heucristic
       private def resolve_proc(
         type : Syntax::Proc,
         scope : Scope,
-        with_ancestors : Bool,
+        lookup : Lookup,
       ) : Resolution
         arguments = Array(Resolution).new(type.inputs.size + 1)
-        type.inputs.each { |input| arguments << resolve(input, scope, with_ancestors) }
+        type.inputs.each { |input| arguments << resolve(input, scope, lookup) }
         output = type.output
         arguments << if output
-          resolve(output, scope, with_ancestors)
+          resolve(output, scope, lookup)
         else
           TypeRef.of(:nil)
         end
@@ -439,19 +437,19 @@ module Heucristic
       private def resolve_nilable(
         type : Syntax::Nilable,
         scope : Scope,
-        with_ancestors : Bool,
+        lookup : Lookup,
       ) : Resolution
-        resolve_union([type.inner, NIL] of Syntax::Type, scope, with_ancestors)
+        resolve_union([type.inner, NIL] of Syntax::Type, scope, lookup)
       end
 
       private def resolve_union(
         members : Array(Syntax::Type),
         scope : Scope,
-        with_ancestors : Bool,
+        lookup : Lookup,
       ) : Resolution
         resolved = Array(Resolution).new(members.size)
         members.each do |member|
-          resolution = resolve(member, scope, with_ancestors)
+          resolution = resolve(member, scope, lookup)
           return resolution if resolution.is_a?(Unknown)
           next if resolution.is_a?(TypeRef) && resolution.is?(:no_return)
           if resolution.is_a?(UnionRef)
@@ -466,9 +464,9 @@ module Heucristic
       private def resolve_metaclass(
         type : Syntax::Metaclass,
         scope : Scope,
-        with_ancestors : Bool,
+        lookup : Lookup,
       ) : Resolution
-        inner = resolve(type.of, scope, with_ancestors)
+        inner = resolve(type.of, scope, lookup)
         return inner if inner.is_a?(Unknown)
         return MetaRef.new(inner) if inner.is_a?(TypeRef) || inner.is_a?(TypeVar)
 

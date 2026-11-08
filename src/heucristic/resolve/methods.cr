@@ -1,3 +1,4 @@
+require "./admission"
 require "./precision"
 require "./compiled"
 require "../index/def"
@@ -189,7 +190,7 @@ module Heucristic
       def rejected_argument(
         entry : Index::Def,
         call : Call,
-        any_member : Bool = false,
+        admission : Admission = :overload,
         receiver : Resolution? = nil,
       ) : Rejected?
         return if call.arguments.all?(Unknown)
@@ -206,8 +207,8 @@ module Heucristic
           next if argument.is_a?(Unknown) || !restriction.is_a?(Syntax::Type)
 
           expected = @types.resolve_lexically(restriction, scope)
-          next if admits?(expected, argument, any_member)
-          next if any_member && argument.is_a?(UnionRef) && call.bound?(index) &&
+          next if admits?(expected, argument, admission)
+          next if admission.check? && argument.is_a?(UnionRef) && call.bound?(index) &&
                   admits_any?(expected, argument)
 
           return Rejected.new(index, expected, argument)
@@ -293,10 +294,14 @@ module Heucristic
         found
       end
 
-      def admits?(restriction : Resolution, argument : Resolved, lenient : Bool = false) : Bool
+      def admits?(
+        restriction : Resolution,
+        argument : Resolved,
+        admission : Admission = :overload,
+      ) : Bool
         if argument.is_a?(UnionRef)
           return argument.members.all? do |member|
-            member.is_a?(Unknown) || admits?(restriction, member, lenient)
+            member.is_a?(Unknown) || admits?(restriction, member, admission)
           end
         end
 
@@ -304,7 +309,7 @@ module Heucristic
         in Unknown, TypeVar then true
         in UnionRef
           restriction.members.any? do |member|
-            member.is_a?(Unknown) || admits?(member, argument, lenient)
+            member.is_a?(Unknown) || admits?(member, argument, admission)
           end
         in MetaRef then argument.is_a?(MetaRef)
         in TypeRef
@@ -313,9 +318,9 @@ module Heucristic
             argument.name == restriction.name ||
               ancestor?(argument.name, restriction.name) ||
               autocast?(argument, restriction) ||
-              (lenient && widens?(argument, restriction)) ||
-              (lenient && descends?(restriction.name, argument.name)) ||
-              (lenient && included_below?(argument.name, restriction.name))
+              (admission.check? && widens?(argument, restriction)) ||
+              (admission.check? && descends?(restriction.name, argument.name)) ||
+              (admission.check? && included_below?(argument.name, restriction.name))
           in UnionRef then false
           in MetaRef  then restriction.is?(:class) || @workspace.module?(restriction.name)
           in TypeVar  then true
@@ -342,7 +347,7 @@ module Heucristic
 
       private def admits_any?(expected : Resolution, argument : UnionRef) : Bool
         argument.members.any? do |member|
-          member.is_a?(Unknown) || admits?(expected, member, true)
+          member.is_a?(Unknown) || admits?(expected, member, :check)
         end
       end
 

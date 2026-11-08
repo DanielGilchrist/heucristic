@@ -567,7 +567,7 @@ module Heucristic
         shape = @receiver.shape_of(call, context)
         rejections = Array(Resolve::Methods::Rejected).new(fitting.size)
         fitting.each do |entry|
-          rejected = @methods.rejected_argument(entry, shape, any_member: true)
+          rejected = @methods.rejected_argument(entry, shape, admission: :check)
           return unless rejected
           argument = call.args[rejected.index]?
           return if argument.is_a?(Crystal::NumberLiteral) && @fit.numeric?(rejected.expected)

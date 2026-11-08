@@ -112,7 +112,7 @@ module Score
             typed = receiver.of_call(call, site.context)
             if typed.is_a?(Heucristic::Resolve::Resolved)
               methods.named_on(typed, call.name, site.context.path).each do |entry|
-                rejected = methods.rejected_argument(entry, shape, any_member: true)
+                rejected = methods.rejected_argument(entry, shape, admission: :check)
                 verdict = if rejected
                             "rejects #{rejected.actual} for #{rejected.expected}"
                           else
