@@ -143,3 +143,19 @@ describe Heucristic::Resolve::Receiver, "typeof a parameter in a shim" do
     receiver.result_of(counter, defaulted).to_s.should eq("Iterator(Tuple(String, Int32))")
   end
 end
+
+describe Heucristic::Resolve::Methods, "generated number shims" do
+  it "leave defs the stdlib declares in source on Int to the stdlib" do
+    workspace = Heucristic::Index::Workspace.new
+    workspace.update(collect("int.cr", "struct Int\n  def <<(count : Int)\n  end\nend\n"))
+    generated = File.read("shims/generated/numbers.cr")
+    workspace.update(collect("shims/generated/numbers.cr", generated))
+    types = Heucristic::Resolve::Types.new(workspace)
+    methods = Heucristic::Resolve::Methods.new(workspace, types)
+    int32 = Heucristic::Resolve::TypeRef.new("Int32", Array(Heucristic::Resolve::Resolution).new)
+
+    found = methods.lookup(int32, Heucristic::Resolve::Methods::Call.new("<<", 1, false))
+
+    found.map(&.path).should eq(["int.cr"])
+  end
+end

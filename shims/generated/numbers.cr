@@ -751,18 +751,6 @@ struct Int8
 
   def /(other : Float64) : Float64
   end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
-  end
 end
 
 struct Int16
@@ -1517,18 +1505,6 @@ struct Int16
   end
 
   def /(other : Float64) : Float64
-  end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
   end
 end
 
@@ -2285,18 +2261,6 @@ struct Int32
 
   def /(other : Float64) : Float64
   end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
-  end
 end
 
 struct Int64
@@ -3051,18 +3015,6 @@ struct Int64
   end
 
   def /(other : Float64) : Float64
-  end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
   end
 end
 
@@ -3819,18 +3771,6 @@ struct Int128
 
   def /(other : Float64) : Float64
   end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
-  end
 end
 
 struct UInt8
@@ -4585,18 +4525,6 @@ struct UInt8
   end
 
   def /(other : Float64) : Float64
-  end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
   end
 end
 
@@ -5353,18 +5281,6 @@ struct UInt16
 
   def /(other : Float64) : Float64
   end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
-  end
 end
 
 struct UInt32
@@ -6119,18 +6035,6 @@ struct UInt32
   end
 
   def /(other : Float64) : Float64
-  end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
   end
 end
 
@@ -6887,18 +6791,6 @@ struct UInt64
 
   def /(other : Float64) : Float64
   end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
-  end
 end
 
 struct UInt128
@@ -7653,18 +7545,6 @@ struct UInt128
   end
 
   def /(other : Float64) : Float64
-  end
-
-  def //(other : Int) : self
-  end
-
-  def %(other : Int) : self
-  end
-
-  def >>(other : Int) : self
-  end
-
-  def <<(other : Int) : self
   end
 end
 
