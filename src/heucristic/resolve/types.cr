@@ -400,8 +400,10 @@ module Heucristic
 
         arguments = Array(Resolution).new(type.arguments.size)
         type.arguments.each do |argument|
-          pack = argument.is_a?(Syntax::Splat) ? splat_pack(argument, scope) : nil
-          if pack
+          if argument.is_a?(Syntax::Splat)
+            pack = splat_pack(argument, scope)
+            return unpacked(argument, scope) unless pack
+
             arguments.concat(pack.arguments)
           else
             arguments << resolve(argument, scope, lookup)
@@ -436,6 +438,13 @@ module Heucristic
         end
 
         Unknown.new(:unsupported, type.to_s)
+      end
+
+      private def unpacked(type : Syntax::Splat, scope : Scope) : Unknown
+        spread = resolve_splat(type, scope)
+        return spread if spread.is_a?(Unknown)
+
+        Unknown.new(:unsupported, "#{type} is bound to #{spread}, not a tuple")
       end
 
       private def splat_pack(type : Syntax::Splat, scope : Scope) : TypeRef?

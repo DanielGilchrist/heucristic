@@ -101,6 +101,7 @@ module Heucristic
         Ambiguous
         TooDeep
         Macro
+        Splatted
       end
 
       def to_s(io : IO) : Nil

@@ -1412,6 +1412,7 @@ describe Heucristic::Resolve::Receiver, "multiple assignment" do
         left, right = pair
         left.size
         right.size
+        pair.size
         pair[1].size
         ongoing, finished = names.partition { |name| name }
         finished.size
@@ -3982,5 +3983,52 @@ describe Heucristic::Resolve::Receiver, "a written self.new without a return res
       "<macros>" => "class MacroNew\n  def self.new\n    Other.new\n  end\nend\n",
     }
     receiver_across(files, "a.cr", "MacroNew.new.size").should start_with("unknown (no annotation")
+  end
+end
+
+describe Heucristic::Resolve::Receiver, "splat type variables" do
+  source = <<-CR
+    struct Tuple(*T)
+      def self.new(*args : *T) : Tuple(*T)
+      end
+
+      def [](index : Int) : Union(*T)
+      end
+    end
+
+    class Gatherer
+      def gather(label : String, *items : *T) : Tuple(*T) forall T
+      end
+
+      def run(number : Int32, rest : Tuple(Int32, String)) : Nil
+        pair = Tuple.new(number, "a")
+        pair.size
+        pair[1].size
+        pair[0].size
+        pair[2].size
+        gather("x", number, "a")[1].size
+        Tuple.new(number, mystery).size
+        Tuple.new(*rest).size
+      end
+    end
+    CR
+
+  it "binds a splat parameter's *T to the argument tuple (crystal run: Tuple(Int32, String))" do
+    receiver_of_size(source, "pair.size").should eq("Tuple(Int32, String)")
+    receiver_of_size(source, "pair[1].size").should eq("String")
+    receiver_of_size(source, "pair[0].size").should eq("Int32")
+  end
+
+  it "binds a def's own splat variable after leading parameters" do
+    receiver_of_size(source, "gather(\"x\", number, \"a\")[1].size").should eq("String")
+  end
+
+  it "says a tuple has no element past its bound size" do
+    receiver_of_size(source, "pair[2].size").should contain("has no element 2")
+  end
+
+  it "is unknown when an argument or a call splat hides the tuple's elements" do
+    receiver_of_size(source, "Tuple.new(number, mystery).size").should start_with("unknown")
+    receiver_of_size(source, "Tuple.new(*rest).size").should start_with("unknown")
   end
 end

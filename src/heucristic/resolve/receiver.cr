@@ -792,6 +792,7 @@ module Heucristic
 
         found = result_of(call, frame)
         return found unless found.is_a?(Unknown)
+        return found if written.is_a?(TypeRef) && written.is?(:tuple)
 
         found.reason.unresolved_name? || found.reason.free_variable? ? written : found
       end
@@ -833,8 +834,10 @@ module Heucristic
         in Crystal::TupleLiteral      then tuple_value(node, frame)
         in Crystal::NamedTupleLiteral then named_tuple_value(node, frame)
         in Crystal::Nop               then TypeRef.of(:nil)
-        in Crystal::TypeOf            then typeof_value(node, frame)
-        in Crystal::Expressions       then expressions_value(node, frame)
+        in Crystal::Splat, Crystal::DoubleSplat
+          Unknown.new(:splatted, "`#{node}` spreads an unknown number of values")
+        in Crystal::TypeOf      then typeof_value(node, frame)
+        in Crystal::Expressions then expressions_value(node, frame)
         in Crystal::ASTNode
           Unknown.new(:inference_needed, "the type of `#{node}` is not written in the source")
         end
@@ -1562,6 +1565,34 @@ module Heucristic
 
           Unify.bind(restriction, argument, free_vars, bindings, @types, scope)
         end
+        bind_splat(entry, positional.size, arguments, free_vars, bindings, scope)
+      end
+
+      private def bind_splat(
+        entry : Index::Def,
+        offset : Int32,
+        arguments : Array(Resolution),
+        free_vars : Array(String),
+        bindings : Array(Binding),
+        scope : Scope,
+      ) : Nil
+        restriction = entry.parameters.find(&.kind.splat?).try(&.restriction)
+        return unless restriction.is_a?(Syntax::Splat)
+
+        Unify.bind(restriction.inner, packed(arguments, offset), free_vars, bindings, @types, scope)
+      end
+
+      private def packed(arguments : Array(Resolution), offset : Int32) : Resolution
+        spread = arguments.first(offset).find do |argument|
+          argument.is_a?(Unknown) && argument.reason.splatted?
+        end
+        return spread if spread
+
+        members = arguments.skip(offset)
+        unknown = members.find(&.is_a?(Unknown))
+        return unknown if unknown
+
+        TypeRef.of(:tuple, members)
       end
 
       private def bind_parameter_types(
