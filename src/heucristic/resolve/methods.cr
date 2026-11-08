@@ -291,6 +291,7 @@ module Heucristic
       def lookup(receiver : Resolution, call : CallShape) : Array(Index::Def)
         found = case receiver
                 in TypeRef          then instance_methods(receiver.identity, call, receiver)
+                in ProgramRef       then instance_methods(receiver.identity, call)
                 in MetaRef          then metaclass_methods(receiver.of, call)
                 in UnionRef         then union_methods(receiver, call)
                 in TypeVar, Unknown then Array(Index::Def).new
@@ -313,10 +314,10 @@ module Heucristic
 
       def candidates(receiver : Resolved) : Array(Index::Def)
         case receiver
-        in TypeRef  then instance_candidates(receiver.identity)
-        in MetaRef  then metaclass_candidates(receiver.of)
-        in UnionRef then union_candidates(receiver)
-        in TypeVar  then instance_candidates(CoreType::Object.identity)
+        in TypeRef, ProgramRef then instance_candidates(receiver.identity)
+        in MetaRef             then metaclass_candidates(receiver.of)
+        in UnionRef            then union_candidates(receiver)
+        in TypeVar             then instance_candidates(CoreType::Object.identity)
         end
       end
 
@@ -326,7 +327,7 @@ module Heucristic
         caller_path : String? = nil,
       ) : Array(Index::Def)
         found = case receiver
-                in TypeRef then instance_named(receiver.identity, name)
+                in TypeRef, ProgramRef then instance_named(receiver.identity, name)
                 in MetaRef
                   of = receiver.of
                   if of.is_a?(TypeVar)
@@ -376,9 +377,11 @@ module Heucristic
           restriction.members.any? do |member|
             member.is_a?(Unknown) || admits?(member, argument, admission)
           end
-        in MetaRef then argument.is_a?(MetaRef)
+        in MetaRef    then argument.is_a?(MetaRef)
+        in ProgramRef then false
         in TypeRef
           case argument
+          in ProgramRef then ancestor?(argument.identity, restriction.identity)
           in TypeRef
             argument.identity == restriction.identity ||
               ancestor?(argument.identity, restriction.identity) ||
@@ -399,7 +402,7 @@ module Heucristic
         call : CallShape,
       ) : Array(Index::Def)
         case receiver
-        in TypeRef
+        in TypeRef, ProgramRef
           first_level(receiver.identity, call, after: owner) do |entry|
             entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
           end
@@ -420,7 +423,7 @@ module Heucristic
 
       private def reach_of(receiver : Resolution) : Reach?
         case receiver
-        in TypeRef then Reach.new(receiver.identity, false)
+        in TypeRef, ProgramRef then Reach.new(receiver.identity, false)
         in MetaRef
           of = receiver.of
           of.is_a?(TypeRef) ? Reach.new(of.identity, true) : nil

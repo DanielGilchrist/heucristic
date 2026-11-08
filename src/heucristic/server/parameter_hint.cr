@@ -140,7 +140,7 @@ module Heucristic
           case value
           in Resolve::Unknown  then untyped += 1
           in Resolve::UnionRef then value.members.each { |member| members << member.to_s }
-          in Resolve::TypeRef, Resolve::MetaRef, Resolve::TypeVar
+          in Resolve::TypeRef, Resolve::MetaRef, Resolve::TypeVar, Resolve::ProgramRef
             members << value.to_s
           end
         end
@@ -172,11 +172,16 @@ module Heucristic
 
       private def unknown_within?(value : Resolve::Resolution) : Bool
         case value
-        in Resolve::Unknown  then true
-        in Resolve::TypeVar  then false
-        in Resolve::MetaRef  then unknown_within?(value.of)
-        in Resolve::UnionRef then value.members.any? { |member| unknown_within?(member) }
-        in Resolve::TypeRef  then value.arguments.any? { |argument| unknown_within?(argument) }
+        in Resolve::Unknown
+          true
+        in Resolve::TypeVar, Resolve::ProgramRef
+          false
+        in Resolve::MetaRef
+          unknown_within?(value.of)
+        in Resolve::UnionRef
+          value.members.any? { |member| unknown_within?(member) }
+        in Resolve::TypeRef
+          value.arguments.any? { |argument| unknown_within?(argument) }
         end
       end
     end

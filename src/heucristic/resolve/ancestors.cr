@@ -337,7 +337,7 @@ module Heucristic
         case resolved
         in TypeRef then Parent.new(resolved.identity, generic_arguments(target), path)
         in Unknown then resolved
-        in UnionRef, MetaRef, TypeVar
+        in UnionRef, MetaRef, TypeVar, ProgramRef
           Unknown.new(:unsupported, "#{owner} inherits from #{resolved}")
         end
       end

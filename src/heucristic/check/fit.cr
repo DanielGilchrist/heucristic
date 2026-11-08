@@ -17,7 +17,7 @@ module Heucristic
           !expected.is?(:nil) && !expected.is?(:no_return) && expected.identity != VOID
         in Resolve::UnionRef
           expected.members.all?(Resolve::TypeRef)
-        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown
+        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown, Resolve::ProgramRef
           false
         end
       end
@@ -49,7 +49,7 @@ module Heucristic
           expected.core.try(&.numeric?) || false
         in Resolve::UnionRef
           expected.members.any? { |member| numeric?(member) }
-        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown then true
+        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown, Resolve::ProgramRef then true
         end
       end
 
@@ -60,7 +60,7 @@ module Heucristic
           expected.members.any? do |member|
             member.is_a?(Resolve::Unknown) || (member.is_a?(Resolve::TypeRef) && member.is?(:nil))
           end
-        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown then true
+        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown, Resolve::ProgramRef then true
         end
       end
     end

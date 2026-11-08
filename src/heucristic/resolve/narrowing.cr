@@ -70,7 +70,7 @@ module Heucristic
 
               targets << member
             end
-          in MetaRef, TypeVar, Unknown then return current
+          in MetaRef, TypeVar, Unknown, ProgramRef then return current
           end
         end
 

@@ -55,7 +55,7 @@ module Heucristic
           bool_case(node, subject, site.context, span, findings)
         in Resolve::UnionRef
           union_case(node, subject, resolved, site.context, span, findings)
-        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown then nil
+        in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown, Resolve::ProgramRef then nil
         end
       end
 

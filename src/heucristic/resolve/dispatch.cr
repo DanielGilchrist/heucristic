@@ -129,7 +129,7 @@ module Heucristic
       end
 
       private def missing_handler(receiver : Resolved) : Index::Def?
-        return unless receiver.is_a?(TypeRef)
+        return unless receiver.is_a?(TypeRef) || receiver.is_a?(ProgramRef)
 
         levels = @methods.levels(receiver.identity)
         @workspace.named(Index::MacroHook::MethodMissing.macro_name).find do |entry|

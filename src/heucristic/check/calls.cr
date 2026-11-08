@@ -320,12 +320,11 @@ module Heucristic
         context : Syntax::Context,
       ) : Array(Index::Def) | Skip | Virtual
         case receiver
-        in Resolve::Unknown  then Skip::ReceiverUnknown
-        in Resolve::UnionRef then Skip::UnionMemberNotType
-        in Resolve::TypeVar  then Skip::ReceiverTypeVar
+        in Resolve::Unknown    then Skip::ReceiverUnknown
+        in Resolve::UnionRef   then Skip::UnionMemberNotType
+        in Resolve::TypeVar    then Skip::ReceiverTypeVar
+        in Resolve::ProgramRef then program_definitions(call, context)
         in Resolve::TypeRef
-          return program_definitions(call, context) if receiver.program?
-
           typed_definitions(receiver, receiver.identity, call, context)
         in Resolve::MetaRef
           of = receiver.of
@@ -478,7 +477,7 @@ module Heucristic
 
       private def described(receiver : Resolve::Resolution) : String
         return "#{receiver.of}.class" if receiver.is_a?(Resolve::MetaRef)
-        return "top-level" if receiver.is_a?(Resolve::TypeRef) && receiver.program?
+        return receiver.to_s if receiver.is_a?(Resolve::ProgramRef)
         virtual = receiver.is_a?(Resolve::TypeRef) && @settled.extended?(receiver.identity)
         return "#{receiver}+" if virtual
 

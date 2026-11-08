@@ -37,6 +37,8 @@ module Heucristic
           resolved.members.each { |member| members << metaclass_of(member) }
           UnionRef.new(members)
         in MetaRef, Unknown then resolved
+        in ProgramRef
+          Unknown.new(:unsupported, "the metaclass of the top-level program")
         end
       end
 
@@ -49,7 +51,7 @@ module Heucristic
         in MetaRef
           inner = rebind(resolution.of, scope)
           inner.is_a?(TypeRef) || inner.is_a?(TypeVar) ? MetaRef.new(inner) : resolution
-        in Unknown then resolution
+        in Unknown, ProgramRef then resolution
         end
       end
 

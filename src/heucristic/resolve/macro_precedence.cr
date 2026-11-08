@@ -22,9 +22,8 @@ module Heucristic
 
         undecidable = call.args.any? { |arg| splat?(arg) } || !call.block_arg.nil?
         case scope
+        in ProgramRef then top_level(macros, call, undecidable)
         in TypeRef
-          return top_level(macros, call, undecidable) if scope.program?
-
           walk(scope.identity, Index::Receiver::Instance, macros, call, undecidable, path)
         in MetaRef
           of = scope.of

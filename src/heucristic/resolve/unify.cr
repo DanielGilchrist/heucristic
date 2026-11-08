@@ -79,7 +79,7 @@ module Heucristic
             members << instance
           end
           UnionRef.new(members)
-        in TypeRef, TypeVar, Unknown then nil
+        in TypeRef, TypeVar, Unknown, ProgramRef then nil
         end
       end
 
@@ -101,7 +101,7 @@ module Heucristic
         if argument.is_a?(UnionRef)
           return bind_remaining(restriction, bare, argument, free_vars, bindings, types, scope)
         end
-        return unless argument.is_a?(TypeRef)
+        return unless argument.is_a?(TypeRef) || argument.is_a?(ProgramRef)
 
         shaped = restriction.members.select(Syntax::Generic).find do |member|
           base = types.resolve_lexically(member.base, scope)

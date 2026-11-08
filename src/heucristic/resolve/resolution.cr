@@ -7,22 +7,12 @@ module Heucristic
       identity : Index::Identity,
       arguments : Array(Resolution),
       labels : Array(String) = Array(String).new do
-      PROGRAM = "top-level"
-
-      def self.program : TypeRef
-        new(Index::Public.new(PROGRAM), Array(Resolution).new)
-      end
-
       def self.of(core : CoreType) : TypeRef
         new(Index::Public.new(core.type_name), Array(Resolution).new)
       end
 
       def self.of(core : CoreType, arguments : Array(Resolution)) : TypeRef
         new(Index::Public.new(core.type_name), arguments)
-      end
-
-      def program? : Bool
-        identity == Index::Public.new(PROGRAM) && arguments.empty?
       end
 
       def core : CoreType?
@@ -85,7 +75,19 @@ module Heucristic
       end
     end
 
-    alias Resolved = TypeRef | UnionRef | MetaRef | TypeVar
+    record ProgramRef do
+      IDENTITY = Index::Public.new("top-level")
+
+      def identity : Index::Identity
+        IDENTITY
+      end
+
+      def to_s(io : IO) : Nil
+        io << IDENTITY
+      end
+    end
+
+    alias Resolved = TypeRef | UnionRef | MetaRef | TypeVar | ProgramRef
 
     record Unknown, reason : Reason, detail : String do
       enum Reason

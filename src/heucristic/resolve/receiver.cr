@@ -696,9 +696,9 @@ module Heucristic
 
       private def class_of(receiver : Resolved) : Resolution?
         case receiver
-        in TypeRef           then MetaRef.new(receiver)
-        in MetaRef           then receiver
-        in UnionRef, TypeVar then nil
+        in TypeRef                       then MetaRef.new(receiver)
+        in MetaRef                       then receiver
+        in UnionRef, TypeVar, ProgramRef then nil
         end
       end
 
@@ -1257,7 +1257,7 @@ module Heucristic
 
       private def implicit_self(context : Syntax::Context) : Resolution
         owner = context.owner
-        return TypeRef.program if owner.is_a?(Index::TopLevel)
+        return ProgramRef.new if owner.is_a?(Index::TopLevel)
 
         this = TypeRef.new(owner, Array(Resolution).new)
         index = context.proc_index
