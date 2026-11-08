@@ -5,6 +5,7 @@ require "./instance_var"
 require "./alias"
 require "./constant"
 require "./macro_def"
+require "./opaque_body"
 
 module Heucristic
   module Index
@@ -16,7 +17,8 @@ module Heucristic
       instance_vars : Array(InstanceVar),
       aliases : Array(Alias),
       constants : Array(Constant),
-      macros : Array(MacroDef) = Array(MacroDef).new do
+      macros : Array(MacroDef) = Array(MacroDef).new,
+      opaque : Array(OpaqueBody) = Array(OpaqueBody).new do
       def fingerprint : String
         String.build do |io|
           defs.each do |entry|
@@ -38,6 +40,7 @@ module Heucristic
           aliases.each { |entry| io << "alias " << entry.name << ' ' << entry.target << '\n' }
           constants.each { |entry| io << entry.name << " = " << entry.value << '\n' }
           macros.each { |entry| io << "macro " << entry.owner << ' ' << entry.name << '\n' }
+          opaque.each { |entry| io << "opaque " << entry.owner << '\n' }
         end
       end
     end

@@ -225,4 +225,56 @@ describe Heucristic::Resolve::MacroPrecedence do
       "unknown (macro: `key` is a macro or a def depending on arguments not known here)"
     )
   end
+
+  it "lets a macro in the module included last win over an earlier def" do
+    source = <<-CR
+      module Defs
+        def key(name : Int32) : String
+          "d"
+        end
+      end
+
+      module Macros
+        macro key(name)
+          {{name}}
+        end
+      end
+
+      class Host
+        include Defs
+        include Macros
+
+        def run : Nil
+          key(1).size
+        end
+      end
+      CR
+    receiver_of_size(source, "key(1).size").should eq(MACRO_UNKNOWN)
+  end
+
+  it "lets the def of the module included last win over an earlier macro" do
+    source = <<-CR
+      module Macros
+        macro key(name)
+          {{name}}
+        end
+      end
+
+      module Defs
+        def key(name : Int32) : String
+          "d"
+        end
+      end
+
+      class Host
+        include Macros
+        include Defs
+
+        def run : Nil
+          key(1).size
+        end
+      end
+      CR
+    receiver_of_size(source, "key(1).size").should eq("String")
+  end
 end

@@ -534,3 +534,126 @@ describe Heucristic::Resolve::Methods, "new on a subclass with its own initializ
     found.map(&.qualified).should eq(["Child#initialize"])
   end
 end
+
+describe Heucristic::Resolve::Methods, "include and extend order" do
+  it "finds the def of the module included last" do
+    source = <<-CR
+      module L; def f : Int32; 1; end; end
+      module R; def f : String; "r"; end; end
+      class C
+        include R
+        include L
+      end
+      CR
+    lookup(source, "C", "f", 0).should eq(["L#f"])
+  end
+
+  it "keeps the first include of a module repeated later (include X, Y, X finds Y)" do
+    source = <<-CR
+      module X; def f : Int32; 1; end; end
+      module Y; def f : String; "y"; end; end
+      class C
+        include X
+        include Y
+        include X
+      end
+      CR
+    lookup(source, "C", "f", 0).should eq(["Y#f"])
+  end
+
+  it "finds the class method of the module extended last" do
+    source = <<-CR
+      module X; def f : Int32; 1; end; end
+      module Y; def f : String; "y"; end; end
+      class C
+        extend X
+        extend Y
+      end
+      CR
+    lookup_meta(source, "C", "f", 0).should eq(["Y#f"])
+  end
+
+  it "keeps the first extend of a module repeated later (extend X, Y, X finds Y)" do
+    source = <<-CR
+      module X; def f : Int32; 1; end; end
+      module Y; def f : String; "y"; end; end
+      class C
+        extend X
+        extend Y
+        extend X
+      end
+      CR
+    lookup_meta(source, "C", "f", 0).should eq(["Y#f"])
+  end
+
+  it "skips an extended module whose def rejects the argument for an earlier one that accepts it" do
+    source = <<-CR
+      class Buffer
+      end
+      module Base
+        def bytes(count : Int32 = 16) : String
+          "b"
+        end
+      end
+      module Secure
+        extend Base
+        extend self
+
+        def bytes(buffer : Buffer) : Nil
+        end
+      end
+      CR
+    count = Heucristic::Resolve::TypeRef.of(:int32)
+    arguments = [count] of Heucristic::Resolve::Resolution
+    call = Heucristic::Resolve::Methods::Call.new("bytes", 1, false, arguments)
+    lookup_meta(source, "Secure", call).map(&.qualified).should eq(["Base#bytes"])
+  end
+
+  it "reports both defs when extends in different files do not say which came last" do
+    files = [
+      {"a.cr", "module X; def f : Int32; 1; end; end\nclass C\n  extend X\nend\n"},
+      {"c.cr", "module Y; def f : String; \"y\"; end; end\n"},
+      {"b.cr", "class C\n  extend Y\nend\n"},
+    ]
+    workspace = Heucristic::Index::Workspace.new
+    files.each do |path, source|
+      tree = Heucristic::Syntax.parse(source, path)
+      raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+      workspace.update(
+        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+      )
+    end
+    types = Heucristic::Resolve::Types.new(workspace)
+    meta = Heucristic::Resolve::MetaRef.new(
+      Heucristic::Resolve::TypeRef.new("C", Array(Heucristic::Resolve::Resolution).new)
+    )
+    call = Heucristic::Resolve::Methods::Call.new("f", 0, false)
+    found = Heucristic::Resolve::Methods.new(workspace, types).lookup(meta, call)
+    found.map(&.qualified).sort!.should eq(["X#f", "Y#f"])
+  end
+end
+
+describe Heucristic::Resolve::Methods, "missing" do
+  it "names the unknown include order instead of claiming the method does not exist" do
+    sources = {
+      "mods.cr" => "module A\n  def f; end\nend\nmodule B\n  def f; end\nend\n",
+      "a.cr"    => "class C\n  include A\nend\n",
+      "b.cr"    => "class C\n  include B\nend\n",
+    }
+    workspace = Heucristic::Index::Workspace.new
+    sources.each do |path, source|
+      tree = Heucristic::Syntax.parse(source, path)
+      raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+      workspace.update(
+        Heucristic::Index::Collector.collect(path, Heucristic::Document::Text.new(source), tree)
+      )
+    end
+    types = Heucristic::Resolve::Types.new(workspace)
+    receiver = Heucristic::Resolve::TypeRef.new("C", Array(Heucristic::Resolve::Resolution).new)
+    answer = Heucristic::Resolve::Methods.new(workspace, types).missing("f", receiver)
+    answer.detail.should contain("unknown order")
+    answer.reason.ambiguous?.should be_true
+  end
+end

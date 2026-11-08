@@ -793,6 +793,9 @@ module Heucristic
           end
         end
         if found.empty?
+          unordered = @methods.missing(call.name, receiver)
+          return Answer.note(unordered.detail) if unordered.reason.ambiguous?
+
           return Answer.note("no `#{call.name}` indexed on #{receiver}#{macro_hint}")
         end
 

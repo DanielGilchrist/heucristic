@@ -64,7 +64,7 @@ module Semantic
                       generated_defs(type.metaclass, true, declaring)
           extended = extended_modules(type)
           macros = generated_macros(type)
-          parents = project?(type) ? module_parents(type) : Array(String).new
+          parents = ordered_parents(type)
           if generated.empty? && parents.empty? && extended.empty? && macros.empty?
             next unless declared_by_macro
           end
@@ -169,6 +169,20 @@ module Semantic
       found
     end
 
+    private def ordered_parents(type : Crystal::ModuleType) : Array(String)
+      return Array(String).new unless project?(type) || shard?(type)
+
+      module_parents(type)
+    end
+
+    private def shard?(type : Crystal::Type) : Bool
+      locations = type.locations
+      return false unless locations
+
+      shards = File.join(@root, "lib")
+      locations.all? { |location| location.original_filename.try(&.starts_with?(shards)) }
+    end
+
     private def module_parents(type : Crystal::ModuleType) : Array(String)
       parents = type.parents || Array(Crystal::Type).new
       parents.compact_map do |parent|
@@ -231,8 +245,8 @@ module Semantic
           emit("  #{name} = #{member.value}") if member.is_a?(Crystal::Const)
         end
       end
-      parents.each { |parent| emit("  include ::#{parent}") }
-      extended.each { |parent| emit("  extend ::#{parent}") }
+      parents.reverse_each { |parent| emit("  include ::#{parent}") }
+      extended.reverse_each { |parent| emit("  extend ::#{parent}") }
       macros.each do |entry|
         emit("  #{Header.macro(entry)}")
         emit("  end")

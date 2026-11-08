@@ -33,6 +33,7 @@ module Heucristic
         @aliases = Array(Alias).new
         @constants = Array(Constant).new
         @macros = Array(MacroDef).new
+        @opaque = Array(OpaqueBody).new
         @def_depth = 0
         @opaque_blocks = 0
         @flag_enums = Set(UInt64).new
@@ -43,7 +44,7 @@ module Heucristic
 
       def file : File
         File.new(
-          @path, @defs, @namespaces, @mixins, @instance_vars, @aliases, @constants, @macros
+          @path, @defs, @namespaces, @mixins, @instance_vars, @aliases, @constants, @macros, @opaque
         )
       end
 
@@ -286,9 +287,17 @@ module Heucristic
         false
       end
 
+      def visit(node : Crystal::MacroExpression | Crystal::MacroFor) : Bool
+        mark_opaque
+        true
+      end
+
       def visit(node : Crystal::MacroIf) : Bool
         expanded = MacroText.expand(node)
-        return false if expanded.is_a?(MacroText::Undecidable)
+        if expanded.is_a?(MacroText::Undecidable)
+          mark_opaque
+          return false
+        end
 
         fragment = Syntax.parse_fragment(expanded.text, @path, expanded.at)
         fragment.accept(self) unless fragment.is_a?(Syntax::Broken)
@@ -301,6 +310,7 @@ module Heucristic
         end
         synthesized = node.obj.nil? ? Synthesized.from_name(node.name) : nil
         unless synthesized
+          mark_opaque if node.obj.nil?
           @opaque_blocks += 1 if opaque_block?(node)
           return true
         end
@@ -488,6 +498,14 @@ module Heucristic
           )
         end
         false
+      end
+
+      private def mark_opaque : Nil
+        current = owner
+        return unless current.is_a?(String) && @def_depth == 0
+        return if @opaque.any?(&.owner.==(current))
+
+        @opaque << OpaqueBody.new(current, @path)
       end
 
       private def owner : Owner

@@ -46,6 +46,7 @@ module Heucristic
           file.aliases,
           file.constants,
           macros_kept,
+          file.opaque,
         )
       end
 

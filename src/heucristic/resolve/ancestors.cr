@@ -3,6 +3,8 @@ require "./resolution"
 require "./scope"
 require "./builtins"
 require "./binding"
+require "../index/mixin_order"
+require "../index/macro_hook"
 
 module Heucristic
   module Resolve
@@ -14,6 +16,7 @@ module Heucristic
 
       def initialize(@workspace : Index::Workspace) : Nil
         @cache = Hash(String, Chain).new
+        @judging = Array(String).new
       end
 
       def invalidate : Nil
@@ -114,7 +117,7 @@ module Heucristic
 
         chain = Array(String).new
         parents.each do |parent|
-          chain << parent.name
+          chain << parent.name unless chain.includes?(parent.name)
           inherited = compute(parent.name, types, visiting + [name])
           return inherited if inherited.is_a?(Unknown)
           inherited.each { |ancestor| chain << ancestor unless chain.includes?(ancestor) }
@@ -127,20 +130,121 @@ module Heucristic
         return builtin_parents(name) if entries.empty?
         return Unknown.new(:ambiguous, "#{name} is private to several files") if shadowed?(entries)
 
-        parents = Array(Parent).new
-        @workspace.mixins_of(name).reverse_each do |mixin|
-          next unless mixin.kind.include?
+        declared = Index::MixinOrder.declared(@workspace.mixins_of(name), :include)
+        mixins = case declared
+                 in Array(Index::Mixin) then declared
+                 in Index::MixinOrder::Unordered
+                   unless interchangeable?(name, declared.mixins, types)
+                     return Unknown.new(:ambiguous, "#{name} has includes in an unknown order")
+                   end
 
+                   declared.mixins
+                 end
+
+        parents = Array(Parent).new(mixins.size + 1)
+        mixins.each do |mixin|
           parent = resolve_parent(mixin.target, name, types)
           return parent if parent.is_a?(Unknown)
           parents << parent unless parents.any?(&.name.==(parent.name))
         end
+        parents.reverse!
 
         case (superclass = superclass(entries, name, types))
         in Unknown                then superclass
         in Builtins::NoSuperclass then parents
         in Parent                 then parents << superclass
         end
+      end
+
+      private def interchangeable?(
+        owner : String,
+        mixins : Array(Index::Mixin),
+        types : Types,
+      ) : Bool
+        return false if @judging.includes?(owner)
+
+        @judging << owner
+        verdict = disjoint?(owner, mixins, types)
+        @judging.pop
+        verdict
+      end
+
+      private def disjoint?(owner : String, mixins : Array(Index::Mixin), types : Types) : Bool
+        paths = Hash(String, Array(String)).new
+        mixins.each do |mixin|
+          parent = resolve_parent(mixin.target, owner, types)
+          return false if parent.is_a?(Unknown)
+
+          (paths[parent.name] ||= Array(String).new) << mixin.path
+        end
+
+        vocabularies = Hash(String, Set(String)).new
+        paths.each_key do |module_name|
+          vocabulary = vocabulary_of(module_name, owner, types)
+          return false if vocabulary.is_a?(Unknown)
+
+          vocabularies[module_name] = vocabulary
+        end
+
+        names = paths.keys
+        names.each_with_index do |first, index|
+          names[(index + 1)..].each do |second|
+            next if single_file?(paths[first], paths[second])
+            return false if vocabularies[first].intersects?(vocabularies[second])
+          end
+        end
+        true
+      end
+
+      private def single_file?(first : Array(String), second : Array(String)) : Bool
+        files = (first + second).uniq!
+        files.size == 1
+      end
+
+      private def vocabulary_of(
+        module_name : String,
+        owner : String,
+        types : Types,
+      ) : Set(String) | Unknown
+        chain = compute(module_name, types, [owner])
+        return chain if chain.is_a?(Unknown)
+
+        names = Set(String).new
+        ([module_name] + chain).each do |level|
+          return Unknown.new(:ambiguous, "#{level} may generate names") if generative?(level)
+
+          @workspace.member_names(level).each { |name| names << name }
+          extended = extended_names(level, types)
+          return extended if extended.is_a?(Unknown)
+
+          names.concat(extended)
+        end
+        names
+      end
+
+      private def extended_names(level : String, types : Types) : Set(String) | Unknown
+        names = Set(String).new
+        @workspace.mixins_of(level).each do |mixin|
+          next unless mixin.kind.extend?
+
+          parent = resolve_parent(mixin.target, level, types)
+          return parent if parent.is_a?(Unknown)
+          next if parent.name == level
+
+          if generative?(parent.name)
+            return Unknown.new(:ambiguous, "#{parent.name} may generate names")
+          end
+
+          @workspace.member_names(parent.name).each { |name| names << name }
+        end
+        names
+      end
+
+      private def generative?(level : String) : Bool
+        return true if @workspace.opaque?(level)
+
+        names = @workspace.member_names(level)
+        Index::MacroHook.values.any? { |hook| names.includes?(hook.macro_name) }
       end
 
       private def shadowed?(entries : Array(Index::Namespace)) : Bool

@@ -109,6 +109,7 @@ module Heucristic
         @compiled = Compiled::NONE
         @descendants = Descendants.new(@workspace, @types)
         @concrete = Hash(String, Array(String)).new
+        @extended = Hash(String, Index::MixinOrder::Declared).new
       end
 
       def compiled(map : Compiled) : Nil
@@ -125,6 +126,7 @@ module Heucristic
         @private_paths.clear
         @descendants.invalidate
         @concrete.clear
+        @extended.clear
       end
 
       def class_macros(receiver : Resolution, call : Call) : Array(Index::MacroDef)
@@ -245,6 +247,17 @@ module Heucristic
         return found unless found.empty? && call.implicit
 
         top_level(call)
+      end
+
+      def missing(name : String, receiver : Resolution) : Unknown
+        if receiver.is_a?(TypeRef)
+          chain = @types.ancestors(receiver.name)
+          if chain.is_a?(Unknown) && chain.reason.ambiguous?
+            return Unknown.new(:ambiguous, "`#{name}` may come from an include: #{chain.detail}")
+          end
+        end
+
+        Unknown.new(:unresolved_name, "no `#{name}` on #{receiver}")
       end
 
       def candidates(receiver : Resolved) : Array(Index::Def)
@@ -609,18 +622,67 @@ module Heucristic
       end
 
       private def extended_methods(type : String, call : Call) : Array(Index::Def)
+        found = extended_pass(type, call, true)
+        found.empty? ? extended_pass(type, call, false) : found
+      end
+
+      private def extended_pass(type : String, call : Call, strict : Bool) : Array(Index::Def)
         extending_levels(type).each do |level|
-          @workspace.mixins_of(level).reverse_each do |mixin|
-            next unless mixin.kind.extend?
-
-            module_name = extended_module(mixin, level)
-            next unless module_name
-
-            found = instance_methods(module_name, call)
-            return found unless found.empty?
-          end
+          found = extended_at(level, call, strict)
+          return found unless found.empty?
         end
         Array(Index::Def).new
+      end
+
+      private def extended_declared(level : String) : Index::MixinOrder::Declared
+        @extended[level] ||= Index::MixinOrder.declared(@workspace.mixins_of(level), :extend)
+      end
+
+      private def extended_at(level : String, call : Call, strict : Bool) : Array(Index::Def)
+        declared = extended_declared(level)
+        case declared
+        in Array(Index::Mixin)          then first_extended(declared, level, call, strict)
+        in Index::MixinOrder::Unordered then any_extended(level, call, strict)
+        end
+      end
+
+      private def first_extended(
+        declared : Array(Index::Mixin),
+        level : String,
+        call : Call,
+        strict : Bool,
+      ) : Array(Index::Def)
+        declared.reverse_each do |mixin|
+          module_name = extended_module(mixin, level)
+          next unless module_name
+
+          found = extended_instance(module_name, call, strict)
+          return found unless found.empty?
+        end
+        Array(Index::Def).new
+      end
+
+      private def any_extended(level : String, call : Call, strict : Bool) : Array(Index::Def)
+        found = Array(Index::Def).new
+        @workspace.mixins_of(level).each do |mixin|
+          next unless mixin.kind.extend?
+
+          module_name = extended_module(mixin, level)
+          found.concat(extended_instance(module_name, call, strict)) if module_name
+        end
+        found.uniq!
+      end
+
+      private def extended_instance(
+        module_name : String,
+        call : Call,
+        strict : Bool,
+      ) : Array(Index::Def)
+        return instance_methods(module_name, call) unless strict
+
+        first_level(module_name, call) do |entry|
+          entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
+        end
       end
 
       private def extended_module(mixin : Index::Mixin, owner : String) : String?

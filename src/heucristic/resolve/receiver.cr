@@ -794,7 +794,7 @@ module Heucristic
       ) : Resolution
         concrete = @methods.virtual_receivers(receiver, call.caller_path)
         if concrete.empty?
-          return Unknown.new(:unresolved_name, "no `#{call.name}` on #{receiver}")
+          return @methods.missing(call.name, receiver)
         end
 
         results = Array(Resolution).new(concrete.size)
@@ -1642,7 +1642,7 @@ module Heucristic
         shape = shape_of(block_call, outer)
         defs = @methods.dispatch(target, shape)
         if defs.empty?
-          return Unknown.new(:unresolved_name, "no `#{block_call.name}` on #{target}")
+          return @methods.missing(block_call.name, target)
         end
 
         scoped = defs.select(&.with_yield)
@@ -1988,7 +1988,7 @@ module Heucristic
           virtual = @methods.virtual_receivers(receiver, shape.caller_path)
           return union(virtual.map { |below| block_inputs(below, shape, index, parameters) })
         end
-        return Unknown.new(:unresolved_name, "no `#{shape.name}` on #{receiver}") if defs.empty?
+        return @methods.missing(shape.name, receiver) if defs.empty?
 
         inputs = Array(Resolution).new(defs.size)
         defs.each do |entry|
