@@ -29,8 +29,39 @@ module Heucristic
       Unwritable.new(path, error.message || error.class.name)
     end
 
+    def children(path : String) : Array(String) | Unreadable
+      Dir.children(path)
+    rescue error : File::Error
+      Unreadable.new(path, error.message || error.class.name)
+    end
+
+    def modified_at(path : String) : Time | Unreadable
+      File.info(path).modification_time
+    rescue error : File::Error
+      Unreadable.new(path, error.message || error.class.name)
+    end
+
+    def touch(path : String) : Unwritable?
+      File.touch(path)
+      nil
+    rescue error : File::Error
+      Unwritable.new(path, error.message || error.class.name)
+    end
+
+    def make_tree(path : String, attempts : Int32 = 3) : Unwritable?
+      Dir.mkdir_p(path)
+      nil
+    rescue error : File::Error
+      return if Dir.exists?(path)
+      return make_tree(path, attempts - 1) if attempts > 1
+
+      Unwritable.new(path, error.message || error.class.name)
+    end
+
     def write(path : String, contents : String) : Unwritable?
-      Dir.mkdir_p(File.dirname(path))
+      made = make_tree(File.dirname(path))
+      return made if made
+
       File.write(path, contents)
       nil
     rescue error : IO::Error

@@ -2,6 +2,7 @@ require "digest/sha256"
 require "../version"
 require "../log"
 require "../disk"
+require "./stale_shims"
 
 module Heucristic
   module Index
@@ -30,25 +31,51 @@ module Heucristic
       def materialize : String | Disk::Unwritable
         home = ::File.join(cache_home, "heucristic", "shims")
         root = ::File.join(home, digest)
-        return root if Dir.exists?(root)
-
-        staging = "#{root}.#{Process.pid}"
-        FILES.each do |(relative, contents)|
-          written = Disk.write(::File.join(staging, relative), contents)
-          return written if written.is_a?(Disk::Unwritable)
+        if Dir.exists?(root)
+          touched = Disk.touch(root)
+          Log.info("could not refresh shim cache #{root}: #{touched.reason}") if touched
+        else
+          placed = place(home, root)
+          return placed if placed
         end
-        moved = Disk.rename(staging, root)
-        return moved if moved.is_a?(Disk::Unwritable)
 
         remove_stale(home, root)
         root
       end
 
-      private def remove_stale(home : String, keep : String) : Nil
-        Dir.children(home).each do |child|
-          path = ::File.join(home, child)
-          next if path == keep
+      private def place(home : String, root : String) : Disk::Unwritable?
+        staging = "#{root}.#{Process.pid}.#{Random::Secure.hex(4)}"
+        written = write_all(staging)
+        if written
+          Disk.remove_tree(staging)
+          return written
+        end
 
+        moved = Disk.rename(staging, root)
+        Disk.remove_tree(staging) if Dir.exists?(staging)
+        moved
+      end
+
+      private def write_all(staging : String) : Disk::Unwritable?
+        FILES.each do |(relative, contents)|
+          written = Disk.write(::File.join(staging, relative), contents)
+          return written if written
+        end
+      end
+
+      private def remove_stale(home : String, keep : String) : Nil
+        children = Disk.children(home)
+        if children.is_a?(Disk::Unreadable)
+          Log.info("could not list shim cache #{home}: #{children.reason}")
+          return
+        end
+
+        entries = children.compact_map do |child|
+          path = ::File.join(home, child)
+          touched = Disk.modified_at(path)
+          StaleShims::Entry.new(path, touched) if touched.is_a?(Time)
+        end
+        StaleShims.expired(entries, keep, Time.utc).each do |path|
           removed = Disk.remove_tree(path)
           Log.info("could not remove old shim cache #{path}: #{removed.reason}") if removed
         end
