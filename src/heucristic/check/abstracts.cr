@@ -36,10 +36,10 @@ module Heucristic
 
       private def check(entry : Index::ClassNamespace, findings : Array(Finding)) : Nil
         levels = @methods.levels(entry.name)
-        levels.each_with_index do |level, depth|
+        levels.each do |level|
           @workspace.defs_of(level).each do |definition|
             next unless definition.abstract_def
-            next if implemented?(definition, levels, depth)
+            next if implemented?(definition, levels)
 
             message = String.build do |io|
               io << "abstract `def " << definition.qualified << '('
@@ -51,18 +51,10 @@ module Heucristic
         end
       end
 
-      private def implemented?(
-        definition : Index::Def,
-        levels : Array(String),
-        depth : Int32,
-      ) : Bool
-        levels.each_with_index.any? do |level, index|
-          next false if index == depth
-
-          @workspace.named(definition.name).any? do |candidate|
-            candidate.owner == level && candidate.receiver == definition.receiver &&
-              !candidate.abstract_def
-          end
+      private def implemented?(definition : Index::Def, levels : Array(String)) : Bool
+        @workspace.named(definition.name).any? do |candidate|
+          levels.includes?(candidate.owner) && candidate.receiver == definition.receiver &&
+            !candidate.abstract_def
         end
       end
     end
