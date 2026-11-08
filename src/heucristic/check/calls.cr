@@ -45,27 +45,23 @@ module Heucristic
       def run(sites : Index::Sites) : Outcome
         findings = Array(Finding).new
         checked = 0
-        skips = Hash(Skip, Int32).new(0)
-        examples = Hash(Skip, String).new
-        unknown = Hash(String, Int32).new(0)
-        unsettled = Hash(String, Int32).new(0)
-        macro_calls = Hash(String, Int32).new(0)
+        tally = Tally.new
         uncompiled = @settled.uncompiled_file?(sites.path)
         sites.calls.each do |site|
           skip = if uncompiled
                    Skip::FileNotCompiled
                  else
-                   check(site, sites.text, findings, unknown, unsettled)
+                   check(site, sites.text, findings, tally.unknown_receivers, tally.unsettled_types)
                  end
           if skip
-            skips[skip] += 1
-            macro_calls[site.call.name] += 1 if skip.macro_invocation?
-            examples[skip] ||= "#{sites.path}:#{site.call.name_location.try(&.line_number)}"
+            tally.skips[skip] += 1
+            tally.macro_calls[site.call.name] += 1 if skip.macro_invocation?
+            tally.examples[skip] ||= Examples.at(sites.path, site.call.name_location)
           else
             checked += 1
           end
         end
-        Outcome.new(findings, checked, skips, examples, unknown, unsettled, macro_calls)
+        Outcome.new(findings, checked, tally)
       end
 
       private def check(

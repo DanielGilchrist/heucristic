@@ -5,11 +5,7 @@ module Score
     getter checked = 0
     getter calls = 0
     getter findings = 0
-    getter skips = Hash(Heucristic::Check::Skip, Int32).new(0)
-    getter examples = Hash(Heucristic::Check::Skip, String).new
-    getter unknown_receivers = Hash(String, Int32).new(0)
-    getter unsettled_types = Hash(String, Int32).new(0)
-    getter macro_calls = Hash(String, Int32).new(0)
+    getter counts = Heucristic::Check::Tally.new
     getter uncompiled = Array(String).new
 
     def add_calls(count : Int32) : Nil
@@ -26,11 +22,7 @@ module Score
 
     def absorb(outcome : Heucristic::Check::Outcome) : Nil
       @checked += outcome.checked
-      outcome.skips.each { |skip, count| @skips[skip] += count }
-      outcome.examples.each { |skip, where| @examples[skip] ||= where }
-      outcome.unknown_receivers.each { |detail, count| @unknown_receivers[detail] += count }
-      outcome.unsettled_types.each { |type, count| @unsettled_types[type] += count }
-      outcome.macro_calls.each { |name, count| @macro_calls[name] += count }
+      @counts.merge(outcome.tally)
     end
   end
 end

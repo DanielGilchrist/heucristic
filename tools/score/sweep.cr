@@ -66,13 +66,14 @@ module Score
     private def explain(tally : Tally) : Nil
       puts
       puts "not checkable because:"
-      tally.skips.to_a.sort_by { |_, count| -count }.each do |skip, count|
-        where = tally.examples[skip]?.try { |example| @corpus.relative(example) } || ""
+      counts = tally.counts
+      counts.skips.to_a.sort_by { |_, count| -count }.each do |skip, count|
+        where = counts.examples[skip]?.try { |example| @corpus.relative(example.to_s) } || ""
         puts "  #{count.to_s.rjust(6)}  #{skip.label.ljust(22)} e.g. #{where}"
       end
-      top("receivers the resolver could not type:", tally.unknown_receivers)
-      top("receiver types that are not settled:", tally.unsettled_types)
-      top("macro invocations skipped:", tally.macro_calls)
+      top("receivers the resolver could not type:", counts.unknown_receivers)
+      top("receiver types that are not settled:", counts.unsettled_types)
+      top("macro invocations skipped:", counts.macro_calls)
       return if tally.uncompiled.empty?
 
       puts "files no target compiled (#{tally.uncompiled.size}):"
