@@ -17,7 +17,9 @@ module ShimsCheck
 
     events = Channel(Heucristic::Index::Event).new(64)
     shim_roots = Heucristic::Server::ShimRoots.for(Dir.current)
-    spawn { Heucristic::Index::Loader.load(roots, shim_roots, events) }
+    Heucristic::Fibers.detach(:indexer) do
+      Heucristic::Index::Loader.load(roots, shim_roots, events)
+    end
     finished = loop do
       event = events.receive
       break event if event.is_a?(Heucristic::Index::Finished)
