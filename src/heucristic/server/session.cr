@@ -399,7 +399,9 @@ module Heucristic
         return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
 
         path = @documents.path(document)
-        target = Syntax::Cursor.find(tree, point, path, @workspace.crystal_version)
+        target = Syntax::Cursor.find(
+          tree, point, path, @workspace.crystal_version, document.text.source
+        )
         return reply(request.id, nil) unless target
 
         answer = answer_at(uri, params.position)
@@ -470,7 +472,9 @@ module Heucristic
         return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
 
         path = @documents.path(document)
-        target = Syntax::Cursor.find(tree, point, path, @workspace.crystal_version)
+        target = Syntax::Cursor.find(
+          tree, point, path, @workspace.crystal_version, document.text.source
+        )
         return reply(request.id, nil) unless target
 
         answer = answer_at(uri, params.position)
@@ -543,7 +547,9 @@ module Heucristic
         return Answer.note("position is outside the document") if point.is_a?(Document::OutOfRange)
 
         path = @documents.path(document)
-        target = Syntax::Cursor.find(tree, point, path, @workspace.crystal_version)
+        target = Syntax::Cursor.find(
+          tree, point, path, @workspace.crystal_version, document.text.source
+        )
         unless target
           return Answer.note(NO_TARGET)
         end

@@ -55,7 +55,9 @@ module Heucristic
         point = probe.point_at(start)
         return Array(LSProtocol::CompletionItem).new if point.is_a?(Document::OutOfRange)
 
-        target = Syntax::Cursor.find(tree, point, request.path, @workspace.crystal_version)
+        target = Syntax::Cursor.find(
+          tree, point, request.path, @workspace.crystal_version, probe.source
+        )
         items = case target
                 in Syntax::OnCall then calls(target, prefix)
                 in Syntax::OnPath then paths(target, prefix)

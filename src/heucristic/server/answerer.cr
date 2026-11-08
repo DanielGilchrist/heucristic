@@ -294,7 +294,8 @@ module Heucristic
         if (rescued = rescue_variable(target, text))
           spans << rescued
         else
-          add_span(spans, text, introduced_at(target.name, target.context), target.name.size)
+          location = introduced_at(target.name, target.context, text.source)
+          add_span(spans, text, location, target.name.size)
         end
         Answer.new(Array(Index::Entry).new, spans, notes, Array(String).new)
       end
@@ -316,7 +317,11 @@ module Heucristic
         definition.args.find(&.name.==(name))
       end
 
-      private def introduced_at(name : String, context : Syntax::Context) : Crystal::Location?
+      private def introduced_at(
+        name : String,
+        context : Syntax::Context,
+        source : String,
+      ) : Crystal::Location?
         context.blocks.reverse_each do |call|
           block = call.block
           next unless block
@@ -332,7 +337,7 @@ module Heucristic
         body = definition ? definition.body : context.ancestors.first?
         return unless body
         if definition && (parameter = parameter_named(definition, name))
-          return Syntax::ParameterName.location(parameter)
+          return Syntax::ParameterName.location(parameter, source)
         end
         if definition && (block_arg = definition.block_arg) && block_arg.name == name
           return block_arg.location
@@ -345,7 +350,7 @@ module Heucristic
         return found if found
 
         index = context.proc_index
-        introduced_at(name, context.outside_proc(index)) if index
+        introduced_at(name, context.outside_proc(index), source) if index
       end
 
       private def answer_instance_var(target : Syntax::OnInstanceVar) : Answer

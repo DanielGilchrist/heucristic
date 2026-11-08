@@ -51,7 +51,7 @@ describe "Crystal version regions" do
 
     version = Heucristic::CrystalVersion.parse("1.21.0")
     point = Heucristic::Document::Point.new(3, 11)
-    target = Heucristic::Syntax::Cursor.find(tree, point, "a.cr", version)
+    target = Heucristic::Syntax::Cursor.find(tree, point, "a.cr", version, SOURCE)
     target.should be_a(Heucristic::Syntax::OnDef)
   end
 end

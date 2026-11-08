@@ -110,4 +110,14 @@ describe "hover and definition at editor positions" do
       hover_text(client.hover(URI_A, 0, 16)).to_s.should eq("```crystal\nInt32\n```")
     end
   end
+
+  it "finds an internal parameter name after any whitespace following the external name" do
+    source = "def f(external   internal : Int32, other\t\tname : Int32,\n" \
+             "    ex    inner : Int32)\n  internal\n  name\n  inner\nend\n"
+    with_document(source) do |client|
+      starts(client.definition(URI_A, 2, 3)).should eq([{0, 17}])
+      starts(client.definition(URI_A, 3, 3)).should eq([{0, 42}])
+      starts(client.definition(URI_A, 4, 3)).should eq([{1, 10}])
+    end
+  end
 end

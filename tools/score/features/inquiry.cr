@@ -57,7 +57,7 @@ module Score
         site : Site,
       ) : Observation
         point = Heucristic::Document::Point.new(site.line, site.column)
-        target = Heucristic::Syntax::Cursor.find(tree, point, path, @version)
+        target = Heucristic::Syntax::Cursor.find(tree, point, path, @version, text.source)
         unless target
           return Observation.new(path, site, Unanswered.new(NO_TARGET, NO_TARGET), nil, nil)
         end

@@ -13,8 +13,9 @@ module Heucristic
         point : Document::Point,
         path : String?,
         version : CrystalVersion::Detected,
+        source : String,
       ) : Target?
-        cursor = new(point, path, version)
+        cursor = new(point, path, version, source)
         tree.accept(cursor)
         cursor.target
       end
@@ -23,6 +24,7 @@ module Heucristic
         @point : Document::Point,
         path : String?,
         version : CrystalVersion::Detected,
+        @source : String,
       ) : Nil
         super(path, version)
       end
@@ -55,7 +57,7 @@ module Heucristic
       end
 
       def visit(node : Crystal::Arg) : Bool
-        location = ParameterName.location(node)
+        location = ParameterName.location(node, @source)
         @target = OnVar.new(node.name, location, context) if over?(location, node.name.size + 1)
         @target.nil?
       end

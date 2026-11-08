@@ -46,7 +46,7 @@ private def receiver_of(marker : String) : String
   line = SOURCE.lines.index!(&.includes?(marker)) + 1
   column = SOURCE.lines[line - 1].index!(marker) + 1
   target = Heucristic::Syntax::Cursor.find(
-    tree, Heucristic::Document::Point.new(line, column), "a.cr", SPEC_CRYSTAL
+    tree, Heucristic::Document::Point.new(line, column), "a.cr", SPEC_CRYSTAL, SOURCE
   )
   case target
   in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s
@@ -3551,7 +3551,7 @@ describe Heucristic::Resolve::Receiver, "memoised call results" do
       line = source.lines.index!(&.includes?(marker)) + 1
       column = source.lines[line - 1].index!(".done") + 2
       target = Heucristic::Syntax::Cursor.find(
-        tree, Heucristic::Document::Point.new(line, column), "a.cr", SPEC_CRYSTAL
+        tree, Heucristic::Document::Point.new(line, column), "a.cr", SPEC_CRYSTAL, source
       )
       case target
       in Heucristic::Syntax::OnCall then receiver.of_call(target.node, target.context).to_s
@@ -3609,7 +3609,7 @@ describe Heucristic::Resolve::Receiver, "memo contexts that share a fingerprint"
     shims = Heucristic::Index::Shims.new
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
     target = Heucristic::Syntax::Cursor.find(
-      tree, Heucristic::Document::Point.new(5, 7), "a.cr", SPEC_CRYSTAL
+      tree, Heucristic::Document::Point.new(5, 7), "a.cr", SPEC_CRYSTAL, source
     )
     raise "cursor did not land on a call" unless target.is_a?(Heucristic::Syntax::OnCall)
 
