@@ -84,7 +84,7 @@ module Heucristic
         file = @workspace.file(entry.path)
         return 0 unless file
 
-        file.defs.count(&.owner.==(entry.name)) + file.namespaces.count do |nested|
+        file.defs.count(&.owner.==(entry.identity)) + file.namespaces.count do |nested|
           nested.name.starts_with?("#{entry.name}::")
         end
       end
