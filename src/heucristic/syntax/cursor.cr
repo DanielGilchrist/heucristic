@@ -33,7 +33,7 @@ module Heucristic
       end
 
       def visit(node : Crystal::Call) : Bool
-        @target = OnCall.new(node, context) if over?(node.name_location, node.name.size)
+        @target = OnCall.new(node, context) if on_name?(node)
         literal_name(node) if @target.nil?
         super
         @target.nil?
@@ -123,10 +123,35 @@ module Heucristic
         end
       end
 
+      private def on_name?(node : Crystal::Call) : Bool
+        location = node.name_location
+        return over?(location, node.name.size) unless index_sugar?(node)
+
+        over?(location, 1) || closing_bracket(node).try { |point| over?(point, 1) } || false
+      end
+
+      private def index_sugar?(node : Crystal::Call) : Bool
+        node.name_size.zero? && node.name.starts_with?("[]")
+      end
+
+      private def closing_bracket(node : Crystal::Call) : Document::Point?
+        finish = node.end_location
+        return unless finish
+
+        point = Document::Point.from(finish)
+        case node.name
+        when "[]"  then point
+        when "[]?" then Document::Point.new(point.line, point.column - 1)
+        end
+      end
+
       private def over?(location : Crystal::Location?, size : Int32) : Bool
         return false unless location
 
-        start = Document::Point.from(location)
+        over?(Document::Point.from(location), size)
+      end
+
+      private def over?(start : Document::Point, size : Int32) : Bool
         @point >= start && @point < start.advance(size)
       end
     end

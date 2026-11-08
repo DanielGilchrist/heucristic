@@ -101,4 +101,32 @@ describe Heucristic::Syntax::Cursor do
     last = target_at(source, 1, 20).as?(Heucristic::Syntax::OnPath)
     {first.try(&.segment), middle.try(&.segment), last.try(&.segment)}.should eq({0, 1, 2})
   end
+
+  describe "index calls" do
+    {"a[idx]", "a[idx]?", "a[idx] = 1"}.each do |expression|
+      it "finds the argument inside #{expression}, not the index call" do
+        source = "def f(a, idx)\n  #{expression}\nend\n"
+        target = target_at(source, 2, 5).as?(Heucristic::Syntax::OnVar)
+        target.try(&.name).should eq("idx")
+      end
+
+      it "finds the index call on the opening bracket of #{expression}" do
+        source = "def f(a, idx)\n  #{expression}\nend\n"
+        target = target_at(source, 2, 4).as?(Heucristic::Syntax::OnCall)
+        target.try(&.node.name.starts_with?("[]")).should be_true
+      end
+    end
+
+    it "finds the index call on the closing bracket" do
+      source = "def f(a, idx)\n  a[idx]\nend\n"
+      target = target_at(source, 2, 8).as?(Heucristic::Syntax::OnCall)
+      target.try(&.node.name).should eq("[]")
+    end
+
+    it "finds the innermost argument of a nested index" do
+      source = "def f(a, b, c)\n  a[b[c]]\nend\n"
+      target = target_at(source, 2, 7).as?(Heucristic::Syntax::OnVar)
+      target.try(&.name).should eq("c")
+    end
+  end
 end
