@@ -23,10 +23,6 @@ module Heucristic
         Exclusions.new(added)
       end
 
-      def excludes?(path : String) : Bool
-        @entries.any? { |entry| entry.path == path }
-      end
-
       def reject_from(files : Array(String)) : Array(String)
         files.reject { |file| excludes?(file) }
       end
@@ -38,6 +34,10 @@ module Heucristic
           "#{entry.path.sub(root + "/", "")} (#{entry.summary})"
         end
         "left out of the expansion because it failed: #{parts}"
+      end
+
+      private def excludes?(path : String) : Bool
+        @entries.any? { |entry| entry.path == path }
       end
     end
   end

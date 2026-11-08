@@ -9,8 +9,8 @@ describe Heucristic::Index::Exclusions do
     none = Heucristic::Index::Exclusions.none
     one = none.plus("/root/a.cr", "boom")
 
-    none.excludes?("/root/a.cr").should be_false
-    one.excludes?("/root/a.cr").should be_true
+    none.reject_from(["/root/a.cr"]).should eq ["/root/a.cr"]
+    one.reject_from(["/root/a.cr"]).should be_empty
   end
 
   it "rejects excluded files in order" do
