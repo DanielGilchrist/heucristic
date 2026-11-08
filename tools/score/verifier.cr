@@ -194,14 +194,15 @@ module Score
 
     private def declared_above(entry : Entry, theirs : Array(Location)) : Match?
       owner = entry.owner
-      return unless owner.is_a?(String)
+      return unless owner.is_a?(Heucristic::Index::Identity)
 
       theirs.each do |location|
         found = def_at(location)
         return unresolved(entry, Undecided.new("#{location.key} is not in the index")) unless found
 
         found_owner = found.owner
-        unless found_owner.is_a?(String) && found_owner != owner && descends?(found_owner, owner)
+        unless found_owner.is_a?(Heucristic::Index::Identity) && found_owner != owner &&
+               descends?(found_owner, owner)
           return unresolved(entry, Different.new)
         end
       end
@@ -251,7 +252,7 @@ module Score
       return unless entry.name == "new"
 
       owner = entry.owner
-      return unless owner.is_a?(String)
+      return unless owner.is_a?(Heucristic::Index::Identity)
 
       synthesized = @workspace.namespaces(owner).any? do |namespace|
         namespace.path == entry.path && namespace.name_span == entry.name_span
@@ -263,8 +264,9 @@ module Score
         return Different.new unless header
 
         name = header[1]
-        supplies = IMPLICIT.includes?(name) && descends?(owner, name)
-        return Different.new unless supplies || owner == name || owner.ends_with?("::#{name}")
+        supplies = IMPLICIT.includes?(name) && descends?(owner, Heucristic::Index::Public.new(name))
+        named = owner.name == name || owner.name.ends_with?("::#{name}")
+        return Different.new unless supplies || named
       end
       Same.new(theirs)
     end
@@ -324,11 +326,14 @@ module Score
       start..finish
     end
 
-    private def descends?(owner : String, ancestor : String) : Bool
+    private def descends?(
+      owner : Heucristic::Index::Identity,
+      ancestor : Heucristic::Index::Identity,
+    ) : Bool
       return true if owner == ancestor
 
       chain = @types.ancestors(owner)
-      chain.is_a?(Array(String)) && chain.includes?(ancestor)
+      chain.is_a?(Array(Heucristic::Index::Identity)) && chain.includes?(ancestor)
     end
 
     private def def_at(location : Location) : Entry?

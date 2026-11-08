@@ -1,4 +1,5 @@
 require "./resolution"
+require "../index/identity"
 
 module Heucristic
   module Resolve
@@ -26,15 +27,15 @@ module Heucristic
       end
     end
 
-    record ConstantVisit, name : String do
+    record ConstantVisit, identity : Index::Identity do
       def cycle : Unknown
-        Unknown.new(:cycle, name)
+        Unknown.new(:cycle, identity.name)
       end
     end
 
     record InstanceVarVisit, name : String
 
-    record IncluderVisit, owner : String
+    record IncluderVisit, owner : Index::Identity
 
     alias Visit = VariableVisit | DefVisit | ExpansionVisit | DispatchVisit |
                   ConstantVisit | InstanceVarVisit | IncluderVisit

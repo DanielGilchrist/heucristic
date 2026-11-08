@@ -97,9 +97,9 @@ module ShimsCheck
     shim_roots : Array(String),
   ) : Bool
     owner = entry.owner
-    return true unless owner.is_a?(String)
+    return true unless owner.is_a?(Heucristic::Index::Identity)
 
-    head = owner.split("::").first
+    head = owner.name.split("::").first
     files.any? do |file|
       next false if shim_roots.any? { |root| file.path.starts_with?(root + "/") }
 

@@ -229,7 +229,7 @@ module Heucristic
         parameters = definition.parameters.join(", ")
         String.build do |io|
           io << "```crystal\n"
-          io << "# " << owner << '\n' if owner.is_a?(String)
+          io << "# " << owner << '\n' if owner.is_a?(Index::Identity)
           io << "macro " << definition.name << '(' << parameters << ")\n```"
         end
       end
@@ -243,18 +243,10 @@ module Heucristic
         return Answer.note(located.to_s) if located.is_a?(Resolve::Unknown)
 
         entries = Array(Index::Entry).new
-        @workspace.namespaces(located).each { |entry| entries << entry if visible?(entry, context) }
-        @workspace.aliases(located).each { |entry| entries << entry if visible?(entry, context) }
-        @workspace.constants(located).each { |entry| entries << entry if visible?(entry, context) }
+        @workspace.namespaces(located).each { |entry| entries << entry }
+        @workspace.aliases(located).each { |entry| entries << entry }
+        @workspace.constants(located).each { |entry| entries << entry }
         Answer.of(entries)
-      end
-
-      private def visible?(
-        entry : Index::Namespace | Index::Alias | Index::Constant,
-        context : Syntax::Context,
-      ) : Bool
-        private_path = entry.private_path
-        private_path.nil? || private_path == context.path
       end
 
       private def answer_var(target : Syntax::OnVar, text : Document::Text, root : String) : Answer
@@ -294,7 +286,7 @@ module Heucristic
       private def answer_instance_var(target : Syntax::OnInstanceVar) : Answer
         note = typed(@receiver.instance_var(target.name, target.context))
         entries = Array(Index::Entry).new
-        if (owner = target.context.owner).is_a?(String)
+        if (owner = target.context.owner).is_a?(Index::Identity)
           @workspace.instance_vars_of(owner).each do |declared|
             entries << declared if declared.name == target.name
           end

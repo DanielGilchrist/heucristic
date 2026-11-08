@@ -1,13 +1,15 @@
 require "../document/span"
 require "../syntax/type_reader"
+require "./identity"
 
 module Heucristic
   module Index
     record Alias,
-      name : String,
+      identity : Identity,
       target : Syntax::TypeReader::Outcome,
       path : String,
-      name_span : Document::Span,
-      private_path : String? = nil
+      name_span : Document::Span do
+      delegate name, to: identity
+    end
   end
 end

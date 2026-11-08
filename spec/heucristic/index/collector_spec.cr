@@ -126,7 +126,7 @@ describe Heucristic::Index::Collector, "namespaces" do
 
   it "records includes and extends against their owner" do
     mixins = index(source).mixins
-    mixins.map { |mixin| {mixin.owner, mixin.kind, mixin.target.to_s} }.should eq([
+    mixins.map { |mixin| {mixin.owner.to_s, mixin.kind, mixin.target.to_s} }.should eq([
       {"Outer::Base", Heucristic::Index::MixinKind::Include, "Comparable(Base(T))"},
       {"Outer::Base", Heucristic::Index::MixinKind::Extend, "Enumerable(T)"},
     ])
@@ -134,7 +134,7 @@ describe Heucristic::Index::Collector, "namespaces" do
 
   it "records instance variable declarations from the body and from initialize" do
     ivars = index(source).instance_vars
-    ivars.map { |ivar| {ivar.owner, ivar.name, ivar.type.to_s} }.should eq([
+    ivars.map { |ivar| {ivar.owner.to_s, ivar.name, ivar.type.to_s} }.should eq([
       {"Outer::Base", "@items", "Array(T)"},
       {"Outer::Base", "@count", "Int32"},
     ])
@@ -441,7 +441,7 @@ describe Heucristic::Index::Collector, "macros and mixins" do
       CR
     owners = file.macros.map do |entry|
       owner = entry.owner
-      {entry.name, owner.is_a?(String) ? owner : "top-level"}
+      {entry.name, owner.is_a?(Heucristic::Index::Identity) ? owner.name : "top-level"}
     end
     owners.should eq([{"shout", "top-level"}, {"wrap", "Wrapper"}, {"method_missing", "Wrapper"}])
     file.defs.map { |entry| {entry.qualified, entry.forwards_to.to_s} }.should eq(
@@ -590,5 +590,77 @@ describe Heucristic::Index::Collector, "generic records" do
     owners = file.defs.map { |entry| {entry.qualified, entry.signature} }
     owners.should contain({"GraphQL::Envelope#data", "def data : T"})
     owners.should contain({"GraphQL::Envelope#failed?", "def failed? : Bool"})
+  end
+end
+
+describe Heucristic::Index::Collector, "file-private identity" do
+  source = <<-CR
+    private class Foo
+      def a : Int32
+        1
+      end
+
+      class Inner
+        def b : Int32
+          1
+        end
+      end
+
+      @x : Int32 = 1
+    end
+
+    class Foo
+      def c : Int32
+        1
+      end
+    end
+
+    class Foo::Nested
+      def d : Int32
+        1
+      end
+    end
+
+    private alias Al = Foo
+    private LIMIT = 1
+    class Plain
+      def e : Int32
+        1
+      end
+    end
+    CR
+
+  it "tags a private declaration, what it nests and a path headed by it as file-private" do
+    file = index(source)
+    file.namespaces.map { |entry| {entry.name, entry.identity.private?} }.should eq([
+      {"Foo", true}, {"Foo::Inner", true}, {"Foo", false}, {"Foo::Nested", true},
+      {"Plain", false},
+    ])
+    file.aliases.map { |entry| {entry.name, entry.identity.private?} }.should eq([{"Al", true}])
+    file.constants.map { |entry| {entry.name, entry.identity.private?} }.should eq(
+      [{"LIMIT", true}]
+    )
+  end
+
+  it "keys defs and instance variables by the identity of their owner" do
+    file = index(source)
+    owners = file.defs.map { |entry| {entry.name, entry.owner.to_s, private_owner?(entry.owner)} }
+    owners.should eq([
+      {"a", "Foo", true}, {"b", "Foo::Inner", true}, {"c", "Foo", false},
+      {"d", "Foo::Nested", true}, {"e", "Plain", false},
+    ])
+    file.instance_vars.map(&.owner.private?).should eq([true])
+  end
+
+  it "records the file a private identity belongs to" do
+    entry = index(source).namespaces[0]
+    entry.identity.should eq(Heucristic::Index::FilePrivate.new("Foo", "a.cr"))
+  end
+end
+
+private def private_owner?(owner : Heucristic::Index::Owner) : Bool
+  case owner
+  in Heucristic::Index::Identity then owner.private?
+  in Heucristic::Index::TopLevel then false
   end
 end

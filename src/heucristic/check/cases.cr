@@ -67,25 +67,25 @@ module Heucristic
         findings : Array(Finding),
       ) : Nil
         return unless resolved.arguments.empty?
-        namespaces = @workspace.namespaces(resolved.name)
+        namespaces = @workspace.namespaces(resolved.identity)
         return unless namespaces.all?(Index::EnumNamespace)
         return if namespaces.any? { |entry| entry.is_a?(Index::EnumNamespace) && entry.flags }
-        return unless @settled.type?(resolved.name)
+        return unless @settled.type?(resolved.identity)
 
-        members = @workspace.constants_of(resolved.name).map do |constant|
+        members = @workspace.constants_of(resolved.identity).map do |constant|
           constant.name.rpartition("::")[2]
         end
         return if members.empty?
 
         scope = Resolve::Scope.of(context)
-        covered = covered_members(node, resolved.name, members, scope)
+        covered = covered_members(node, resolved.identity, members, scope)
         return unless covered
 
         missing = members.reject { |member| covered.includes?(member) }
         return if missing.empty?
 
         message = String.build do |io|
-          io << "case is not exhaustive for enum " << resolved.name << ".\n\nMissing members:"
+          io << "case is not exhaustive for enum " << resolved.identity << ".\n\nMissing members:"
           missing.each { |member| io << "\n - " << member }
         end
         findings << Finding.new(:non_exhaustive_case, message, span)
@@ -137,18 +137,18 @@ module Heucristic
         end
 
         branch_types = BranchTypes.new(@types, Resolve::Scope.of(context))
-        covered = Array(String).new
+        covered = Array(Index::Identity).new
         node.whens.each do |branch|
           branch.conds.each do |cond|
             covering = branch_types.named_by(cond)
             return unless covering
 
             members.each do |member|
-              covered << member.name if branch_types.covers?(covering, member.name)
+              covered << member.identity if branch_types.covers?(covering, member.identity)
             end
           end
         end
-        missing = members.reject { |member| covered.includes?(member.name) }.map(&.to_s)
+        missing = members.reject { |member| covered.includes?(member.identity) }.map(&.to_s)
         report_missing(missing, span, findings)
       end
 
@@ -178,7 +178,7 @@ module Heucristic
 
       private def covered_members(
         node : Crystal::Case,
-        enum_name : String,
+        enum_name : Index::Identity,
         members : Array(String),
         scope : Resolve::Scope,
       ) : Array(String)?
@@ -198,7 +198,7 @@ module Heucristic
 
       private def member_named(
         cond : Crystal::ASTNode,
-        enum_name : String,
+        enum_name : Index::Identity,
         members : Array(String),
         scope : Resolve::Scope,
       ) : String?
@@ -222,19 +222,22 @@ module Heucristic
 
       private def foreign_member?(
         cond : Crystal::ASTNode,
-        enum_name : String,
+        enum_name : Index::Identity,
         scope : Resolve::Scope,
       ) : Bool
         return false unless cond.is_a?(Crystal::Path) && cond.names.size > 1
 
         located = enum_of(cond, scope)
-        return false unless located.is_a?(String) && located != enum_name
+        return false unless located.is_a?(Index::Identity) && located != enum_name
 
         namespaces = @workspace.namespaces(located)
         !namespaces.empty? && namespaces.all?(Index::EnumNamespace)
       end
 
-      private def enum_of(cond : Crystal::Path, scope : Resolve::Scope) : String | Resolve::Unknown
+      private def enum_of(
+        cond : Crystal::Path,
+        scope : Resolve::Scope,
+      ) : Index::Identity | Resolve::Unknown
         @types.locate_any(Syntax::Named.new(cond.names[0...-1], cond.global?), scope)
       end
     end

@@ -1,31 +1,38 @@
 require "../core_type"
+require "../index/identity"
 
 module Heucristic
   module Resolve
     record TypeRef,
-      name : String,
+      identity : Index::Identity,
       arguments : Array(Resolution),
       labels : Array(String) = Array(String).new do
       PROGRAM = "top-level"
 
       def self.program : TypeRef
-        new(PROGRAM, Array(Resolution).new)
+        new(Index::Public.new(PROGRAM), Array(Resolution).new)
       end
 
       def self.of(core : CoreType) : TypeRef
-        new(core.type_name, Array(Resolution).new)
+        new(Index::Public.new(core.type_name), Array(Resolution).new)
       end
 
       def self.of(core : CoreType, arguments : Array(Resolution)) : TypeRef
-        new(core.type_name, arguments)
+        new(Index::Public.new(core.type_name), arguments)
       end
 
       def program? : Bool
-        name == PROGRAM && arguments.empty?
+        identity == Index::Public.new(PROGRAM) && arguments.empty?
+      end
+
+      def core : CoreType?
+        current = identity
+        current.is_a?(Index::Public) ? CoreType.from_name(current.name) : nil
       end
 
       def is?(core : CoreType) : Bool
-        name == core.type_name
+        current = identity
+        current.is_a?(Index::Public) && current.name == core.type_name
       end
 
       def labelled? : Bool
@@ -33,7 +40,7 @@ module Heucristic
       end
 
       def to_s(io : IO) : Nil
-        io << name
+        io << identity
         return if arguments.empty?
 
         io << '('

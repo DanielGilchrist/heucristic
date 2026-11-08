@@ -18,7 +18,7 @@ module Heucristic
 
       record Covering, defs : Array(Index::Def), complete : Bool
 
-      record Reach, type : String, metaclass : Bool do
+      record Reach, type : Index::Identity, metaclass : Bool do
         def reaches?(entry : Index::Def) : Bool
           metaclass ? entry.receiver.metaclass? : entry.receiver.instance?
         end
@@ -92,13 +92,12 @@ module Heucristic
       end
 
       def initialize(@workspace : Index::Workspace, @types : Types) : Nil
-        @including = Array(String).new
-        @includers = Hash(String, Array(String)).new
-        @private_paths = Hash(String, Array(String)).new
+        @including = Array(Index::Identity).new
+        @includers = Hash(Index::Identity, Array(Index::Identity)).new
         @compiled = Compiled::NONE
         @descendants = Descendants.new(@workspace, @types)
-        @concrete = Hash(String, Array(String)).new
-        @extended = Hash(String, Index::MixinOrder::Declared).new
+        @concrete = Hash(Index::Identity, Array(Index::Identity)).new
+        @extended = Hash(Index::Identity, Index::MixinOrder::Declared).new
       end
 
       def compiled(map : Compiled) : Nil
@@ -112,7 +111,6 @@ module Heucristic
 
       def invalidate : Nil
         @includers.clear
-        @private_paths.clear
         @descendants.invalidate
         @concrete.clear
         @extended.clear
@@ -125,10 +123,11 @@ module Heucristic
         of = receiver.of
         return found unless of.is_a?(TypeRef)
 
-        owners = macro_owners(of.name)
+        owners = macro_owners(of.identity)
         @workspace.macros(call.name).select do |entry|
           owner = entry.owner
-          owner.is_a?(String) && owners.includes?(owner) && entry.arity.accepts?(call.arity)
+          owner.is_a?(Index::Identity) && owners.includes?(owner) &&
+            entry.arity.accepts?(call.arity)
         end
       end
 
@@ -187,7 +186,7 @@ module Heucristic
 
       def virtual_receivers(receiver : Resolution, caller_path : String?) : Array(Resolved)
         base = receiver.is_a?(MetaRef) ? receiver.of : receiver
-        return Array(Resolved).new unless base.is_a?(TypeRef) && abstract_class?(base.name)
+        return Array(Resolved).new unless base.is_a?(TypeRef) && abstract_class?(base.identity)
 
         concrete_subclasses(receiver, caller_path)
       end
@@ -197,7 +196,7 @@ module Heucristic
         base = receiver.is_a?(MetaRef) ? receiver.of : receiver
         return receivers unless base.is_a?(TypeRef) && base.arguments.empty?
 
-        concrete_descendants(base.name).each do |descendant|
+        concrete_descendants(base.identity).each do |descendant|
           next unless loaded?(descendant, caller_path)
 
           instance = TypeRef.new(descendant, Array(Resolution).new)
@@ -206,11 +205,11 @@ module Heucristic
         receivers
       end
 
-      def concrete_descendants(type : String) : Array(String)
+      def concrete_descendants(type : Index::Identity) : Array(Index::Identity)
         @concrete[type] ||= @descendants.of(type).reject { |below| abstract_class?(below) }
       end
 
-      def defined_between?(below : String, base : String, name : String) : Bool
+      def defined_between?(below : Index::Identity, base : Index::Identity, name : String) : Bool
         chain = @types.ancestors(below)
         return true if chain.is_a?(Unknown)
         return true if @workspace.defs_of(below).any?(&.name.==(name))
@@ -222,7 +221,7 @@ module Heucristic
         true
       end
 
-      def abstract_class?(type : String) : Bool
+      def abstract_class?(type : Index::Identity) : Bool
         return true if Builtins.abstract?(type)
 
         @workspace.namespaces(type).any? do |entry|
@@ -244,7 +243,7 @@ module Heucristic
 
         positional = entry.parameters.select(&.kind.positional?)
         owner = entry.owner
-        owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
+        owner_vars = owner.is_a?(Index::Identity) ? @types.type_vars_of(owner) : Array(String).new
         type_vars = entry.free_vars + owner_vars
         scope = Scope.new(owner, type_vars, receiver_bindings(receiver, owner), entry.path)
         splat = entry.parameters.find(&.kind.splat?)
@@ -265,7 +264,7 @@ module Heucristic
 
       def lookup(receiver : Resolution, call : Call) : Array(Index::Def)
         found = case receiver
-                in TypeRef          then instance_methods(receiver.name, call, receiver)
+                in TypeRef          then instance_methods(receiver.identity, call, receiver)
                 in MetaRef          then metaclass_methods(receiver.of, call)
                 in UnionRef         then union_methods(receiver, call)
                 in TypeVar, Unknown then Array(Index::Def).new
@@ -277,7 +276,7 @@ module Heucristic
 
       def missing(name : String, receiver : Resolution) : Unknown
         if receiver.is_a?(TypeRef)
-          chain = @types.ancestors(receiver.name)
+          chain = @types.ancestors(receiver.identity)
           if chain.is_a?(Unknown) && chain.reason.ambiguous?
             return Unknown.new(:ambiguous, "`#{name}` may come from an include: #{chain.detail}")
           end
@@ -288,10 +287,10 @@ module Heucristic
 
       def candidates(receiver : Resolved) : Array(Index::Def)
         case receiver
-        in TypeRef  then instance_candidates(receiver.name)
+        in TypeRef  then instance_candidates(receiver.identity)
         in MetaRef  then metaclass_candidates(receiver.of)
         in UnionRef then union_candidates(receiver)
-        in TypeVar  then instance_candidates(CoreType::Object.type_name)
+        in TypeVar  then instance_candidates(CoreType::Object.identity)
         end
       end
 
@@ -301,20 +300,20 @@ module Heucristic
         caller_path : String? = nil,
       ) : Array(Index::Def)
         found = case receiver
-                in TypeRef then instance_named(receiver.name, name)
+                in TypeRef then instance_named(receiver.identity, name)
                 in MetaRef
                   of = receiver.of
                   if of.is_a?(TypeVar)
                     Array(Index::Def).new
                   else
-                    metaclass_named(of.name, name, caller_path)
+                    metaclass_named(of.identity, name, caller_path)
                   end
                 in UnionRef, TypeVar then Array(Index::Def).new
                 end
         found.reject! { |entry| !own?(entry, caller_path) }
       end
 
-      def extends_itself?(type : String) : Bool
+      def extends_itself?(type : Index::Identity) : Bool
         @workspace.mixins_of(type).any? do |mixin|
           mixin.kind.extend? && extended_module(mixin, type) == type
         end
@@ -322,21 +321,14 @@ module Heucristic
 
       def own?(entry : Index::Def, caller_path : String?) : Bool
         return true unless caller_path
-        return false unless reachable?(entry, caller_path) && entry.visible_from?(caller_path)
 
-        owner = entry.owner
-        return true unless owner.is_a?(String)
-
-        privately = private_paths(owner)
-        return true unless privately.includes?(caller_path)
-
-        entry.path == caller_path || entry.private_path == caller_path
+        reachable?(entry, caller_path) && entry.visible_from?(caller_path)
       end
 
-      def levels(type : String) : Array(String)
+      def levels(type : Index::Identity) : Array(Index::Identity)
         chain = @types.ancestors(type)
-        found = chain.is_a?(Unknown) ? [type] : [type] + chain
-        object = CoreType::Object.type_name
+        found = chain.is_a?(Unknown) ? [type] of Index::Identity : [type] + chain
+        object = CoreType::Object.identity
         found << object if @workspace.module?(type) && !found.includes?(object)
         found
       end
@@ -362,30 +354,34 @@ module Heucristic
         in TypeRef
           case argument
           in TypeRef
-            argument.name == restriction.name ||
-              ancestor?(argument.name, restriction.name) ||
+            argument.identity == restriction.identity ||
+              ancestor?(argument.identity, restriction.identity) ||
               autocast?(argument, restriction) ||
               (admission.check? && widens?(argument, restriction)) ||
-              (admission.check? && descends?(restriction.name, argument.name)) ||
-              (admission.check? && included_below?(argument.name, restriction.name))
+              (admission.check? && descends?(restriction.identity, argument.identity)) ||
+              (admission.check? && included_below?(argument.identity, restriction.identity))
           in UnionRef then false
-          in MetaRef  then restriction.is?(:class) || @workspace.module?(restriction.name)
+          in MetaRef  then restriction.is?(:class) || @workspace.module?(restriction.identity)
           in TypeVar  then true
           end
         end
       end
 
-      def lookup_super(receiver : Resolved, owner : String, call : Call) : Array(Index::Def)
+      def lookup_super(
+        receiver : Resolved,
+        owner : Index::Identity,
+        call : Call,
+      ) : Array(Index::Def)
         case receiver
         in TypeRef
-          first_level(receiver.name, call, after: owner) do |entry|
+          first_level(receiver.identity, call, after: owner) do |entry|
             entry.receiver.instance? && call.accepts?(entry) && compatible?(entry, call)
           end
         in MetaRef
           of = receiver.of
           return Array(Index::Def).new if of.is_a?(TypeVar)
 
-          first_level(of.name, call, after: owner) do |entry|
+          first_level(of.identity, call, after: owner) do |entry|
             entry.receiver.metaclass? && call.accepts?(entry) && compatible?(entry, call)
           end
         in UnionRef, TypeVar then Array(Index::Def).new
@@ -398,10 +394,10 @@ module Heucristic
 
       private def reach_of(receiver : Resolution) : Reach?
         case receiver
-        in TypeRef then Reach.new(receiver.name, false)
+        in TypeRef then Reach.new(receiver.identity, false)
         in MetaRef
           of = receiver.of
-          of.is_a?(TypeRef) ? Reach.new(of.name, true) : nil
+          of.is_a?(TypeRef) ? Reach.new(of.identity, true) : nil
         in UnionRef, TypeVar, Unknown then nil
         end
       end
@@ -523,18 +519,18 @@ module Heucristic
         end
       end
 
-      private def included_below?(type : String, ancestor : String) : Bool
+      private def included_below?(type : Index::Identity, ancestor : Index::Identity) : Bool
         return false unless @workspace.module?(type)
 
         @descendants.of(ancestor).any? { |below| descends?(below, type) }
       end
 
-      private def descends?(type : String, ancestor : String) : Bool
+      private def descends?(type : Index::Identity, ancestor : Index::Identity) : Bool
         chain = @types.ancestors(type)
-        chain.is_a?(Array(String)) && chain.includes?(ancestor)
+        chain.is_a?(Array(Index::Identity)) && chain.includes?(ancestor)
       end
 
-      private def loaded?(type : String, caller_path : String?) : Bool
+      private def loaded?(type : Index::Identity, caller_path : String?) : Bool
         return true unless caller_path && @compiled.known?(caller_path)
 
         @workspace.namespaces(type).any? { |entry| @compiled.shared?(caller_path, entry.path) }
@@ -548,29 +544,25 @@ module Heucristic
         @compiled.loaded?(caller_path, entry.path)
       end
 
-      private def private_paths(owner : String) : Array(String)
-        @private_paths[owner] ||= @workspace.namespaces(owner).compact_map(&.private_path)
-      end
-
       private def widens?(argument : TypeRef, restriction : TypeRef) : Bool
-        from = CoreType.from_name(argument.name)
-        to = CoreType.from_name(restriction.name)
+        from = argument.core
+        to = restriction.core
         !from.nil? && !to.nil? && from.widens_to?(to)
       end
 
       private def autocast?(argument : TypeRef, restriction : TypeRef) : Bool
         return false unless argument.is?(:symbol)
 
-        @workspace.enum?(restriction.name)
+        @workspace.enum?(restriction.identity)
       end
 
-      private def ancestor?(type : String, candidate : String) : Bool
+      private def ancestor?(type : Index::Identity, candidate : Index::Identity) : Bool
         chain = @types.ancestors(type)
         chain.is_a?(Unknown) || chain.includes?(candidate)
       end
 
       private def instance_methods(
-        type : String,
+        type : Index::Identity,
         call : Call,
         receiver : TypeRef? = nil,
       ) : Array(Index::Def)
@@ -583,7 +575,7 @@ module Heucristic
         found.empty? ? includer_methods(type, call) : found
       end
 
-      private def includer_methods(type : String, call : Call) : Array(Index::Def)
+      private def includer_methods(type : Index::Identity, call : Call) : Array(Index::Def)
         return Array(Index::Def).new if @including.includes?(type)
         return Array(Index::Def).new unless @workspace.module?(type)
 
@@ -594,30 +586,30 @@ module Heucristic
         found.uniq!
       end
 
-      private def includers_of(type : String) : Array(String)
+      private def includers_of(type : Index::Identity) : Array(Index::Identity)
         cached = @includers[type]?
         return cached if cached
 
         @includers[type] = compute_includers(type)
       end
 
-      private def compute_includers(type : String) : Array(String)
-        names = Array(String).new
+      private def compute_includers(type : Index::Identity) : Array(Index::Identity)
+        names = Array(Index::Identity).new
         @workspace.each_mixin do |mixin|
           next unless mixin.kind.include?
           target = mixin.target
           next unless target.is_a?(Syntax::Type)
           owner = mixin.owner
-          next unless owner.is_a?(String)
+          next unless owner.is_a?(Index::Identity)
 
-          scope = Scope.new(owner, @types.type_vars_of(owner))
+          scope = Scope.new(owner, @types.type_vars_of(owner)).at(mixin.path)
           resolved = @types.resolve_lexically(target, scope)
-          names << owner if resolved.is_a?(TypeRef) && resolved.name == type
+          names << owner if resolved.is_a?(TypeRef) && resolved.identity == type
         end
         names.uniq!
       end
 
-      private def class_methods(type : String, call : Call) : Array(Index::Def)
+      private def class_methods(type : Index::Identity, call : Call) : Array(Index::Def)
         return own_allocate(type, call) if primitive_allocate?(type, call)
 
         found = first_level(type, call) do |entry|
@@ -650,7 +642,7 @@ module Heucristic
         end
       end
 
-      private def instance_candidates(type : String) : Array(Index::Def)
+      private def instance_candidates(type : Index::Identity) : Array(Index::Def)
         found = Array(Index::Def).new
         levels(type).each do |level|
           @workspace.defs_of(level).each { |entry| found << entry if entry.receiver.instance? }
@@ -659,28 +651,28 @@ module Heucristic
         found
       end
 
-      private def includers_candidates(type : String) : Array(Index::Def)
+      private def includers_candidates(type : Index::Identity) : Array(Index::Def)
         return Array(Index::Def).new unless @workspace.module?(type)
 
         includers_of(type).flat_map { |includer| instance_candidates(includer) }
       end
 
       private def metaclass_candidates(of : TypeRef | TypeVar) : Array(Index::Def)
-        return instance_candidates(CoreType::Class.type_name) if of.is_a?(TypeVar)
+        return instance_candidates(CoreType::Class.identity) if of.is_a?(TypeVar)
 
         found = Array(Index::Def).new
-        levels(of.name).each do |level|
+        levels(of.identity).each do |level|
           @workspace.defs_of(level).each { |entry| found << entry if entry.receiver.metaclass? }
         end
-        found.concat(instance_candidates(CoreType::Class.type_name))
+        found.concat(instance_candidates(CoreType::Class.identity))
         found
       end
 
       private def metaclass_methods(of : TypeRef | TypeVar, call : Call) : Array(Index::Def)
-        return class_methods(CoreType::Object.type_name, call) if of.is_a?(TypeVar)
+        return class_methods(CoreType::Object.identity, call) if of.is_a?(TypeVar)
 
-        found = class_methods(of.name, call)
-        found.empty? ? instance_methods(CoreType::Class.type_name, call) : found
+        found = class_methods(of.identity, call)
+        found.empty? ? instance_methods(CoreType::Class.identity, call) : found
       end
 
       private def top_level(call : Call) : Array(Index::Def)
@@ -702,13 +694,13 @@ module Heucristic
           target = mixin.target
           next unless target.is_a?(Syntax::Type)
 
-          resolved = @types.resolve_lexically(target, Scope::TOP)
-          found.concat(instance_methods(resolved.name, call)) if resolved.is_a?(TypeRef)
+          resolved = @types.resolve_lexically(target, Scope.of(Index::TopLevel.new, mixin.path))
+          found.concat(instance_methods(resolved.identity, call)) if resolved.is_a?(TypeRef)
         end
         found.uniq!
       end
 
-      private def default_constructor(type : String, call : Call) : Array(Index::Def)
+      private def default_constructor(type : Index::Identity, call : Call) : Array(Index::Def)
         return Array(Index::Def).new if call.arity > 0 || call.block || !call.named.empty?
 
         searched = levels(type)
@@ -717,9 +709,7 @@ module Heucristic
         return Array(Index::Def).new if declared
 
         caller_path = call.caller_path
-        declared = @workspace.namespaces(type).select(Index::ClassNamespace).select do |candidate|
-          candidate.private_path.nil? || candidate.private_path == caller_path
-        end
+        declared = @workspace.namespaces(type).select(Index::ClassNamespace)
         entry = declared.find { |candidate| loaded_for?(caller_path, candidate.path) }
         entry ||= declared.first?
         return Array(Index::Def).new unless entry
@@ -750,7 +740,7 @@ module Heucristic
       end
 
       private def alongside_initialize(
-        type : String,
+        type : Index::Identity,
         call : Call,
         explicit : Array(Index::Def),
       ) : Array(Index::Def)
@@ -769,31 +759,35 @@ module Heucristic
         most_specific(explicit + constructed, call)
       end
 
-      private def depth_of(defs : Array(Index::Def), searched : Array(String)) : Int32
+      private def depth_of(defs : Array(Index::Def), searched : Array(Index::Identity)) : Int32
         defs.min_of do |entry|
           owner = entry.owner
-          owner.is_a?(String) ? (searched.index(owner) || searched.size) : searched.size
+          owner.is_a?(Index::Identity) ? (searched.index(owner) || searched.size) : searched.size
         end
       end
 
-      private def primitive_allocate?(type : String, call : Call) : Bool
+      private def primitive_allocate?(type : Index::Identity, call : Call) : Bool
         Syntax::WellKnown::Allocate.named?(call.name) && !@workspace.module?(type)
       end
 
-      private def own_allocate(type : String, call : Call) : Array(Index::Def)
+      private def own_allocate(type : Index::Identity, call : Call) : Array(Index::Def)
         first_level(type, call) do |entry|
           entry.receiver.metaclass? && entry.owner == type && call.accepts?(entry)
         end
       end
 
-      private def extended_methods(type : String, call : Call) : Array(Index::Def)
+      private def extended_methods(type : Index::Identity, call : Call) : Array(Index::Def)
         return Array(Index::Def).new if primitive_allocate?(type, call)
 
         found = extended_pass(type, call, true)
         found.empty? ? extended_pass(type, call, false) : found
       end
 
-      private def extended_pass(type : String, call : Call, strict : Bool) : Array(Index::Def)
+      private def extended_pass(
+        type : Index::Identity,
+        call : Call,
+        strict : Bool,
+      ) : Array(Index::Def)
         extending_levels(type).each do |level|
           found = extended_at(level, call, strict)
           return found unless found.empty?
@@ -801,11 +795,15 @@ module Heucristic
         Array(Index::Def).new
       end
 
-      private def extended_declared(level : String) : Index::MixinOrder::Declared
+      private def extended_declared(level : Index::Identity) : Index::MixinOrder::Declared
         @extended[level] ||= Index::MixinOrder.declared(@workspace.mixins_of(level), :extend)
       end
 
-      private def extended_at(level : String, call : Call, strict : Bool) : Array(Index::Def)
+      private def extended_at(
+        level : Index::Identity,
+        call : Call,
+        strict : Bool,
+      ) : Array(Index::Def)
         declared = extended_declared(level)
         case declared
         in Array(Index::Mixin)          then first_extended(declared, level, call, strict)
@@ -815,7 +813,7 @@ module Heucristic
 
       private def first_extended(
         declared : Array(Index::Mixin),
-        level : String,
+        level : Index::Identity,
         call : Call,
         strict : Bool,
       ) : Array(Index::Def)
@@ -829,7 +827,11 @@ module Heucristic
         Array(Index::Def).new
       end
 
-      private def any_extended(level : String, call : Call, strict : Bool) : Array(Index::Def)
+      private def any_extended(
+        level : Index::Identity,
+        call : Call,
+        strict : Bool,
+      ) : Array(Index::Def)
         found = Array(Index::Def).new
         @workspace.mixins_of(level).each do |mixin|
           next unless mixin.kind.extend?
@@ -841,7 +843,7 @@ module Heucristic
       end
 
       private def extended_instance(
-        module_name : String,
+        module_name : Index::Identity,
         call : Call,
         strict : Bool,
       ) : Array(Index::Def)
@@ -852,20 +854,20 @@ module Heucristic
         end
       end
 
-      private def extended_module(mixin : Index::Mixin, owner : String) : String?
+      private def extended_module(mixin : Index::Mixin, owner : Index::Identity) : Index::Identity?
         target = mixin.target
         return if target.is_a?(Syntax::TypeReader::Unsupported)
         return owner if target.is_a?(Syntax::SelfType)
 
-        scope = Scope.new(owner, @types.type_vars_of(owner))
+        scope = Scope.new(owner, @types.type_vars_of(owner)).at(mixin.path)
         resolved = @types.resolve_lexically(target, scope)
-        resolved.is_a?(TypeRef) ? resolved.name : nil
+        resolved.is_a?(TypeRef) ? resolved.identity : nil
       end
 
       private def first_level(
-        type : String,
+        type : Index::Identity,
         call : Call,
-        after : String? = nil,
+        after : Index::Identity? = nil,
         & : Index::Def -> Bool
       ) : Array(Index::Def)
         candidates = @workspace.named(call.name)
@@ -914,8 +916,8 @@ module Heucristic
 
       private def receiver_bindings(receiver : Resolution?, owner : Index::Owner) : Array(Binding)
         none = Array(Binding).new
-        return none unless receiver.is_a?(TypeRef) && owner.is_a?(String)
-        return none if receiver.arguments.empty? && receiver.name == owner
+        return none unless receiver.is_a?(TypeRef) && owner.is_a?(Index::Identity)
+        return none if receiver.arguments.empty? && receiver.identity == owner
 
         bound = @types.bindings(receiver, owner)
         bound.is_a?(Unknown) ? none : bound
@@ -942,7 +944,7 @@ module Heucristic
         strictly
       end
 
-      private def instance_named(type : String, name : String) : Array(Index::Def)
+      private def instance_named(type : Index::Identity, name : String) : Array(Index::Def)
         searched = levels(type)
         found = @workspace.named(name).select do |entry|
           entry.receiver.instance? && searched.includes?(entry.owner)
@@ -957,7 +959,7 @@ module Heucristic
         found.uniq!
       end
 
-      private def macro_owners(type : String) : Array(String)
+      private def macro_owners(type : Index::Identity) : Array(Index::Identity)
         searched = levels(type)
         owners = searched.dup
         searched.each do |level|
@@ -972,7 +974,7 @@ module Heucristic
       end
 
       private def metaclass_named(
-        type : String,
+        type : Index::Identity,
         name : String,
         caller_path : String? = nil,
       ) : Array(Index::Def)
@@ -988,16 +990,16 @@ module Heucristic
             found.concat(instance_named(module_name, name)) if module_name
           end
         end
-        found.concat(instance_named(CoreType::Class.type_name, name))
+        found.concat(instance_named(CoreType::Class.identity, name))
         found.concat(constructors(type, caller_path)) if Syntax::WellKnown::New.named?(name)
         found.uniq!
       end
 
-      private def extending_levels(type : String) : Array(String)
+      private def extending_levels(type : Index::Identity) : Array(Index::Identity)
         levels(type).reject { |level| level != type && @workspace.module?(level) }
       end
 
-      private def constructors(type : String, caller_path : String?) : Array(Index::Def)
+      private def constructors(type : Index::Identity, caller_path : String?) : Array(Index::Def)
         levels(type).each do |level|
           declared = @workspace.defs_of(level).select do |entry|
             entry.receiver.instance? && Syntax::WellKnown::Initialize.named?(entry.name)

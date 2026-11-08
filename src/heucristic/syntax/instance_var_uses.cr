@@ -11,7 +11,7 @@ module Heucristic
         tree : Crystal::ASTNode,
         path : String?,
         name : String,
-        owner : String,
+        owner : Index::Identity,
         version : CrystalVersion::Detected,
       ) : Array(Crystal::Location)
         finder = new(path, name, owner, version)
@@ -22,7 +22,7 @@ module Heucristic
       def initialize(
         path : String?,
         @name : String,
-        @owner : String,
+        @owner : Index::Identity,
         version : CrystalVersion::Detected,
       ) : Nil
         super(path, version)

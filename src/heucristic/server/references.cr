@@ -61,10 +61,10 @@ module Heucristic
       def of_names(entries : Array(Index::Entry)) : Array(LSProtocol::Location)
         found = Array(LSProtocol::Location).new
         qualified = entries.compact_map { |entry| qualified_name(entry) }.uniq!
-        qualified.each do |name|
-          last = name.rpartition("::")[2]
+        qualified.each do |identity|
+          last = identity.name.rpartition("::")[2]
           @workspace.path_uses(last).each do |use|
-            next unless names?(use, name)
+            next unless names?(use, identity)
 
             add(found, use.sites, use.path.location, use.path.to_s.size)
           end
@@ -91,7 +91,7 @@ module Heucristic
         found
       end
 
-      def of_instance_var(name : String, owner : String) : Array(LSProtocol::Location)
+      def of_instance_var(name : String, owner : Index::Identity) : Array(LSProtocol::Location)
         found = Array(LSProtocol::Location).new
         @workspace.each_sites do |sites|
           Syntax::InstanceVarUses.of(
@@ -119,15 +119,15 @@ module Heucristic
         reached ? Reach::Reaches : Reach::Elsewhere
       end
 
-      private def names?(use : Index::PathUse, qualified : String) : Bool
+      private def names?(use : Index::PathUse, identity : Index::Identity) : Bool
         scope = Resolve::Scope.of(use.context)
         located = @types.locate_any(Syntax::Named.new(use.path.names, use.path.global?), scope)
-        located == qualified
+        located == identity
       end
 
-      private def qualified_name(entry : Index::Entry) : String?
+      private def qualified_name(entry : Index::Entry) : Index::Identity?
         case entry
-        in Index::Namespace, Index::Alias, Index::Constant then entry.name
+        in Index::Namespace, Index::Alias, Index::Constant then entry.identity
         in Index::Def, Index::InstanceVar                  then nil
         end
       end

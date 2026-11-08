@@ -28,8 +28,8 @@ module Heucristic
         target = receiver.names.join("::")
         workspace.macros(name).any? do |entry|
           owner = entry.owner
-          entry.arity.accepts?(call.args.size) && owner.is_a?(String) &&
-            (owner == target || owner.ends_with?("::#{target}"))
+          entry.arity.accepts?(call.args.size) && owner.is_a?(Identity) &&
+            (owner.name == target || owner.name.ends_with?("::#{target}"))
         end
       end
 

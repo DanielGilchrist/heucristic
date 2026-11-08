@@ -24,7 +24,9 @@ module Heucristic
           defs.each do |entry|
             io << entry.identity << ':' << entry.return_type << ':' << entry.yields << '\n'
           end
-          namespaces.each { |entry| io << entry.keyword << ' ' << entry.name << '\n' }
+          namespaces.each do |entry|
+            io << entry.keyword << ' ' << entry.identity.private? << ' ' << entry.name << '\n'
+          end
           namespaces.each do |entry|
             next unless entry.is_a?(ClassNamespace)
 
@@ -37,8 +39,13 @@ module Heucristic
           instance_vars.each do |entry|
             io << entry.owner << ' ' << entry.name << ' ' << entry.type << '\n'
           end
-          aliases.each { |entry| io << "alias " << entry.name << ' ' << entry.target << '\n' }
-          constants.each { |entry| io << entry.name << " = " << entry.value << '\n' }
+          aliases.each do |entry|
+            io << "alias " << entry.identity.private? << ' ' << entry.name << ' ' << entry.target
+            io << '\n'
+          end
+          constants.each do |entry|
+            io << entry.identity.private? << ' ' << entry.name << " = " << entry.value << '\n'
+          end
           macros.each { |entry| io << "macro " << entry.owner << ' ' << entry.name << '\n' }
           opaque.each { |entry| io << "opaque " << entry.owner << '\n' }
         end

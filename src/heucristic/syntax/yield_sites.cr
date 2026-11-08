@@ -10,7 +10,7 @@ module Heucristic
 
       def self.in(
         definition : Crystal::Def,
-        enclosing : Array(String),
+        enclosing : Array(Index::Identity),
         type_vars : Array(String),
         path : String?,
         version : CrystalVersion::Detected,
@@ -21,7 +21,7 @@ module Heucristic
       end
 
       def initialize(
-        enclosing : Array(String),
+        enclosing : Array(Index::Identity),
         type_vars : Array(String),
         definition : Crystal::Def,
         path : String?,

@@ -127,12 +127,12 @@ module Heucristic
         found = Array({String, Index::Entry}).new
         file.defs.each do |entry|
           owner = entry.owner
-          found << {owner.is_a?(String) ? owner : "", entry}
+          found << {owner.is_a?(Index::Identity) ? owner.name : "", entry}
         end
         file.constants.each { |entry| found << {entry.name.rpartition("::")[0], entry} }
         seen = Set(String).new
         file.instance_vars.each do |entry|
-          found << {entry.owner, entry} if seen.add?("#{entry.owner}#{entry.name}")
+          found << {entry.owner.name, entry} if seen.add?("#{entry.owner}#{entry.name}")
         end
         file.aliases.each { |entry| found << {entry.name.rpartition("::")[0], entry} }
         found
@@ -172,7 +172,7 @@ module Heucristic
       end
 
       private def container(owner : Index::Owner) : String?
-        owner.is_a?(String) ? owner : nil
+        owner.is_a?(Index::Identity) ? owner.name : nil
       end
 
       private def kind_of(entry : Index::Entry) : LSProtocol::SymbolKind

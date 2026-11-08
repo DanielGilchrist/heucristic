@@ -23,20 +23,20 @@ module Heucristic
         @open : Set(String) = Set(String).new,
       ) : Nil
         @unsettled_files = Hash(String, Bool).new
-        @settled_types = Hash(String, Bool).new
-        @declared_types = Hash(String, Bool).new
+        @settled_types = Hash(Index::Identity, Bool).new
+        @declared_types = Hash(Index::Identity, Bool).new
       end
 
-      def type?(name : String) : Bool
-        @settled_types.fetch(name) { @settled_types[name] = settled_type?(name) }
+      def type?(identity : Index::Identity) : Bool
+        @settled_types.fetch(identity) { @settled_types[identity] = settled_type?(identity) }
       end
 
-      def declared?(name : String) : Bool
-        @declared_types.fetch(name) { @declared_types[name] = declared_type?(name) }
+      def declared?(identity : Index::Identity) : Bool
+        @declared_types.fetch(identity) { @declared_types[identity] = declared_type?(identity) }
       end
 
-      def namespace?(name : String) : Bool
-        type?(name) || declared?(name)
+      def namespace?(identity : Index::Identity) : Bool
+        type?(identity) || declared?(identity)
       end
 
       def uncompiled_file?(path : String) : Bool
@@ -49,14 +49,14 @@ module Heucristic
         !@compiled.includes?(path)
       end
 
-      def project_type?(name : String) : Bool
-        entries = @workspace.namespaces(name)
+      def project_type?(identity : Index::Identity) : Bool
+        entries = @workspace.namespaces(identity)
         !entries.empty? && entries.all? { |entry| declared_in_project?(entry) }
       end
 
-      def generated_free?(name : String) : Bool
-        chain = @types.ancestors(name)
-        levels = chain.is_a?(Resolve::Unknown) ? [name] : [name] + chain
+      def generated_free?(identity : Index::Identity) : Bool
+        chain = @types.ancestors(identity)
+        levels = chain.is_a?(Resolve::Unknown) ? [identity] of Index::Identity : [identity] + chain
         generated = levels.any? do |level|
           @workspace.defs_of(level).any? { |entry| Index::MacroTarget.generated?(entry.path) }
         end
@@ -69,8 +69,8 @@ module Heucristic
         end
       end
 
-      def compiled_level?(name : String) : Bool
-        @workspace.namespaces(name).any? { |entry| compiled?(entry.path) }
+      def compiled_level?(identity : Index::Identity) : Bool
+        @workspace.namespaces(identity).any? { |entry| compiled?(entry.path) }
       end
 
       def program? : Bool
@@ -79,40 +79,40 @@ module Heucristic
         @dirty.none? { |path| unsettled_file?(path) }
       end
 
-      def extended?(name : String) : Bool
-        @descendants.extended?(name)
+      def extended?(identity : Index::Identity) : Bool
+        @descendants.extended?(identity)
       end
 
-      def descendants(name : String) : Array(String)
-        @descendants.of(name)
+      def descendants(identity : Index::Identity) : Array(Index::Identity)
+        @descendants.of(identity)
       end
 
-      private def settled_type?(name : String) : Bool
+      private def settled_type?(identity : Index::Identity) : Bool
         return false unless ready?
 
-        entries = @workspace.namespaces(name)
+        entries = @workspace.namespaces(identity)
         return false if entries.empty?
         return false unless entries.any? { |entry| compiled?(entry.path) }
 
-        chain = @types.ancestors(name)
+        chain = @types.ancestors(identity)
         return false if chain.is_a?(Resolve::Unknown)
 
-        levels = [name] + chain
+        levels = [identity] + chain
         levels.all? { |level| settled_level?(level) } && !missing_handler?(levels)
       end
 
-      private def declared_type?(name : String) : Bool
+      private def declared_type?(identity : Index::Identity) : Bool
         return false unless ready?
 
-        entries = @workspace.namespaces(name)
+        entries = @workspace.namespaces(identity)
         return false if entries.empty?
         return false unless entries.all? { |entry| declared_in_project?(entry) }
         return false if entries.any? { |entry| !compiled?(entry.path) && macro_uses?(entry.path) }
 
-        chain = @types.ancestors(name)
+        chain = @types.ancestors(identity)
         return false if chain.is_a?(Resolve::Unknown)
 
-        chain.all? { |level| settled_level?(level) } && !missing_handler?([name] + chain)
+        chain.all? { |level| settled_level?(level) } && !missing_handler?([identity] + chain)
       end
 
       private def macro_uses?(path : String) : Bool
@@ -121,17 +121,17 @@ module Heucristic
       end
 
       private def ready? : Bool
-        @complete && !@workspace.namespaces(CoreType::Object.type_name).empty?
+        @complete && !@workspace.namespaces(CoreType::Object.identity).empty?
       end
 
-      private def settled_level?(level : String) : Bool
+      private def settled_level?(level : Index::Identity) : Bool
         entries = @workspace.namespaces(level)
         return false if entries.empty?
 
         entries.none? { |entry| entry.is_a?(Index::LibNamespace) || unsettled_file?(entry.path) }
       end
 
-      private def missing_handler?(levels : Array(String)) : Bool
+      private def missing_handler?(levels : Array(Index::Identity)) : Bool
         @workspace.named("method_missing").any? { |entry| levels.includes?(entry.owner) } ||
           @workspace.macros("method_missing").any? { |entry| levels.includes?(entry.owner) }
       end

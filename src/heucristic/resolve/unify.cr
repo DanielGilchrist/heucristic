@@ -35,7 +35,7 @@ module Heucristic
         in Syntax::Generic
           return unless argument.is_a?(TypeRef)
           base = types.resolve_lexically(restriction.base, scope)
-          return unless base.is_a?(TypeRef) && base.name == argument.name
+          return unless base.is_a?(TypeRef) && base.identity == argument.identity
 
           restriction.arguments.zip?(argument.arguments) do |inner, value|
             bind(inner, value, free_vars, bindings, types, scope) if value
@@ -101,7 +101,7 @@ module Heucristic
 
         shaped = restriction.members.select(Syntax::Generic).find do |member|
           base = types.resolve_lexically(member.base, scope)
-          base.is_a?(TypeRef) && base.name == argument.name
+          base.is_a?(TypeRef) && base.identity == argument.identity
         end
         return bind(shaped, argument, free_vars, bindings, types, scope) if shaped
 
@@ -134,8 +134,8 @@ module Heucristic
         return false unless covering.is_a?(TypeRef) && member.is_a?(TypeRef)
         return true if covering == member
 
-        chain = types.ancestors(member.name)
-        !chain.is_a?(Unknown) && chain.includes?(covering.name)
+        chain = types.ancestors(member.identity)
+        !chain.is_a?(Unknown) && chain.includes?(covering.identity)
       end
 
       private NIL = TypeRef.of(:nil)

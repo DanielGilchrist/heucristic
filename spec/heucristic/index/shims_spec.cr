@@ -79,7 +79,7 @@ describe Heucristic::Resolve::Receiver, "with shims" do
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
-    bag = Heucristic::Resolve::TypeRef.new("Bag", Array(Heucristic::Resolve::Resolution).new)
+    bag = type_ref("Bag")
 
     result_of(receiver, bag, "join", 1, true).should eq("String")
     result_of(receiver, bag, "first", 0, false).should eq("String")
@@ -134,9 +134,8 @@ describe Heucristic::Resolve::Receiver, "typeof a parameter in a shim" do
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     receiver = Heucristic::Resolve::Receiver.new(workspace, shims, types, methods)
-    none = Array(Heucristic::Resolve::Resolution).new
-    counter = Heucristic::Resolve::TypeRef.new("Counter", none)
-    int64 = Heucristic::Resolve::TypeRef.new("Int64", none)
+    counter = type_ref("Counter")
+    int64 = type_ref("Int64")
 
     arguments = [int64] of Heucristic::Resolve::Resolution
     explicit = Heucristic::Resolve::Methods::Call.new("with_index", 1, false, arguments)
@@ -154,7 +153,7 @@ describe Heucristic::Resolve::Methods, "generated number shims" do
     workspace.update(collect("shims/generated/numbers.cr", generated))
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
-    int32 = Heucristic::Resolve::TypeRef.new("Int32", Array(Heucristic::Resolve::Resolution).new)
+    int32 = type_ref("Int32")
 
     found = methods.lookup(int32, Heucristic::Resolve::Methods::Call.new("<<", 1, false))
 

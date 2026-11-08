@@ -85,7 +85,7 @@ describe Heucristic::Syntax::Cursor do
   it "finds a constant path and records the enclosing namespaces" do
     target = target_at(nested, 4, 7)
     target.should be_a(Heucristic::Syntax::OnPath)
-    enclosing = target.as?(Heucristic::Syntax::OnPath).try(&.context.enclosing)
+    enclosing = target.as?(Heucristic::Syntax::OnPath).try(&.context.enclosing.map(&.name))
     enclosing.should eq(["Outer", "Outer::Inner"])
   end
 

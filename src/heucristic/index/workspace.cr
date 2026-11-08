@@ -14,7 +14,7 @@ module Heucristic
         Add
         Drop
 
-        def apply(table : Table(T), key : String, entry : T, path : String) : Nil forall T
+        def apply(table : Table(K, T), key : K, entry : T, path : String) : Nil forall K, T
           case self
           in .add?  then table.add(key, entry)
           in .drop? then table.drop(key, &.path.==(path))
@@ -27,22 +27,22 @@ module Heucristic
       def initialize : Nil
         @crystal_version = CrystalVersion::Unknown.new("Crystal version not detected")
         @files = Hash(String, File).new
-        @defs = Table(Def).new
-        @defs_by_owner = Table(Def).new
-        @namespaces = Table(Namespace).new
-        @enclosing = Table(Namespace).new
-        @mixins = Table(Mixin).new
-        @instance_vars = Table(InstanceVar).new
-        @aliases = Table(Alias).new
-        @constants = Table(Constant).new
-        @constants_by_owner = Table(Constant).new
-        @macros = Table(MacroDef).new
-        @macros_by_owner = Table(MacroDef).new
-        @opaque = Table(OpaqueBody).new
-        @aliases_by_owner = Table(Alias).new
+        @defs = Table(String, Def).new
+        @defs_by_owner = Table(Owner, Def).new
+        @namespaces = Table(Identity, Namespace).new
+        @enclosing = Table(Identity, Namespace).new
+        @mixins = Table(Owner, Mixin).new
+        @instance_vars = Table(Identity, InstanceVar).new
+        @aliases = Table(Identity, Alias).new
+        @constants = Table(Identity, Constant).new
+        @constants_by_owner = Table(Owner, Constant).new
+        @macros = Table(String, MacroDef).new
+        @macros_by_owner = Table(Owner, MacroDef).new
+        @opaque = Table(Identity, OpaqueBody).new
+        @aliases_by_owner = Table(Owner, Alias).new
         @sites = Hash(String, Sites).new
-        @call_uses = Table(CallUse).new
-        @path_uses = Table(PathUse).new
+        @call_uses = Table(String, CallUse).new
+        @path_uses = Table(String, PathUse).new
         @expansions = Hash(MacroTarget, Hash(MacroExpansion::Key, MacroExpansion)).new
       end
 
@@ -152,50 +152,50 @@ module Heucristic
       end
 
       def defs_of(owner : Owner) : Array(Def)
-        @defs_by_owner.entries(owner_key(owner))
+        @defs_by_owner.entries(owner)
       end
 
-      def namespaces(name : String) : Array(Namespace)
-        @namespaces.entries(name)
+      def namespaces(identity : Identity) : Array(Namespace)
+        @namespaces.entries(identity)
       end
 
-      def module?(name : String) : Bool
-        namespaces(name).any?(ModuleNamespace)
+      def module?(identity : Identity) : Bool
+        namespaces(identity).any?(ModuleNamespace)
       end
 
-      def enum?(name : String) : Bool
-        namespaces(name).any?(EnumNamespace)
+      def enum?(identity : Identity) : Bool
+        namespaces(identity).any?(EnumNamespace)
       end
 
-      def lib?(name : String) : Bool
-        namespaces(name).any?(LibNamespace)
+      def lib?(identity : Identity) : Bool
+        namespaces(identity).any?(LibNamespace)
       end
 
-      def encloses?(name : String) : Bool
-        @enclosing.has_key?(name)
+      def encloses?(identity : Identity) : Bool
+        @enclosing.has_key?(identity)
       end
 
-      def aliases(name : String) : Array(Alias)
-        @aliases.entries(name)
+      def aliases(identity : Identity) : Array(Alias)
+        @aliases.entries(identity)
       end
 
-      def constants(name : String) : Array(Constant)
-        @constants.entries(name)
+      def constants(identity : Identity) : Array(Constant)
+        @constants.entries(identity)
       end
 
-      def constants_of(owner : String) : Array(Constant)
+      def constants_of(owner : Owner) : Array(Constant)
         @constants_by_owner.entries(owner)
       end
 
       def mixins_of(owner : Owner) : Array(Mixin)
-        @mixins.entries(owner_key(owner))
+        @mixins.entries(owner)
       end
 
       def each_mixin(& : Mixin ->) : Nil
         @mixins.each_group { |mixins| mixins.each { |mixin| yield mixin } }
       end
 
-      def instance_vars_of(owner : String) : Array(InstanceVar)
+      def instance_vars_of(owner : Identity) : Array(InstanceVar)
         @instance_vars.entries(owner)
       end
 
@@ -203,11 +203,11 @@ module Heucristic
         @macros.entries(name)
       end
 
-      def opaque?(owner : String) : Bool
+      def opaque?(owner : Identity) : Bool
         @opaque.has_key?(owner)
       end
 
-      def member_names(owner : String) : Array(String)
+      def member_names(owner : Identity) : Array(String)
         names = Array(String).new
         defs_of(owner).each { |entry| names << entry.name }
         macros_of(owner).each { |entry| names << entry.name }
@@ -217,24 +217,20 @@ module Heucristic
           names << entry.name.rpartition("::")[2]
         end
         @enclosing.entries(owner).each do |entry|
-          names << entry.name[(owner.size + 2)..].partition("::")[0]
+          names << entry.name[(owner.name.size + 2)..].partition("::")[0]
         end
         names
       end
 
       def macros_of(owner : Owner) : Array(MacroDef)
-        @macros_by_owner.entries(owner_key(owner))
+        @macros_by_owner.entries(owner)
       end
 
-      private def owner_key(owner : Owner) : String
-        owner.is_a?(String) ? owner : ""
-      end
-
-      private def each_enclosing(name : String, & : String ->) : Nil
-        offset = 0
-        while (separator = name.index("::", offset))
-          yield name[0, separator]
-          offset = separator + 2
+      private def each_enclosing(identity : Identity, & : Identity ->) : Nil
+        current = identity.parent
+        while current.is_a?(Identity)
+          yield current
+          current = current.parent
         end
       end
 
@@ -242,26 +238,26 @@ module Heucristic
         path = file.path
         file.defs.each do |entry|
           change.apply(@defs, entry.name, entry, path)
-          change.apply(@defs_by_owner, owner_key(entry.owner), entry, path)
+          change.apply(@defs_by_owner, entry.owner, entry, path)
         end
         file.namespaces.each do |entry|
-          change.apply(@namespaces, entry.name, entry, path)
-          each_enclosing(entry.name) { |prefix| change.apply(@enclosing, prefix, entry, path) }
+          change.apply(@namespaces, entry.identity, entry, path)
+          each_enclosing(entry.identity) { |prefix| change.apply(@enclosing, prefix, entry, path) }
         end
-        file.mixins.each { |entry| change.apply(@mixins, owner_key(entry.owner), entry, path) }
+        file.mixins.each { |entry| change.apply(@mixins, entry.owner, entry, path) }
         file.instance_vars.each { |entry| change.apply(@instance_vars, entry.owner, entry, path) }
         file.aliases.each do |entry|
-          change.apply(@aliases, entry.name, entry, path)
-          change.apply(@aliases_by_owner, entry.name.rpartition("::")[0], entry, path)
+          change.apply(@aliases, entry.identity, entry, path)
+          change.apply(@aliases_by_owner, entry.identity.parent, entry, path)
         end
         file.opaque.each { |entry| change.apply(@opaque, entry.owner, entry, path) }
         file.constants.each do |entry|
-          change.apply(@constants, entry.name, entry, path)
-          change.apply(@constants_by_owner, entry.name.rpartition("::")[0], entry, path)
+          change.apply(@constants, entry.identity, entry, path)
+          change.apply(@constants_by_owner, entry.identity.parent, entry, path)
         end
         file.macros.each do |entry|
           change.apply(@macros, entry.name, entry, path)
-          change.apply(@macros_by_owner, owner_key(entry.owner), entry, path)
+          change.apply(@macros_by_owner, entry.owner, entry, path)
         end
       end
     end

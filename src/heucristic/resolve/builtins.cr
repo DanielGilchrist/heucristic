@@ -1,4 +1,5 @@
 require "../syntax/type"
+require "../index/identity"
 
 module Heucristic
   module Resolve
@@ -48,6 +49,13 @@ module Heucristic
 
       def self.abstract?(name : String) : Bool
         ABSTRACT.includes?(name)
+      end
+
+      def self.abstract?(identity : Index::Identity) : Bool
+        case identity
+        in Index::Public      then abstract?(identity.name)
+        in Index::FilePrivate then false
+        end
       end
 
       def self.constant?(name : String) : Bool

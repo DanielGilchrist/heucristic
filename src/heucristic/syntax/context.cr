@@ -6,7 +6,7 @@ require "./well_known"
 module Heucristic
   module Syntax
     record Context,
-      enclosing : Array(String),
+      enclosing : Array(Index::Identity),
       type_vars : Array(String),
       def_node : Crystal::Def?,
       blocks : Array(Crystal::Call),
@@ -14,7 +14,7 @@ module Heucristic
       path : String? = nil,
       instance : Bool = false do
       def self.new(
-        enclosing : Array(String),
+        enclosing : Array(Index::Identity),
         type_vars : Array(String),
         def_node : Crystal::Def?,
         path : String? = nil,

@@ -51,7 +51,7 @@ private def lookup_meta(
   )
   types = Heucristic::Resolve::Types.new(workspace)
   meta = Heucristic::Resolve::MetaRef.new(
-    Heucristic::Resolve::TypeRef.new(receiver, Array(Heucristic::Resolve::Resolution).new)
+    type_ref(receiver)
   )
   Heucristic::Resolve::Methods.new(workspace, types).lookup(meta, call)
 end
@@ -111,20 +111,19 @@ describe Heucristic::Resolve::Methods, "compiled targets" do
       Heucristic::Index::MacroTarget::Loose => Set{"/p/bench/b.cr"},
     }
     methods.compiled(Heucristic::Resolve::Compiled.new(targets, Array(String).new))
-    foo = Heucristic::Resolve::TypeRef.new("Foo", Array(Heucristic::Resolve::Resolution).new)
+    foo = type_ref("Foo")
     methods.named_on(foo, "bar", "/p/src/main.cr").map(&.path).should eq(["/p/src/a.cr"])
     methods.named_on(foo, "bar", "/p/bench/b.cr").map(&.path).should eq(["/p/bench/b.cr"])
     methods.named_on(foo, "bar", "/p/script/other.cr").map(&.path).size.should eq(2)
   end
 end
 
-private def hidden_meta : Heucristic::Resolve::MetaRef
-  type = Heucristic::Resolve::TypeRef.new("Hidden", Array(Heucristic::Resolve::Resolution).new)
-  Heucristic::Resolve::MetaRef.new(type)
+private def hidden_meta(path : String) : Heucristic::Resolve::MetaRef
+  Heucristic::Resolve::MetaRef.new(type_ref(private_type("Hidden", path)))
 end
 
 private def builds(methods : Heucristic::Resolve::Methods, caller_path : String) : Array(String)
-  methods.named_on(hidden_meta, "build", caller_path).map(&.signature)
+  methods.named_on(hidden_meta(caller_path), "build", caller_path).map(&.signature)
 end
 
 private def private_generated_methods(*declared : {String, String}) : Heucristic::Resolve::Methods
@@ -159,7 +158,7 @@ private def private_generated_methods(*declared : {String, String}) : Heucristic
 end
 
 describe Heucristic::Resolve::Methods, "file-private types" do
-  it "answers a file-private type's methods only from the calling file" do
+  it "answers a file-private type's methods only from its own file" do
     workspace = Heucristic::Index::Workspace.new
     {
       {"a.cr", "private record Ends, local : Int32\n"},
@@ -176,10 +175,12 @@ describe Heucristic::Resolve::Methods, "file-private types" do
     end
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
-    ends = Heucristic::Resolve::TypeRef.new("Ends", Array(Heucristic::Resolve::Resolution).new)
-    methods.named_on(ends, "local", "a.cr").map(&.path).should eq(["a.cr"])
-    methods.named_on(ends, "local", "b.cr").map(&.path).should eq(["b.cr"])
-    methods.named_on(ends, "local").map(&.path).should eq(["a.cr", "b.cr"])
+    ["a.cr", "b.cr"].each do |path|
+      ends = type_ref(private_type("Ends", path))
+      methods.named_on(ends, "local").map(&.path).should eq([path])
+    end
+    public_ends = type_ref("Ends")
+    methods.named_on(public_ends, "local").should be_empty
   end
 
   it "answers a macro-generated def of a file-private type from the declaring file" do
@@ -190,7 +191,8 @@ describe Heucristic::Resolve::Methods, "file-private types" do
   it "builds the default constructor of same-named file-private types in each file" do
     methods = private_generated_methods({"a.cr", "Int32"}, {"b.cr", "String"})
     ["a.cr", "b.cr"].each do |caller_path|
-      methods.named_on(hidden_meta, "new", caller_path).map(&.path).should eq([caller_path])
+      found = methods.named_on(hidden_meta(caller_path), "new", caller_path)
+      found.map(&.path).should eq([caller_path])
     end
   end
 
@@ -405,7 +407,7 @@ describe Heucristic::Resolve::Methods do
     )
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
-    list = Heucristic::Resolve::TypeRef.new("List", Array(Heucristic::Resolve::Resolution).new)
+    list = type_ref("List")
 
     with_block = methods.lookup(list, Heucristic::Resolve::Methods::Call.new("each", 0, true))
     without = methods.lookup(list, Heucristic::Resolve::Methods::Call.new("each", 0, false))
@@ -426,7 +428,7 @@ describe Heucristic::Resolve::Methods do
         end
       end
       CR
-    float = Heucristic::Resolve::TypeRef.new("Float64", Array(Heucristic::Resolve::Resolution).new)
+    float = type_ref("Float64")
     unknown = Heucristic::Resolve::Unknown.new(:no_annotation, "x")
     floats = [float, float] of Heucristic::Resolve::Resolution
     unknowns = [unknown, unknown] of Heucristic::Resolve::Resolution
@@ -451,7 +453,7 @@ describe Heucristic::Resolve::Methods do
         end
       end
       CR
-    string = Heucristic::Resolve::TypeRef.new("String", Array(Heucristic::Resolve::Resolution).new)
+    string = type_ref("String")
     one = Heucristic::Resolve::Methods::Call.new(
       "glob", 1, false, [string] of Heucristic::Resolve::Resolution
     )
@@ -477,8 +479,8 @@ describe Heucristic::Resolve::Methods do
         end
       end
       CR
-    string = Heucristic::Resolve::TypeRef.new("String", Array(Heucristic::Resolve::Resolution).new)
-    symbol = Heucristic::Resolve::TypeRef.new("Symbol", Array(Heucristic::Resolve::Resolution).new)
+    string = type_ref("String")
+    symbol = type_ref("Symbol")
     call = Heucristic::Resolve::Methods::Call.new(
       "record", 2, false, [string, symbol] of Heucristic::Resolve::Resolution
     )
@@ -494,7 +496,7 @@ describe Heucristic::Resolve::Methods do
         end
       end
       CR
-    int = Heucristic::Resolve::TypeRef.new("Int32", Array(Heucristic::Resolve::Resolution).new)
+    int = type_ref("Int32")
     by_name = Heucristic::Resolve::Methods::Call.new(
       "new", 0, false, Array(Heucristic::Resolve::Resolution).new, ["x", "y"]
     )
@@ -534,7 +536,7 @@ describe Heucristic::Resolve::Methods, "virtual receivers" do
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     targets = {Heucristic::Index::MacroTarget::Main => Set{"/p/src/a.cr", "/p/src/main.cr"}}
     methods.compiled(Heucristic::Resolve::Compiled.new(targets, Array(String).new))
-    shape = Heucristic::Resolve::TypeRef.new("Shape", Array(Heucristic::Resolve::Resolution).new)
+    shape = type_ref("Shape")
     methods.virtual_receivers(shape, "/p/src/main.cr").map(&.to_s).should eq(["Circle"])
     methods.virtual_receivers(shape, nil).map(&.to_s).should eq(["Circle", "Square"])
     metaclass = Heucristic::Resolve::MetaRef.new(shape)
@@ -547,8 +549,8 @@ describe Heucristic::Resolve::Methods, "virtual receivers" do
     workspace = Heucristic::Index::Workspace.new
     types = Heucristic::Resolve::Types.new(workspace)
     methods = Heucristic::Resolve::Methods.new(workspace, types)
-    float = Heucristic::Resolve::TypeRef.new("Float", Array(Heucristic::Resolve::Resolution).new)
-    methods.abstract_class?("Float").should be_true
+    float = type_ref("Float")
+    methods.abstract_class?(public_type("Float")).should be_true
     methods.virtual_receivers(float, nil).map(&.to_s).should eq(["Float32", "Float64"])
   end
 end
@@ -587,10 +589,9 @@ describe Heucristic::Resolve::Methods, "loaded files" do
     methods = Heucristic::Resolve::Methods.new(workspace, types)
     targets = {Heucristic::Index::MacroTarget::Main => Set{"/p/src/main.cr", "/std/unix.cr"}}
     methods.compiled(Heucristic::Resolve::Compiled.new(targets, Array(String).new))
-    none = Array(Heucristic::Resolve::Resolution).new
-    system = Heucristic::Resolve::MetaRef.new(Heucristic::Resolve::TypeRef.new("System", none))
+    system = Heucristic::Resolve::MetaRef.new(type_ref("System"))
     methods.named_on(system, "handle", "/p/src/main.cr").map(&.path).should eq(["/std/unix.cr"])
-    limit = Heucristic::Resolve::MetaRef.new(Heucristic::Resolve::TypeRef.new("LibC::Limit", none))
+    limit = Heucristic::Resolve::MetaRef.new(type_ref("LibC::Limit"))
     methods.named_on(limit, "new", "/p/src/main.cr").map(&.path).should eq(["/std/unix.cr"])
   end
 end
@@ -728,7 +729,7 @@ describe Heucristic::Resolve::Methods, "include and extend order" do
     end
     types = Heucristic::Resolve::Types.new(workspace)
     meta = Heucristic::Resolve::MetaRef.new(
-      Heucristic::Resolve::TypeRef.new("C", Array(Heucristic::Resolve::Resolution).new)
+      type_ref("C")
     )
     call = Heucristic::Resolve::Methods::Call.new("f", 0, false)
     found = Heucristic::Resolve::Methods.new(workspace, types).lookup(meta, call)
@@ -755,7 +756,7 @@ describe Heucristic::Resolve::Methods, "missing" do
       )
     end
     types = Heucristic::Resolve::Types.new(workspace)
-    receiver = Heucristic::Resolve::TypeRef.new("C", Array(Heucristic::Resolve::Resolution).new)
+    receiver = type_ref("C")
     answer = Heucristic::Resolve::Methods.new(workspace, types).missing("f", receiver)
     answer.detail.should contain("unknown order")
     answer.reason.ambiguous?.should be_true
@@ -796,9 +797,8 @@ describe Heucristic::Resolve::Methods, "dispatch on union arguments" do
       )
     )
     types = Heucristic::Resolve::Types.new(workspace)
-    none = Array(Heucristic::Resolve::Resolution).new
-    text = Heucristic::Resolve::TypeRef.new("Text", none)
-    blank = Heucristic::Resolve::TypeRef.new("Blank", none)
+    text = type_ref("Text")
+    blank = type_ref("Blank")
     either = Heucristic::Resolve::UnionRef.new([text, blank] of Heucristic::Resolve::Resolution)
     call = Heucristic::Resolve::Methods::Call.new(
       "same", 1, false, [either] of Heucristic::Resolve::Resolution

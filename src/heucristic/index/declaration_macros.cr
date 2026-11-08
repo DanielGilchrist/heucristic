@@ -14,7 +14,7 @@ module Heucristic
   module Index
     struct DeclarationMacros
       def initialize(
-        @owner : String,
+        @owner : Identity,
         @path : String,
         @text : Document::Text,
         @visibility : Visibility,

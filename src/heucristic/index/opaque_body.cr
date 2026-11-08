@@ -1,5 +1,5 @@
 module Heucristic
   module Index
-    record OpaqueBody, owner : String, path : String
+    record OpaqueBody, owner : Identity, path : String
   end
 end

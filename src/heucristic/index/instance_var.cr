@@ -2,12 +2,13 @@ require "compiler/crystal/syntax"
 require "../document/span"
 require "../syntax/type_reader"
 require "./origin"
+require "./identity"
 
 module Heucristic
   module Index
     record InstanceVar,
       name : String,
-      owner : String,
+      owner : Identity,
       type : Syntax::TypeReader::Outcome,
       path : String,
       name_span : Document::Span,
@@ -17,7 +18,7 @@ module Heucristic
       definition : Crystal::Def? = nil do
       def self.build(
         name : String,
-        owner : String,
+        owner : Identity,
         type : Syntax::TypeReader::Outcome,
         path : String,
         name_span : Document::Span,

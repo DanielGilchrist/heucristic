@@ -1,15 +1,15 @@
 module Heucristic
   module Index
-    class Table(T)
+    class Table(K, T)
       def initialize : Nil
-        @groups = Hash(String, Array(T)).new
+        @groups = Hash(K, Array(T)).new
       end
 
-      def add(key : String, entry : T) : Nil
+      def add(key : K, entry : T) : Nil
         (@groups[key] ||= Array(T).new) << entry
       end
 
-      def drop(key : String, & : T -> Bool) : Nil
+      def drop(key : K, & : T -> Bool) : Nil
         remaining = @groups[key]?
         return unless remaining
 
@@ -17,11 +17,11 @@ module Heucristic
         @groups.delete(key) if remaining.empty?
       end
 
-      def entries(key : String) : Array(T)
+      def entries(key : K) : Array(T)
         @groups[key]? || Array(T).new
       end
 
-      def has_key?(key : String) : Bool
+      def has_key?(key : K) : Bool
         @groups.has_key?(key)
       end
 

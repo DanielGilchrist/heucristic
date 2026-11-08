@@ -46,7 +46,7 @@ module Heucristic
         findings : Array(Finding),
       ) : Nil
         owner = site.context.owner
-        return unless owner.is_a?(String)
+        return unless owner.is_a?(Index::Identity)
         return unless closed?(owner)
         return if @workspace.module?(owner)
         return if MacroArguments.within?(site.context.ancestors, @workspace)
@@ -97,7 +97,7 @@ module Heucristic
         node = site.node
         return unless Syntax::WellKnown::Initialize.named?(node.name) && node.receiver.nil?
         owner = site.context.owner
-        return unless owner.is_a?(String)
+        return unless owner.is_a?(Index::Identity)
         return unless closed?(owner)
         return if @workspace.module?(owner)
         location = node.name_location
@@ -125,7 +125,7 @@ module Heucristic
         end
       end
 
-      private def closed?(owner : String) : Bool
+      private def closed?(owner : Index::Identity) : Bool
         (@settled.type?(owner) || @settled.declared?(owner)) &&
           !@settled.extended?(owner) && @settled.generated_free?(owner)
       end
@@ -140,7 +140,7 @@ module Heucristic
         @fit.checkable?(resolved) ? resolved : nil
       end
 
-      private def nilable?(entry : Index::InstanceVar, owner : String) : Bool
+      private def nilable?(entry : Index::InstanceVar, owner : Index::Identity) : Bool
         type = entry.type
         return true unless type.is_a?(Syntax::Type)
         return true if type.is_a?(Syntax::Nilable)
@@ -149,7 +149,7 @@ module Heucristic
         @fit.nilable?(@types.resolve_lexically(type, scope))
       end
 
-      private def scope_of(owner : String, path : String) : Resolve::Scope
+      private def scope_of(owner : Index::Identity, path : String) : Resolve::Scope
         Resolve::Scope.new(owner, @types.type_vars_of(owner), Array(Resolve::Binding).new, path)
       end
     end

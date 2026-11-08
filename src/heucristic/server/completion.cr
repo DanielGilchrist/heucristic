@@ -180,7 +180,7 @@ module Heucristic
                   else
                     named = Syntax::Named.new(names, target.node.global?)
                     located = @types.locate_any(named, Resolve::Scope.of(target.context))
-                    located.is_a?(String) ? [located] : Array(String).new
+                    located.is_a?(Index::Identity) ? [located.name] : Array(String).new
                   end
         parents.each do |parent|
           children_of(parent).each do |name, kind|
@@ -195,10 +195,9 @@ module Heucristic
       private def scope_chain(context : Syntax::Context) : Array(String)
         chain = Array(String).new
         current = context.owner
-        while current.is_a?(String)
-          chain << current
-          parent = current.rpartition("::")[0]
-          current = parent.empty? ? Index::TopLevel.new : parent
+        while current.is_a?(Index::Identity)
+          chain << current.name
+          current = current.parent
         end
         chain << ""
         chain

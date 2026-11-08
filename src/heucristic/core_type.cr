@@ -1,3 +1,5 @@
+require "./index/identity"
+
 module Heucristic
   enum CoreType
     Nil
@@ -72,6 +74,10 @@ module Heucristic
          Value, Pointer
         false
       end
+    end
+
+    def identity : Index::Public
+      Index::Public.new(type_name)
     end
 
     def type_name : ::String

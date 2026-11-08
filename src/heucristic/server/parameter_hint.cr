@@ -86,7 +86,7 @@ module Heucristic
         end
 
         owner = entry.owner
-        type_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
+        type_vars = owner.is_a?(Index::Identity) ? @types.type_vars_of(owner) : Array(String).new
         scope = Resolve::Scope.new(owner, type_vars, Array(Resolve::Binding).new, entry.path)
         @types.resolve(evident, scope)
       end

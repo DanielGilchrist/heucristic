@@ -57,7 +57,7 @@ module Heucristic
       end
 
       private def provable?(path : Crystal::Path, scope : Resolve::Scope) : Bool
-        return false if @workspace.lib?(path.names[0])
+        return false if @workspace.lib?(Index::Public.new(path.names[0]))
         return enclosing_settled?(scope) if path.names.size == 1
 
         head = @types.locate_any(Syntax::Named.new(path.names[0...-1], path.global?), scope)

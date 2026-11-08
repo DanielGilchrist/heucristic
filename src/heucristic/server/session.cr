@@ -501,7 +501,7 @@ module Heucristic
           @references.of_variable(target.name, target.context, tree, uri, text)
         in Syntax::OnInstanceVar
           owner = target.context.owner
-          return Array(LSProtocol::Location).new unless owner.is_a?(String)
+          return Array(LSProtocol::Location).new unless owner.is_a?(Index::Identity)
 
           @references.of_instance_var(target.name, owner)
         in Syntax::OnRequire

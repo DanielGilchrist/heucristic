@@ -94,7 +94,7 @@ module Heucristic
       def overridden?(below : Resolved, receiver : TypeRef, call : Methods::Call) : Bool
         return true unless below.is_a?(TypeRef)
 
-        @methods.defined_between?(below.name, receiver.name, call.name)
+        @methods.defined_between?(below.identity, receiver.identity, call.name)
       end
 
       private def across_constructions(
@@ -131,10 +131,10 @@ module Heucristic
       private def missing_handler(receiver : Resolved) : Index::Def?
         return unless receiver.is_a?(TypeRef)
 
-        levels = @methods.levels(receiver.name)
+        levels = @methods.levels(receiver.identity)
         @workspace.named(Index::MacroHook::MethodMissing.macro_name).find do |entry|
           owner = entry.owner
-          !entry.forwards_to.nil? && owner.is_a?(String) && levels.includes?(owner)
+          !entry.forwards_to.nil? && owner.is_a?(Index::Identity) && levels.includes?(owner)
         end
       end
 
@@ -143,7 +143,7 @@ module Heucristic
         return Unknown.new(:unresolved_name, handler.qualified) unless target
 
         owner = handler.owner
-        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
+        enclosing = owner.is_a?(Index::Identity) ? [owner] : Array(Index::Identity).new
         context = Syntax::Context.new(enclosing, Array(String).new, nil, handler.path, true)
         @typer.type_of(target, context, visiting, Array(Binding).new)
       end
@@ -195,7 +195,7 @@ module Heucristic
           end
           return annotated[0] if annotated.size == 1
         end
-        module_receiver = receiver.is_a?(TypeRef) && @workspace.module?(receiver.name)
+        module_receiver = receiver.is_a?(TypeRef) && @workspace.module?(receiver.identity)
         return @unions.union(results) if module_receiver
 
         Unknown.new(:ambiguous, "#{defs.size} overloads of `#{call.name}` do not agree on a type")
@@ -216,7 +216,7 @@ module Heucristic
         key = DispatchVisit.new(receiver, call.name, call.arity)
         return key.cycle if site.visiting.includes?(key)
 
-        virtual_only = @methods.abstract_class?(receiver.name)
+        virtual_only = @methods.abstract_class?(receiver.identity)
         selfish = defs.any? { |entry| self_typed?(entry) }
         results = Array(Resolution).new
         results << direct unless virtual_only

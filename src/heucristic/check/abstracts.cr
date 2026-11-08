@@ -29,14 +29,14 @@ module Heucristic
           next unless entry.is_a?(Index::ClassNamespace)
           next if entry.abstract_type
           next unless primary?(entry)
-          next unless @settled.declared?(entry.name)
+          next unless @settled.declared?(entry.identity)
 
           check(path, entry, findings)
         end
       end
 
       private def primary?(entry : Index::ClassNamespace) : Bool
-        first = @workspace.namespaces(entry.name).min_by do |other|
+        first = @workspace.namespaces(entry.identity).min_by do |other|
           {other.path, other.name_span.start_line}
         end
         first.path == entry.path && first.name_span == entry.name_span
@@ -47,7 +47,7 @@ module Heucristic
         entry : Index::ClassNamespace,
         findings : Array(Finding),
       ) : Nil
-        levels = @methods.levels(entry.name)
+        levels = @methods.levels(entry.identity)
         levels.each do |level|
           @workspace.defs_of(level).each do |definition|
             next unless definition.abstract_def && @methods.own?(definition, path)
@@ -63,7 +63,7 @@ module Heucristic
         end
       end
 
-      private def implemented?(definition : Index::Def, levels : Array(String)) : Bool
+      private def implemented?(definition : Index::Def, levels : Array(Index::Identity)) : Bool
         @workspace.named(definition.name).any? do |candidate|
           levels.includes?(candidate.owner) && candidate.receiver == definition.receiver &&
             !candidate.abstract_def

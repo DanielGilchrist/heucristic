@@ -28,7 +28,8 @@ private def resolve(
   namespace : String? = nil,
   type_vars : Array(String) = Array(String).new,
 ) : String
-  scope = Heucristic::Resolve::Scope.new(namespace || Heucristic::Index::TopLevel.new, type_vars)
+  owner = namespace ? public_type(namespace) : Heucristic::Index::TopLevel.new
+  scope = Heucristic::Resolve::Scope.new(owner, type_vars)
   Heucristic::Resolve::Types.new(workspace).resolve(restriction(source), scope).to_s
 end
 
@@ -157,10 +158,9 @@ describe Heucristic::Resolve::Types do
 
   it "locates an alias declaration without following it" do
     resolver = Heucristic::Resolve::Types.new(ws)
-    located = resolver.locate(
-      Heucristic::Syntax::Named.new(["Loop"], false), Heucristic::Resolve::Scope.of("Outer")
-    )
-    located.should eq("Outer::Loop")
+    scope = Heucristic::Resolve::Scope.of(public_type("Outer"))
+    located = resolver.locate(Heucristic::Syntax::Named.new(["Loop"], false), scope)
+    located.to_s.should eq("Outer::Loop")
   end
 
   it "finds a constant through an included module" do

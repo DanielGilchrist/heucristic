@@ -25,18 +25,18 @@ module Heucristic
         in TypeRef
           return top_level(macros, call, undecidable) if scope.program?
 
-          walk(scope.name, Index::Receiver::Instance, macros, call, undecidable, path)
+          walk(scope.identity, Index::Receiver::Instance, macros, call, undecidable, path)
         in MetaRef
           of = scope.of
           return Verdict::Def if of.is_a?(TypeVar)
 
-          walk(of.name, Index::Receiver::Metaclass, macros, call, undecidable, path)
+          walk(of.identity, Index::Receiver::Metaclass, macros, call, undecidable, path)
         in UnionRef, TypeVar, Unknown then Verdict::Def
         end
       end
 
       private def walk(
-        type : String,
+        type : Index::Identity,
         kind : Index::Receiver,
         macros : Array(Index::MacroDef),
         call : Crystal::Call,
@@ -67,7 +67,7 @@ module Heucristic
       end
 
       private def defined_at?(
-        level : String,
+        level : Index::Identity,
         kind : Index::Receiver,
         name : String,
         path : String?,

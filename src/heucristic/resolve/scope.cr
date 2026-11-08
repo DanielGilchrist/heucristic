@@ -15,12 +15,16 @@ module Heucristic
         new(namespace, type_vars, Array(Binding).new)
       end
 
-      def self.of(namespace : String) : Scope
-        new(namespace, Array(String).new, Array(Binding).new)
+      def self.of(namespace : Index::Owner, path : String? = nil) : Scope
+        new(namespace, Array(String).new, Array(Binding).new, path)
       end
 
       def self.of(context : Syntax::Context) : Scope
         new(context.owner, context.type_vars, Array(Binding).new, context.path)
+      end
+
+      def at(path : String?) : Scope
+        copy_with(path: path)
       end
 
       def bound(name : String) : Resolution?
@@ -30,10 +34,9 @@ module Heucristic
       def chain : Array(Index::Owner)
         chain = Array(Index::Owner).new
         current = namespace
-        while current.is_a?(String)
+        while current.is_a?(Index::Identity)
           chain << current
-          parent = current.rpartition("::")[0]
-          current = parent.empty? ? Index::TopLevel.new : parent
+          current = current.parent
         end
         chain << Index::TopLevel.new
         chain

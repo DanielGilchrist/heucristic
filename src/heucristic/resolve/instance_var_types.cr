@@ -77,14 +77,14 @@ module Heucristic
 
       private def from(
         entries : Array(Index::InstanceVar),
-        level : String,
+        level : Index::Identity,
         scope : Scope,
         visiting : Array(Visit),
       ) : Resolution
         declared = entries.select(&.origin.declared?)
         unless declared.empty?
           typed = Array(Resolution).new(declared.size)
-          declared.each { |entry| typed << @types.resolve(entry.type, scope) }
+          declared.each { |entry| typed << @types.resolve(entry.type, scope.at(entry.path)) }
           return @unions.union(typed)
         end
 
@@ -92,7 +92,7 @@ module Heucristic
         entries.each do |entry|
           type = entry.type
           if type.is_a?(Syntax::Type)
-            typed << @types.resolve(type, scope)
+            typed << @types.resolve(type, scope.at(entry.path))
             next
           end
 
@@ -124,7 +124,7 @@ module Heucristic
 
       private def includers(
         name : String,
-        owner : String,
+        owner : Index::Identity,
         visiting : Array(Visit),
       ) : Resolution?
         return unless @workspace.module?(owner)
@@ -137,10 +137,10 @@ module Heucristic
           target = mixin.target
           next unless target.is_a?(Syntax::Type)
           includer = mixin.owner
-          next unless includer.is_a?(String)
+          next unless includer.is_a?(Index::Identity)
 
-          resolved = @types.resolve_lexically(target, Scope.of(includer))
-          next unless resolved.is_a?(TypeRef) && resolved.name == owner
+          resolved = @types.resolve_lexically(target, Scope.of(includer, mixin.path))
+          next unless resolved.is_a?(TypeRef) && resolved.identity == owner
 
           context = Syntax::Context.new([includer], Array(String).new, nil)
           resolution = of(name, context, visiting + [visit])
@@ -151,7 +151,7 @@ module Heucristic
         @unions.union(found)
       end
 
-      private def scope_at(owner : String, level : String) : Scope | Unknown
+      private def scope_at(owner : Index::Identity, level : Index::Identity) : Scope | Unknown
         return Scope.new(owner, @types.type_vars_of(owner)) if level == owner
 
         this = TypeRef.new(owner, Array(Resolution).new)

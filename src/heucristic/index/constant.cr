@@ -1,17 +1,19 @@
 require "../document/span"
 require "../syntax/type"
 require "./evident"
+require "./identity"
 
 module Heucristic
   module Index
     record Constant,
-      name : String,
+      identity : Identity,
       path : String,
       name_span : Document::Span,
       value : String | ImplicitValue,
       type : Syntax::Type | Evident::NotEvident,
-      expression : Crystal::ASTNode?,
-      private_path : String? = nil do
+      expression : Crystal::ASTNode? do
+      delegate name, to: identity
+
       record ImplicitValue
     end
   end

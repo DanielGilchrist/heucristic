@@ -15,7 +15,7 @@ module Heucristic
             return syntax.to_s
           end
           resolved = types.resolve(syntax, scope)
-          resolved.is_a?(TypeRef) && resolved.arguments.empty? ? resolved.name : syntax.to_s
+          resolved.is_a?(TypeRef) && resolved.arguments.empty? ? resolved.to_s : syntax.to_s
         in Syntax::Generic
           arguments = syntax.arguments.map { |argument| nested(argument, scope, types) }
           named = syntax.named_arguments.map do |argument|

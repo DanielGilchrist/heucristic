@@ -6,13 +6,15 @@ require "../resolve/precision"
 module Heucristic
   module Check
     struct Fit
+      VOID = Index::Public.new("Void")
+
       def initialize(@methods : Resolve::Methods) : Nil
       end
 
       def checkable?(expected : Resolve::Resolution) : Bool
         case expected
         in Resolve::TypeRef
-          !expected.is?(:nil) && !expected.is?(:no_return) && expected.name != "Void"
+          !expected.is?(:nil) && !expected.is?(:no_return) && expected.identity != VOID
         in Resolve::UnionRef
           expected.members.all?(Resolve::TypeRef)
         in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown
@@ -44,7 +46,7 @@ module Heucristic
       def numeric?(expected : Resolve::Resolution) : Bool
         case expected
         in Resolve::TypeRef
-          CoreType.from_name(expected.name).try(&.numeric?) || false
+          expected.core.try(&.numeric?) || false
         in Resolve::UnionRef
           expected.members.any? { |member| numeric?(member) }
         in Resolve::MetaRef, Resolve::TypeVar, Resolve::Unknown then true

@@ -7,8 +7,12 @@ private def ancestors_of(source : String, name : String) : String
   workspace = Heucristic::Index::Workspace.new
   text = Heucristic::Document::Text.new(source)
   workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree, SPEC_CRYSTAL))
-  chain = Heucristic::Resolve::Types.new(workspace).ancestors(name)
+  chain = Heucristic::Resolve::Types.new(workspace).ancestors(public_type(name))
   chain.is_a?(Heucristic::Resolve::Unknown) ? chain.to_s : chain.join(", ")
+end
+
+private def private_foo(path : String) : Heucristic::Index::FilePrivate
+  private_type("Foo", path)
 end
 
 describe Heucristic::Resolve::Ancestors do
@@ -94,7 +98,10 @@ describe Heucristic::Resolve::Ancestors do
   end
 end
 
-private def ancestors_in(files : Array({String, String}), name : String) : String
+private def ancestors_in(
+  files : Array({String, String}),
+  identity : Heucristic::Index::Identity,
+) : String
   workspace = Heucristic::Index::Workspace.new
   files.each do |path, source|
     tree = Heucristic::Syntax.parse(source, path)
@@ -103,14 +110,18 @@ private def ancestors_in(files : Array({String, String}), name : String) : Strin
     text = Heucristic::Document::Text.new(source)
     workspace.update(Heucristic::Index::Collector.collect(path, text, tree, SPEC_CRYSTAL))
   end
-  chain = Heucristic::Resolve::Types.new(workspace).ancestors(name)
+  chain = Heucristic::Resolve::Types.new(workspace).ancestors(identity)
   chain.is_a?(Heucristic::Resolve::Unknown) ? chain.to_s : chain.join(", ")
+end
+
+private def private_foo(path : String) : Heucristic::Index::FilePrivate
+  private_type("Foo", path)
 end
 
 describe Heucristic::Resolve::Ancestors, "file-private types" do
   it "follows the include of a single private type" do
     files = [{"a.cr", "module M; end\nprivate struct Foo\n  include M\nend\n"}]
-    ancestors_in(files, "Foo").should eq("M, Struct, Value, Object")
+    ancestors_in(files, private_foo("a.cr")).should eq("M, Struct, Value, Object")
   end
 
   it "does not leak a private type's include into a same-named private type in another file" do
@@ -118,7 +129,8 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "module M; end\nprivate struct Foo\n  include M\nend\n"},
       {"b.cr", "private struct Foo\nend\n"},
     ]
-    ancestors_in(files, "Foo").should start_with("unknown")
+    ancestors_in(files, private_foo("a.cr")).should eq("M, Struct, Value, Object")
+    ancestors_in(files, private_foo("b.cr")).should eq("Struct, Value, Object")
   end
 
   it "does not leak a private type's include into a public type of the same name" do
@@ -126,21 +138,34 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "module M; end\nprivate struct Foo\n  include M\nend\n"},
       {"b.cr", "struct Foo\nend\n"},
     ]
-    ancestors_in(files, "Foo").should start_with("unknown")
+    ancestors_in(files, public_type("Foo")).should eq("Struct, Value, Object")
+    ancestors_in(files, private_foo("a.cr")).should eq("M, Struct, Value, Object")
   end
 
-  it "keeps a private type known when the semantic helper reopens it under a generated path" do
+  it "resolves a superclass to the private type of the declaring file" do
     files = [
-      {"a.cr", "module M; end\nprivate struct Foo\n  include M\nend\n"},
-      {"<macros:spec>", "struct Foo\n  def schema : Int32\n    1\n  end\nend\n"},
+      {"a.cr", "module M; end\nprivate class Foo\n  include M\nend\nclass Bar < Foo\nend\n"},
+      {"b.cr", "class Foo\nend\n"},
     ]
-    ancestors_in(files, "Foo").should eq("M, Struct, Value, Object")
+    ancestors_in(files, public_type("Bar")).should eq(
+      "Foo, M, Reference, Object"
+    )
+  end
+
+  it "does not let a file see another file's private type" do
+    files = [
+      {"a.cr", "private class Foo\nend\n"},
+      {"b.cr", "class Bar < Foo\nend\n"},
+    ]
+    ancestors_in(files, public_type("Bar")).should eq(
+      "unknown (unresolved name: Foo)"
+    )
   end
 
   it "keeps a private type reopened in its own file known" do
     source = "module M; end\nprivate struct Foo\n  include M\nend\nprivate struct Foo\nend\n"
     files = [{"a.cr", source}]
-    ancestors_in(files, "Foo").should eq("M, Struct, Value, Object")
+    ancestors_in(files, private_foo("a.cr")).should eq("M, Struct, Value, Object")
   end
 
   it "keeps the first of a module included twice, as the compiler does (include X, Y, X is Y, X)" do
@@ -175,7 +200,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include X\nend\n"},
       {"b.cr", "class C\n  include Y\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "does not guess when the names collide only in an included module's own include" do
@@ -185,7 +210,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include X\nend\n"},
       {"b.cr", "class C\n  include Y\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "keeps includes split across files known when the modules share no names" do
@@ -194,7 +219,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include X\nend\n"},
       {"b.cr", "class C\n  include Y\nend\n"},
     ]
-    chain = ancestors_in(files, "C")
+    chain = ancestors_in(files, public_type("C"))
     chain.should_not start_with("unknown")
     chain.should contain("X")
     chain.should contain("Y")
@@ -206,7 +231,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include X\nend\n"},
       {"b.cr", "class C\n  include X\nend\n"},
     ]
-    ancestors_in(files, "C").should eq("X, Reference, Object")
+    ancestors_in(files, public_type("C")).should eq("X, Reference, Object")
   end
 
   it "takes the compiler's order from a generated reopening over the source order" do
@@ -216,7 +241,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"b.cr", "class C\n  include Y\nend\n"},
       {"<macros>", "class C\n  include ::X\n  include ::Y\nend\n"},
     ]
-    ancestors_in(files, "C").should eq("Y, X, Reference, Object")
+    ancestors_in(files, public_type("C")).should eq("Y, X, Reference, Object")
   end
 
   it "does not guess when two compile targets disagree on the order" do
@@ -226,7 +251,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"<macros>", "class C\n  include ::X\n  include ::Y\nend\n"},
       {"<macros:spec>", "class C\n  include ::Y\n  include ::X\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "leaves split includes unknown when both define a constant" do
@@ -236,7 +261,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include A\nend\n"},
       {"b.cr", "class C\n  include B\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "leaves split includes unknown when both declare a class variable" do
@@ -246,7 +271,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include A\nend\n"},
       {"b.cr", "class C\n  include B\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "leaves split includes unknown when both nest a type" do
@@ -256,7 +281,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include A\nend\n"},
       {"b.cr", "class C\n  include B\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "leaves split includes unknown when both define an alias" do
@@ -266,7 +291,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include A\nend\n"},
       {"b.cr", "class C\n  include B\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "leaves split includes unknown when one has an included hook" do
@@ -276,7 +301,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include A\nend\n"},
       {"b.cr", "class C\n  include B\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "leaves split includes unknown when one has a method_missing" do
@@ -286,7 +311,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include A\nend\n"},
       {"b.cr", "class C\n  include B\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "leaves split includes unknown when one calls a macro in its body" do
@@ -296,7 +321,7 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include A\nend\n"},
       {"b.cr", "class C\n  include B\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 
   it "leaves split includes unknown when one has a macro for in its body" do
@@ -306,6 +331,6 @@ describe Heucristic::Resolve::Ancestors, "file-private types" do
       {"a.cr", "class C\n  include A\nend\n"},
       {"b.cr", "class C\n  include B\nend\n"},
     ]
-    ancestors_in(files, "C").should start_with("unknown")
+    ancestors_in(files, public_type("C")).should start_with("unknown")
   end
 end

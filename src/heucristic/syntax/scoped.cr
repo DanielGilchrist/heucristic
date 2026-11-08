@@ -6,12 +6,14 @@ require "../index/macro_text"
 require "../crystal_version"
 require "../index/synthesized"
 require "../index/record_head"
+require "../index/file_privacy"
 
 module Heucristic
   module Syntax
     class Scoped < Crystal::Visitor
       def initialize(@path : String?, @version : CrystalVersion::Detected) : Nil
-        @enclosing = Array(String).new
+        @privacy = Index::FilePrivacy.new(@path)
+        @enclosing = Array(Index::Identity).new
         @type_vars = Array(String).new
         @defs = Array(Crystal::Def).new
         @blocks = Array(Crystal::Call).new
@@ -19,12 +21,13 @@ module Heucristic
       end
 
       def initialize(
-        enclosing : Array(String),
+        enclosing : Array(Index::Identity),
         type_vars : Array(String),
         definition : Crystal::Def,
         @path : String?,
         @version : CrystalVersion::Detected,
       ) : Nil
+        @privacy = Index::FilePrivacy.new(@path)
         @enclosing = enclosing.dup
         @type_vars = type_vars.dup
         @defs = [definition]
@@ -41,6 +44,15 @@ module Heucristic
         @nodes.pop
       end
 
+      def visit(node : Crystal::VisibilityModifier) : Bool
+        @privacy.modifier(node, owner)
+        true
+      end
+
+      def end_visit(node : Crystal::VisibilityModifier) : Nil
+        @privacy.release
+      end
+
       def visit(node : Crystal::Def) : Bool
         @defs << node
         @type_vars.concat(node.free_vars || Array(String).new)
@@ -55,7 +67,7 @@ module Heucristic
       def visit(node : Crystal::Call) : Bool
         @blocks << node if node.block
         if (head = Index::RecordHead.of(node))
-          @enclosing << qualify(head.name)
+          @enclosing << identity_of(head.name, node)
           @type_vars.concat(head.type_vars)
         end
         true
@@ -72,7 +84,7 @@ module Heucristic
       def visit(
         node : Crystal::ClassDef | Crystal::ModuleDef | Crystal::EnumDef | Crystal::LibDef,
       ) : Bool
-        @enclosing << qualify(node.name)
+        @enclosing << identity_of(node.name, node)
         @type_vars.concat(type_vars_of(node))
         true
       end
@@ -125,6 +137,17 @@ module Heucristic
         in Crystal::ClassDef, Crystal::ModuleDef then node.type_vars || Array(String).new
         in Crystal::ASTNode                      then Array(String).new
         end
+      end
+
+      private def owner : Index::Owner
+        @enclosing.last? || Index::TopLevel.new
+      end
+
+      private def identity_of(
+        name : Crystal::Path,
+        declaration : Crystal::ASTNode,
+      ) : Index::Identity
+        @privacy.identity(qualify(name), name, owner, declaration)
       end
 
       private def qualify(name : Crystal::Path) : String

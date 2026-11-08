@@ -111,8 +111,8 @@ module Heucristic
           return element || Unknown.new(:unsupported, "#{name} unpacks past the tuple's size")
         end
 
-        chain = @types.ancestors(input.name)
-        inherits = !chain.is_a?(Unknown) && chain.includes?(CoreType::Indexable.type_name)
+        chain = @types.ancestors(input.identity)
+        inherits = !chain.is_a?(Unknown) && chain.includes?(CoreType::Indexable.identity)
         indexable = input.is?(:indexable) || inherits
         unless indexable
           return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
@@ -191,8 +191,8 @@ module Heucristic
         end
 
         owner = entry.owner
-        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
-        owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
+        enclosing = owner.is_a?(Index::Identity) ? [owner] : Array(Index::Identity).new
+        owner_vars = owner.is_a?(Index::Identity) ? @types.type_vars_of(owner) : Array(String).new
         type_vars = entry.free_vars + owner_vars
         sites = Syntax::YieldSites.in(
           definition, enclosing, type_vars, entry.path, @types.crystal_version

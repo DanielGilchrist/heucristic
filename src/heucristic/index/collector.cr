@@ -1,6 +1,7 @@
 require "compiler/crystal/syntax"
 require "../document/text"
 require "./file"
+require "./file_privacy"
 require "./accessor"
 require "./synthesized"
 require "./record_head"
@@ -36,7 +37,7 @@ module Heucristic
         @text : Document::Text,
         @version : CrystalVersion::Detected,
       ) : Nil
-        @file_private = nil
+        @privacy = FilePrivacy.new(path)
         @defs = Array(Def).new
         @namespaces = Array(Namespace).new
         @mixins = Array(Mixin).new
@@ -49,7 +50,7 @@ module Heucristic
         @flag_enums = Set(UInt64).new
         @definitions = Array(Crystal::Def).new
         @visibilities = Array(Visibility).new
-        @owners = Array(String).new
+        @owners = Array(Identity).new
       end
 
       def file : File
@@ -59,29 +60,28 @@ module Heucristic
       end
 
       def visit(node : Crystal::VisibilityModifier) : Bool
-        @file_private = node.exp if node.modifier.private? && owner.is_a?(TopLevel)
+        @privacy.modifier(node, owner)
         applies = modifies_defs?(node.exp)
         @visibilities << (applies ? Visibility.from(node.modifier) : Visibility::Public)
         true
       end
 
       def end_visit(node : Crystal::VisibilityModifier) : Nil
-        @file_private = nil
+        @privacy.release
         @visibilities.pop
       end
 
       def visit(node : Crystal::ClassDef) : Bool
-        name = enter(node.name)
+        name = enter(node.name, node)
         with_span(node.name) do |span|
           @namespaces << ClassNamespace.new(
-            name: name,
+            identity: name,
             path: @path,
             name_span: span,
             kind: node.struct? ? ClassKind::Struct : ClassKind::Class,
             abstract_type: node.abstract?,
             type_vars: node.type_vars || Array(String).new,
             superclass: Restrictions.of(node.superclass),
-            private_path: private_path(node),
             splat_index: node.splat_index,
           )
         end
@@ -89,14 +89,13 @@ module Heucristic
       end
 
       def visit(node : Crystal::ModuleDef) : Bool
-        name = enter(node.name)
+        name = enter(node.name, node)
         with_span(node.name) do |span|
           @namespaces << ModuleNamespace.new(
-            name: name,
+            identity: name,
             path: @path,
             name_span: span,
             type_vars: node.type_vars || Array(String).new,
-            private_path: private_path(node),
           )
         end
         true
@@ -112,15 +111,14 @@ module Heucristic
       end
 
       def visit(node : Crystal::EnumDef) : Bool
-        name = enter(node.name)
+        name = enter(node.name, node)
         flags = @flag_enums.includes?(node.object_id)
         with_span(node.name) do |span|
           @namespaces << EnumNamespace.new(
-            name: name,
+            identity: name,
             path: @path,
             name_span: span,
             base_type: Restrictions.of(node.base_type),
-            private_path: private_path(node),
             flags: flags,
           )
         end
@@ -134,19 +132,19 @@ module Heucristic
       end
 
       def visit(node : Crystal::LibDef) : Bool
-        name = enter(node.name)
+        name = enter(node.name, node)
         with_span(node.name) do |span|
-          @namespaces << LibNamespace.new(name: name, path: @path, name_span: span)
+          @namespaces << LibNamespace.new(identity: name, path: @path, name_span: span)
         end
         true
       end
 
       def visit(node : Crystal::CStructOrUnionDef) : Bool
         path = Crystal::Path.new([node.name]).at(node.location)
-        name = enter(path)
+        name = enter(path, node)
         with_span(path) do |span|
           @namespaces << ClassNamespace.new(
-            name: name,
+            identity: name,
             path: @path,
             name_span: span,
             kind: ClassKind::Struct,
@@ -186,15 +184,17 @@ module Heucristic
       def visit(node : Crystal::TypeDef) : Bool
         path = Crystal::Path.new([node.name]).at(node.name_location)
         with_span(path) do |span|
-          @aliases << Alias.new(qualify(path), Syntax::TypeReader.read(node.type_spec), @path, span)
+          @aliases << Alias.new(
+            identity_for(path, nil), Syntax::TypeReader.read(node.type_spec), @path, span
+          )
         end
         false
       end
 
       def visit(node : Crystal::AnnotationDef) : Bool
-        name = enter(node.name)
+        name = enter(node.name, node)
         with_span(node.name) do |span|
-          @namespaces << AnnotationNamespace.new(name: name, path: @path, name_span: span)
+          @namespaces << AnnotationNamespace.new(identity: name, path: @path, name_span: span)
         end
         false
       end
@@ -217,7 +217,7 @@ module Heucristic
       def visit(node : Crystal::Alias) : Bool
         with_span(node.name) do |span|
           @aliases << Alias.new(
-            qualify(node.name), Syntax::TypeReader.read(node.value), @path, span, private_path(node)
+            identity_for(node.name, node), Syntax::TypeReader.read(node.value), @path, span
           )
         end
         false
@@ -241,7 +241,7 @@ module Heucristic
 
       def visit(node : Crystal::Assign) : Bool
         target = node.target
-        return constant(target, node.value, private_path(node)) if target.is_a?(Crystal::Path)
+        return constant(target, node) if target.is_a?(Crystal::Path)
         return true unless target.is_a?(Crystal::InstanceVar) || target.is_a?(Crystal::ClassVar)
 
         location = target.location
@@ -333,17 +333,16 @@ module Heucristic
         return true unless head
 
         name = head.name
-        full = enter(name)
+        full = enter(name, node)
         with_span(name) do |span|
           @namespaces << ClassNamespace.new(
-            name: full,
+            identity: full,
             path: @path,
             name_span: span,
             kind: :struct,
             abstract_type: false,
             type_vars: head.type_vars,
             superclass: Unrestricted.new,
-            private_path: private_path(node),
           )
         end
         declarations.try(&.record_declared(name, node.args.skip(1)))
@@ -404,13 +403,13 @@ module Heucristic
         node.is_a?(Crystal::Annotation) && node.path.names.last? == "Flags"
       end
 
-      private def implicit_member(owner : String, member : String, span : Document::Span) : Nil
-        type = Syntax::Named.new([owner], false)
+      private def implicit_member(owner : Identity, member : String, span : Document::Span) : Nil
+        type = Syntax::Named.new([owner.name], false)
         value = Constant::ImplicitValue.new
-        @constants << Constant.new("#{owner}::#{member}", @path, span, value, type, nil)
+        @constants << Constant.new(owner.child(member), @path, span, value, type, nil)
       end
 
-      private def enum_member(owner : String, member : Crystal::ASTNode) : Nil
+      private def enum_member(owner : Identity, member : Crystal::ASTNode) : Nil
         return unless member.is_a?(Crystal::Arg)
         location = member.location
         return unless location
@@ -420,8 +419,8 @@ module Heucristic
         return unless span.is_a?(Document::Span)
 
         value = member.default_value.try(&.to_s) || Constant::ImplicitValue.new
-        type = Syntax::Named.new([owner], false)
-        @constants << Constant.new("#{owner}::#{member.name}", @path, span, value, type, nil)
+        type = Syntax::Named.new([owner.name], false)
+        @constants << Constant.new(owner.child(member.name), @path, span, value, type, nil)
         @defs << Def.synthetic(
           name: "#{member.name.underscore}?",
           owner: owner,
@@ -431,14 +430,11 @@ module Heucristic
         )
       end
 
-      private def constant(
-        name : Crystal::Path,
-        value : Crystal::ASTNode,
-        private_path : String?,
-      ) : Bool
+      private def constant(name : Crystal::Path, node : Crystal::Assign) : Bool
+        value = node.value
         with_span(name) do |span|
           @constants << Constant.new(
-            qualify(name), @path, span, value.to_s, Evident.type(value), value, private_path
+            identity_for(name, node), @path, span, value.to_s, Evident.type(value), value
           )
         end
         false
@@ -446,7 +442,7 @@ module Heucristic
 
       private def mark_opaque : Nil
         current = owner
-        return unless current.is_a?(String) && @definitions.empty?
+        return unless current.is_a?(Identity) && @definitions.empty?
         return if @opaque.any?(&.owner.==(current))
 
         @opaque << OpaqueBody.new(current, @path)
@@ -485,18 +481,18 @@ module Heucristic
       end
 
       private def private_path(node : Crystal::ASTNode) : String?
-        @file_private.try(&.same?(node)) ? @path : nil
+        @privacy.private_declaration?(node) ? @path : nil
       end
 
       private def qualify(name : Crystal::Path) : String
         own = name.names.join("::")
         case (namespace = owner)
         in TopLevel then own
-        in String
+        in Identity
           return own if name.global?
 
-          enclosing = enclosing_named(namespace, name.names) if name.names.size > 1
-          enclosing ? "#{enclosing}::#{name.names[1..].join("::")}" : "#{namespace}::#{own}"
+          enclosing = enclosing_named(namespace.name, name.names) if name.names.size > 1
+          enclosing ? "#{enclosing}::#{name.names[1..].join("::")}" : "#{namespace.name}::#{own}"
         end
       end
 
@@ -508,10 +504,14 @@ module Heucristic
         end
       end
 
-      private def enter(name : Crystal::Path) : String
-        full = qualify(name)
-        @owners << full
-        full
+      private def enter(name : Crystal::Path, declaration : Crystal::ASTNode) : Identity
+        identity = identity_for(name, declaration)
+        @owners << identity
+        identity
+      end
+
+      private def identity_for(name : Crystal::Path, declaration : Crystal::ASTNode?) : Identity
+        @privacy.identity(qualify(name), name, owner, declaration)
       end
 
       private def with_span(name : Crystal::Path, & : Document::Span ->) : Nil
@@ -527,7 +527,7 @@ module Heucristic
         receiver = node.receiver
         return owner unless receiver.is_a?(Crystal::Path)
 
-        qualify(receiver)
+        identity_for(receiver, nil)
       end
 
       private def yielding_without_restriction?(node : Crystal::Def) : Bool
@@ -596,7 +596,7 @@ module Heucristic
       end
 
       private def opaque_block?(node : Crystal::Call) : Bool
-        !node.block.nil? && node.obj.nil? && owner.is_a?(String) && @definitions.empty?
+        !node.block.nil? && node.obj.nil? && owner.is_a?(Identity) && @definitions.empty?
       end
 
       private def record_def(node : Crystal::Def) : Nil

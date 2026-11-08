@@ -23,10 +23,10 @@ module Heucristic
       end
 
       def covers?(ancestor : TypeRef, descendant : TypeRef) : Bool
-        return true if ancestor.name == descendant.name
+        return true if ancestor.identity == descendant.identity
 
-        chain = @types.ancestors(descendant.name)
-        !chain.is_a?(Unknown) && chain.includes?(ancestor.name)
+        chain = @types.ancestors(descendant.identity)
+        !chain.is_a?(Unknown) && chain.includes?(ancestor.identity)
       end
 
       def metaclass_of(resolved : Resolution) : Resolution
@@ -44,7 +44,7 @@ module Heucristic
         case resolution
         in TypeVar then scope.bound(resolution.name) || resolution
         in TypeRef
-          TypeRef.new(resolution.name, resolution.arguments.map { |arg| rebind(arg, scope) })
+          TypeRef.new(resolution.identity, resolution.arguments.map { |arg| rebind(arg, scope) })
         in UnionRef then union(resolution.members.map { |member| rebind(member, scope) })
         in MetaRef
           inner = rebind(resolution.of, scope)
@@ -60,7 +60,7 @@ module Heucristic
           next false unless member.is_a?(TypeRef)
 
           members.any? do |other|
-            other.is_a?(TypeRef) && other.name != member.name &&
+            other.is_a?(TypeRef) && other.identity != member.identity &&
               other.arguments.empty? && covers?(other, member)
           end
         end

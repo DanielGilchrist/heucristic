@@ -42,6 +42,8 @@ module Heucristic
 
       DEPTH_LIMIT = 48
 
+      BE_NIL_EXPECTATION = Index::Public.new("Spec::BeNilExpectation")
+
       alias Verdict = MacroPrecedence::Verdict
 
       record Unscoped
@@ -78,7 +80,7 @@ module Heucristic
         block_arg : Crystal::ASTNode? = nil do
         NONE = new(
           nil,
-          Syntax::Context.new(Array(String).new, Array(String).new, nil),
+          Syntax::Context.new(Array(Index::Identity).new, Array(String).new, nil),
           Array(Binding).new,
           Array(Visit).new,
         )
@@ -280,7 +282,7 @@ module Heucristic
         receiver = of_call(call, context)
         definition = context.def_node
         owner = context.owner
-        unless receiver.is_a?(Resolved) && definition && owner.is_a?(String)
+        unless receiver.is_a?(Resolved) && definition && owner.is_a?(Index::Identity)
           return Array(Index::Def).new
         end
 
@@ -330,7 +332,7 @@ module Heucristic
       end
 
       def type_of(entry : Index::Constant) : Resolution
-        constant_type(entry, entry.name, Array(Visit).new)
+        constant_type(entry, Array(Visit).new)
       end
 
       def type_of(
@@ -376,7 +378,7 @@ module Heucristic
         return false if visiting.includes?(DefVisit.new(entry.qualified))
 
         owner = entry.owner
-        return false unless owner.is_a?(String)
+        return false unless owner.is_a?(Index::Identity)
 
         callees = @methods.named_on(TypeRef.new(owner, Array(Resolution).new), tail)
         deeper = visiting + [DefVisit.new(entry.qualified)]
@@ -408,7 +410,7 @@ module Heucristic
       ) : Resolution
         definition = site.context.def_node
         owner = site.context.owner
-        unless definition && owner.is_a?(String)
+        unless definition && owner.is_a?(Index::Identity)
           return Unknown.new(:no_annotation, "super outside a method")
         end
 
@@ -567,11 +569,11 @@ module Heucristic
 
       private def owning(entry : Index::Def, receiver : Resolved) : Resolved
         owner = entry.owner
-        return receiver unless owner.is_a?(String) && receiver.is_a?(TypeRef)
-        return receiver if receiver.name == owner || @workspace.module?(receiver.name)
+        return receiver unless owner.is_a?(Index::Identity) && receiver.is_a?(TypeRef)
+        return receiver if receiver.identity == owner || @workspace.module?(receiver.identity)
 
-        chain = @types.ancestors(receiver.name)
-        return receiver if chain.is_a?(Array(String)) && chain.includes?(owner)
+        chain = @types.ancestors(receiver.identity)
+        return receiver if chain.is_a?(Array(Index::Identity)) && chain.includes?(owner)
 
         TypeRef.new(owner, Array(Resolution).new)
       end
@@ -780,7 +782,7 @@ module Heucristic
       end
 
       private def element_of(collection : TypeRef) : Resolution
-        bindings = @types.bindings(collection, CoreType::Enumerable.type_name)
+        bindings = @types.bindings(collection, CoreType::Enumerable.identity)
         return bindings if bindings.is_a?(Unknown)
 
         bindings.find(&.name.==("T")).try(&.value) ||
@@ -1186,7 +1188,7 @@ module Heucristic
 
       private def implicit_target(call : Crystal::Call, context : Syntax::Context) : Resolution
         this = implicit_self(context)
-        return this unless this.is_a?(TypeRef) && @methods.extends_itself?(this.name)
+        return this unless this.is_a?(TypeRef) && @methods.extends_itself?(this.identity)
         return this unless @methods.named_on(this, call.name, context.path).empty?
 
         metaclass = MetaRef.new(this)
@@ -1228,7 +1230,7 @@ module Heucristic
         end
 
         owner = entry.owner
-        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
+        enclosing = owner.is_a?(Index::Identity) ? [owner] : Array(Index::Identity).new
         sites = Syntax::YieldSites.in(
           definition, enclosing, entry.free_vars, entry.path, @workspace.crystal_version
         )
@@ -1293,11 +1295,11 @@ module Heucristic
       end
 
       private def enum_base(receiver : TypeRef) : Resolution
-        namespace = @workspace.namespaces(receiver.name).find(&.is_a?(Index::EnumNamespace))
+        namespace = @workspace.namespaces(receiver.identity).find(&.is_a?(Index::EnumNamespace))
         base = namespace.is_a?(Index::EnumNamespace) ? namespace.base_type : nil
-        return TypeRef.of(:int32) unless base.is_a?(Syntax::Type)
+        return TypeRef.of(:int32) unless namespace && base.is_a?(Syntax::Type)
 
-        @types.resolve_lexically(base, Scope.of(receiver.name.rpartition("::")[0]))
+        @types.resolve_lexically(base, Scope.of(receiver.identity.parent, namespace.path))
       end
 
       private def compacted(receiver : TypeRef) : Resolution
@@ -1315,7 +1317,7 @@ module Heucristic
         site : Site,
       ) : Resolution
         owner = entry.owner
-        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
+        enclosing = owner.is_a?(Index::Identity) ? [owner] : Array(Index::Identity).new
         context = Syntax::Context.new(enclosing, Array(String).new, nil, entry.path, true)
         visit = DefVisit.new(entry.qualified)
         return visit.cycle if site.visiting.includes?(visit)
@@ -1398,25 +1400,21 @@ module Heucristic
         visit = ConstantVisit.new(located)
         return visit.cycle if visiting.includes?(visit)
 
-        @unions.union(constants.map { |entry| constant_type(entry, located, visiting + [visit]) })
+        @unions.union(constants.map { |entry| constant_type(entry, visiting + [visit]) })
       end
 
       private def placeholder?(expression : Crystal::ASTNode) : Bool
         expression.is_a?(Crystal::Call) && expression.obj.nil? && expression.name == "uninitialized"
       end
 
-      private def constant_type(
-        entry : Index::Constant,
-        name : String,
-        visiting : Array(Visit),
-      ) : Resolution
-        owner = name.rpartition("::")[0]
-        if @workspace.enum?(owner)
+      private def constant_type(entry : Index::Constant, visiting : Array(Visit)) : Resolution
+        owner = entry.identity.parent
+        if owner.is_a?(Index::Identity) && @workspace.enum?(owner)
           return TypeRef.new(owner, Array(Resolution).new)
         end
-        owner_scope = owner.empty? ? Scope::TOP : Scope.of(owner)
+        owner_scope = Scope.of(owner, entry.path)
         expression = entry.expression
-        enclosing = owner.empty? ? Array(String).new : [owner]
+        enclosing = owner.is_a?(Index::Identity) ? [owner] : Array(Index::Identity).new
         context = Syntax::Context.new(enclosing, Array(String).new, nil, entry.path)
         if expression.is_a?(Crystal::Path)
           return type_of(expression, context, visiting, Array(Binding).new)
@@ -1425,10 +1423,10 @@ module Heucristic
         type = entry.type
         return @types.resolve(type, owner_scope) if type.is_a?(Syntax::Type)
         unless expression
-          return Unknown.new(:no_annotation, "#{name} has no value to type")
+          return Unknown.new(:no_annotation, "#{entry.name} has no value to type")
         end
         if Index::MacroTarget.generated?(entry.path) && placeholder?(expression)
-          detail = "#{name} is set by a macro whose value the helper did not export"
+          detail = "#{entry.name} is set by a macro whose value the helper did not export"
           return Unknown.new(:macro, detail)
         end
 
@@ -1471,12 +1469,13 @@ module Heucristic
       private def literal_collection(
         node : Crystal::ArrayLiteral,
         context : Syntax::Context,
-      ) : String
+      ) : Index::Identity
         name = node.name
-        return CoreType::Array.type_name unless name
+        array = CoreType::Array.identity
+        return array unless name
 
         resolved = @types.resolve(Syntax::TypeReader.read(name), Scope.of(context))
-        resolved.is_a?(TypeRef) ? resolved.name : CoreType::Array.type_name
+        resolved.is_a?(TypeRef) ? resolved.identity : array
       end
 
       private def bind_block(
@@ -1630,9 +1629,9 @@ module Heucristic
         enum_type = receiver.of
         return unless enum_type.is_a?(TypeRef)
 
-        namespace = @workspace.namespaces(enum_type.name).find(&.is_a?(Index::EnumNamespace))
+        namespace = @workspace.namespaces(enum_type.identity).find(&.is_a?(Index::EnumNamespace))
         flags = namespace.is_a?(Index::EnumNamespace) && namespace.flags
-        members = @workspace.constants_of(enum_type.name).reject do |constant|
+        members = @workspace.constants_of(enum_type.identity).reject do |constant|
           flags && constant.name.rpartition("::")[2].in?("None", "All")
         end
         return TypeRef.of(:nil) if members.empty?
@@ -1644,7 +1643,7 @@ module Heucristic
         return false unless receiver.is_a?(TypeRef) && receiver.is?(:nil)
 
         expectation = arguments[0]?
-        expectation.is_a?(TypeRef) && expectation.name == "Spec::BeNilExpectation"
+        expectation.is_a?(TypeRef) && expectation.identity == BE_NIL_EXPECTATION
       end
 
       private def declared_step(
@@ -1818,7 +1817,7 @@ module Heucristic
         members = Array(Resolution).new(node.entries.size)
         node.entries.each { |entry| members << type_of(entry.value, context, visiting, locals) }
         unknown = members.find(&.is_a?(Unknown))
-        unknown || TypeRef.new(CoreType::NamedTuple.type_name, members, node.entries.map(&.key))
+        unknown || TypeRef.new(CoreType::NamedTuple.identity, members, node.entries.map(&.key))
       end
 
       private def typeof_value(

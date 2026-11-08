@@ -45,7 +45,7 @@ module Heucristic
         scope = Resolve::Scope.of(site.context)
         located = @types.locate(Syntax::Named.new(name.names, name.global?), scope)
         return if located.is_a?(Resolve::Unknown)
-        return unless @workspace.aliases(name.names.last).empty?
+        return unless aliased?(name.names.last, site.context.path)
         return unless @settled.type?(located) || stdlib?(located)
         return if @types.splat_index_of(located)
 
@@ -70,13 +70,19 @@ module Heucristic
         findings << Finding.new(:wrong_type_arguments, message, span)
       end
 
-      private def stdlib?(name : String) : Bool
-        entries = @workspace.namespaces(name)
+      private def aliased?(name : String, path : String?) : Bool
+        return false unless @workspace.aliases(Index::Public.new(name)).empty?
+
+        path.nil? || @workspace.aliases(Index::FilePrivate.new(name, path)).empty?
+      end
+
+      private def stdlib?(identity : Index::Identity) : Bool
+        entries = @workspace.namespaces(identity)
         !entries.empty? && entries.none?(&.path.starts_with?(@root + "/"))
       end
 
-      private def kind(name : String) : String
-        entry = @workspace.namespaces(name).first
+      private def kind(identity : Index::Identity) : String
+        entry = @workspace.namespaces(identity).first
         case entry
         in Index::ClassNamespace      then entry.kind.struct? ? "struct" : "class"
         in Index::ModuleNamespace     then "module"

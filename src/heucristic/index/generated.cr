@@ -1,5 +1,6 @@
 require "./file"
 require "./macro_site"
+require "./private_owners"
 require "./shims"
 require "./workspace"
 require "./accessor"
@@ -27,33 +28,41 @@ module Heucristic
         sites.each { |site| macros[site.line] = site.macro_name }
         privately = Hash(Int32, String).new
         sites.each { |site| site.private_to.try { |path| privately[site.line] = path } }
-        kept = file.defs.reject do |entry|
-          private_to = privately[entry.name_span.start_line.to_i + 1]?
-          constructor?(entry.name) || known?(entry, workspace, shims, loaded, private_to) ||
-            synthesized?(entry, macros, workspace, loaded)
-        end
-        kept.map! do |entry|
-          line = entry.name_span.start_line.to_i + 1
-          path = privately[line]?
-          entry = entry.copy_with(private_path: path) if path
-          equality?(entry, macros[line]?) ? entry.copy_with(return_type: BOOLEAN) : entry
+        privates = PrivateOwners.of(sites)
+        kept = Array(Def).new(file.defs.size)
+        file.defs.each do |original|
+          line = original.name_span.start_line.to_i + 1
+          private_to = privately[line]?
+          entry = private_to ? privatised(original, private_to) : original
+          next if constructor?(entry.name) ||
+                  known?(entry, workspace, shims, loaded, private_to) ||
+                  synthesized?(entry, macros, workspace, loaded)
+
+          kept << (equality?(entry, macros[line]?) ? entry.copy_with(return_type: BOOLEAN) : entry)
         end
         macros_kept = file.macros.reject do |entry|
           workspace.macros(entry.name).any? do |existing|
-            existing.path != entry.path && existing.owner == entry.owner
+            existing.path != entry.path && existing.owner == privates.retarget(entry.owner)
           end
         end
         File.new(
           file.path,
           kept,
-          file.namespaces,
-          file.mixins,
-          file.instance_vars,
-          file.aliases,
-          file.constants,
-          macros_kept,
-          file.opaque,
+          file.namespaces.map { |item| item.copy_with(identity: privates.retarget(item.identity)) },
+          file.mixins.map { |item| item.copy_with(owner: privates.retarget(item.owner)) },
+          file.instance_vars.map { |item| item.copy_with(owner: privates.retarget(item.owner)) },
+          file.aliases.map { |item| item.copy_with(identity: privates.retarget(item.identity)) },
+          file.constants.map { |item| item.copy_with(identity: privates.retarget(item.identity)) },
+          macros_kept.map { |item| item.copy_with(owner: privates.retarget(item.owner)) },
+          file.opaque.map { |item| item.copy_with(owner: privates.retarget(item.owner)) },
         )
+      end
+
+      private def privatised(entry : Def, path : String) : Def
+        owner = entry.owner
+        return entry.copy_with(private_path: path) unless owner.is_a?(Identity)
+
+        entry.copy_with(owner: FilePrivate.new(owner.name, path), private_path: path)
       end
 
       private def equality?(entry : Def, macro_name : String?) : Bool

@@ -1111,6 +1111,70 @@ describe Heucristic::Resolve::Receiver, "file-private declarations" do
   end
 end
 
+describe Heucristic::Resolve::Receiver, "file-private types shadowing same-named types" do
+  files = {
+    "a.cr" => <<-CR,
+      private class Foo
+        def value : Int32
+          1
+        end
+      end
+
+      class Child < Foo
+      end
+
+      class UsesA
+        def go : Nil
+          Foo.new.value.size
+          Child.new.value.size
+        end
+      end
+      CR
+    "b.cr" => <<-CR,
+      class Foo
+        def value : String
+          "x"
+        end
+      end
+
+      class UsesB
+        def go : Nil
+          Foo.new.value.size
+        end
+      end
+      CR
+    "c.cr" => <<-CR,
+      private class Foo
+        def value : Symbol
+          :c
+        end
+      end
+
+      class UsesC
+        def go : Nil
+          Foo.new.value.size
+        end
+      end
+      CR
+  }
+
+  it "resolves a name to the file-private type of the file that mentions it" do
+    receiver_across(files, "a.cr", "Foo.new.value.size").should eq("Int32")
+  end
+
+  it "resolves a name to the public type when the file declares no private one" do
+    receiver_across(files, "b.cr", "Foo.new.value.size").should eq("String")
+  end
+
+  it "keeps same-named private types of different files apart" do
+    receiver_across(files, "c.cr", "Foo.new.value.size").should eq("Symbol")
+  end
+
+  it "inherits from the private type the declaring file names" do
+    receiver_across(files, "a.cr", "Child.new.value.size").should eq("Int32")
+  end
+end
+
 describe Heucristic::Resolve::Receiver, "instance variables assigned from calls" do
   source = <<-CR
     struct Instant

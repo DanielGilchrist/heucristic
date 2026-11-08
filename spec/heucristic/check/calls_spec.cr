@@ -45,6 +45,72 @@ private def codes(source : String) : Array(String)
   calls.run(sites).findings.map(&.rule.to_s.underscore)
 end
 
+private def codes_across(files : Hash(String, String), path : String) : Array(String)
+  workspace = Heucristic::Index::Workspace.new
+  parsed = Hash(String, {Heucristic::Document::Text, Crystal::ASTNode}).new
+  files.each do |name, source|
+    full = PRELUDE + source
+    text = Heucristic::Document::Text.new(full)
+    tree = Heucristic::Syntax.parse(full, name)
+    raise "unexpected syntax error" unless tree.is_a?(Crystal::ASTNode)
+
+    parsed[name] = {text, tree}
+    workspace.update(Heucristic::Index::Collector.collect(name, text, tree, SPEC_CRYSTAL))
+  end
+  types = Heucristic::Resolve::Types.new(workspace)
+  methods = Heucristic::Resolve::Methods.new(workspace, types)
+  receiver = Heucristic::Resolve::Receiver.new(
+    workspace, Heucristic::Index::Shims.new, types, methods
+  )
+  settled = Heucristic::Check::Settled.new(
+    workspace, types, methods.descendants, true, Set(String).new, files.keys.to_set, "/project",
+    Array(String).new
+  )
+  calls = Heucristic::Check::Calls.new(
+    Heucristic::Check::Environment.new(workspace, types, methods, receiver, settled, "/project")
+  )
+  text, tree = parsed[path]
+  sites = Heucristic::Index::Sites.of(path, text, tree, SPEC_CRYSTAL)
+  calls.run(sites).findings.map(&.rule.to_s.underscore)
+end
+
+describe Heucristic::Check::Calls, "file-private types" do
+  files = {
+    "/project/a.cr" => <<-CR,
+      private class Foo
+        def only_a : Int32
+          1
+        end
+      end
+
+      def in_a
+        Foo.new.only_a
+        Foo.new.only_b
+      end
+      CR
+    "/project/b.cr" => <<-CR,
+      class Foo
+        def only_b : Int32
+          1
+        end
+      end
+
+      def in_b
+        Foo.new.only_b
+        Foo.new.only_a
+      end
+      CR
+  }
+
+  it "flags a method only another file's same-named type defines" do
+    codes_across(files, "/project/a.cr").should eq(["undefined_method"])
+  end
+
+  it "does not let a public type see the methods of a private type of the same name" do
+    codes_across(files, "/project/b.cr").should eq(["undefined_method"])
+  end
+end
+
 describe Heucristic::Check::Calls, "macro precedence" do
   it "lets a macro that accepts the call beat a def of the same class" do
     source = <<-CR

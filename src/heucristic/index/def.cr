@@ -87,7 +87,7 @@ module Heucristic
       def qualified : String
         case (namespace = owner)
         in TopLevel then name
-        in String   then "#{namespace}#{receiver.metaclass? ? "." : "#"}#{name}"
+        in Identity then "#{namespace}#{receiver.metaclass? ? "." : "#"}#{name}"
         end
       end
 

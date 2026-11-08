@@ -162,21 +162,21 @@ module Heucristic
         end
         return false unless defs.all?(&.visibility.protected?)
         return false unless receiver.is_a?(Resolve::TypeRef)
-        return false unless protected_from_outside?(receiver.name, context.owner)
+        return false unless protected_from_outside?(receiver.identity, context.owner)
 
         message = "protected method '#{call.name}' called for #{described(receiver)}"
         findings << Finding.new(:protected_call, message, span)
         true
       end
 
-      private def protected_from_outside?(receiver : String, caller : Index::Owner) : Bool
+      private def protected_from_outside?(receiver : Index::Identity, caller : Index::Owner) : Bool
         return true if caller.is_a?(Index::TopLevel)
         return false if caller == receiver
         return false if @methods.levels(caller).includes?(receiver)
         return false if @methods.levels(receiver).includes?(caller)
 
-        receiver_root = receiver.partition("::")[0]
-        caller_root = caller.partition("::")[0]
+        receiver_root = receiver.name.partition("::")[0]
+        caller_root = caller.name.partition("::")[0]
         receiver_root != caller_root
       end
 
@@ -214,7 +214,7 @@ module Heucristic
         return false unless known && call.obj.nil?
         definition = context.def_node
         owner = context.owner
-        return false unless definition && owner.is_a?(String)
+        return false unless definition && owner.is_a?(Index::Identity)
         return false if Syntax::WellKnown::Initialize.named?(definition.name)
         return false unless @settled.declared?(owner)
 
@@ -247,7 +247,7 @@ module Heucristic
         true
       end
 
-      private def superclass_level?(level : String) : Bool
+      private def superclass_level?(level : Index::Identity) : Bool
         @settled.compiled_level?(level) &&
           @workspace.namespaces(level).any?(Index::ClassNamespace)
       end
@@ -263,13 +263,13 @@ module Heucristic
         return false unless receiver.is_a?(Resolve::MetaRef)
         of = receiver.of
         return false if of.is_a?(Resolve::TypeVar)
-        return false unless @settled.type?(of.name)
+        return false unless @settled.type?(of.identity)
 
-        entry = @workspace.namespaces(of.name).select(Index::ClassNamespace).first?
+        entry = @workspace.namespaces(of.identity).select(Index::ClassNamespace).first?
         return false unless entry && entry.abstract_type
 
         kind = entry.kind.struct? ? "struct" : "class"
-        message = "can't instantiate abstract #{kind} #{of.name}"
+        message = "can't instantiate abstract #{kind} #{of.identity}"
         findings << Finding.new(:abstract_instantiated, message, span)
         true
       end
@@ -284,7 +284,7 @@ module Heucristic
         missing = nil.as(Resolve::TypeRef?)
         receiver.members.each do |member|
           return Skip::UnionMemberNotType unless member.is_a?(Resolve::TypeRef)
-          return Skip::TypeUnsettled unless @settled.type?(member.name)
+          return Skip::TypeUnsettled unless @settled.type?(member.identity)
 
           defined = member_defined?(member, call, context)
           return defined if defined.is_a?(Skip)
@@ -308,9 +308,9 @@ module Heucristic
         context : Syntax::Context,
       ) : Bool | Skip
         return true unless @methods.named_on(member, call.name, context.path).empty?
-        return false unless @settled.extended?(member.name)
+        return false unless @settled.extended?(member.identity)
 
-        found = virtual_definitions(member, member.name, call, context)
+        found = virtual_definitions(member, member.identity, call, context)
         found.is_a?(Skip) ? found : !found.defs.empty?
       end
 
@@ -326,12 +326,12 @@ module Heucristic
         in Resolve::TypeRef
           return program_definitions(call, context) if receiver.program?
 
-          typed_definitions(receiver, receiver.name, call, context)
+          typed_definitions(receiver, receiver.identity, call, context)
         in Resolve::MetaRef
           of = receiver.of
           return Skip::ReceiverTypeVar if of.is_a?(Resolve::TypeVar)
 
-          typed_definitions(receiver, of.name, call, context)
+          typed_definitions(receiver, of.identity, call, context)
         end
       end
 
@@ -359,7 +359,8 @@ module Heucristic
           target = mixin.target
           next unless target.is_a?(Syntax::Type)
 
-          resolved = @types.resolve_lexically(target, Resolve::Scope::TOP)
+          scope = Resolve::Scope.of(Index::TopLevel.new, mixin.path)
+          resolved = @types.resolve_lexically(target, scope)
           next unless resolved.is_a?(Resolve::TypeRef)
 
           found.concat(@methods.named_on(resolved, name))
@@ -369,7 +370,7 @@ module Heucristic
 
       private def typed_definitions(
         receiver : Resolve::Resolved,
-        type : String,
+        type : Index::Identity,
         call : Crystal::Call,
         context : Syntax::Context,
       ) : Array(Index::Def) | Skip | Virtual
@@ -387,7 +388,7 @@ module Heucristic
 
       private def virtual_definitions(
         receiver : Resolve::Resolved,
-        type : String,
+        type : Index::Identity,
         call : Crystal::Call,
         context : Syntax::Context,
       ) : Skip | Virtual
@@ -411,7 +412,7 @@ module Heucristic
 
       private def as_descendant(
         receiver : Resolve::Resolved,
-        descendant : String,
+        descendant : Index::Identity,
       ) : Resolve::Resolved
         typed = Resolve::TypeRef.new(descendant, Array(Resolve::Resolution).new)
         receiver.is_a?(Resolve::MetaRef) ? Resolve::MetaRef.new(typed) : typed
@@ -440,7 +441,7 @@ module Heucristic
             next unless covering
 
             remaining.reject! do |member|
-              member.is_a?(Resolve::TypeRef) && branch_types.covers?(covering, member.name)
+              member.is_a?(Resolve::TypeRef) && branch_types.covers?(covering, member.identity)
             end
           end
         end
@@ -465,7 +466,7 @@ module Heucristic
         of = receiver.of
         return false unless of.is_a?(Resolve::TypeRef)
 
-        levels = @methods.levels(of.name)
+        levels = @methods.levels(of.identity)
         @workspace.macros(name).any?(&.owner.in?(levels))
       end
 
@@ -478,7 +479,7 @@ module Heucristic
       private def described(receiver : Resolve::Resolution) : String
         return "#{receiver.of}.class" if receiver.is_a?(Resolve::MetaRef)
         return "top-level" if receiver.is_a?(Resolve::TypeRef) && receiver.program?
-        virtual = receiver.is_a?(Resolve::TypeRef) && @settled.extended?(receiver.name)
+        virtual = receiver.is_a?(Resolve::TypeRef) && @settled.extended?(receiver.identity)
         return "#{receiver}+" if virtual
 
         receiver.to_s
@@ -603,9 +604,9 @@ module Heucristic
         of = receiver.of
         return false if of.is_a?(Resolve::TypeVar)
 
-        return false if @workspace.enum?(of.name)
+        return false if @workspace.enum?(of.identity)
 
-        @settled.generated_free?(of.name)
+        @settled.generated_free?(of.identity)
       end
     end
   end

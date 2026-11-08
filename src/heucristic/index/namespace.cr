@@ -1,62 +1,68 @@
 require "../document/span"
 require "./restriction"
+require "./identity"
 require "./class_kind"
 
 module Heucristic
   module Index
     record ClassNamespace,
-      name : String,
+      identity : Identity,
       path : String,
       name_span : Document::Span,
       kind : ClassKind,
       abstract_type : Bool,
       type_vars : Array(String),
       superclass : Restriction,
-      private_path : String? = nil,
       splat_index : Int32? = nil do
+      delegate name, to: identity
+
       def keyword : String
         kind.struct? ? "struct" : "class"
       end
     end
 
     record ModuleNamespace,
-      name : String,
+      identity : Identity,
       path : String,
       name_span : Document::Span,
-      type_vars : Array(String),
-      private_path : String? = nil do
+      type_vars : Array(String) do
+      delegate name, to: identity
+
       def keyword : String
         "module"
       end
     end
 
     record EnumNamespace,
-      name : String,
+      identity : Identity,
       path : String,
       name_span : Document::Span,
       base_type : Restriction,
-      private_path : String? = nil,
       flags : Bool = false do
+      delegate name, to: identity
+
       def keyword : String
         "enum"
       end
     end
 
     record LibNamespace,
-      name : String,
+      identity : Identity,
       path : String,
-      name_span : Document::Span,
-      private_path : String? = nil do
+      name_span : Document::Span do
+      delegate name, to: identity
+
       def keyword : String
         "lib"
       end
     end
 
     record AnnotationNamespace,
-      name : String,
+      identity : Identity,
       path : String,
-      name_span : Document::Span,
-      private_path : String? = nil do
+      name_span : Document::Span do
+      delegate name, to: identity
+
       def keyword : String
         "annotation"
       end
