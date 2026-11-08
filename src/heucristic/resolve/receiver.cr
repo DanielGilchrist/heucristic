@@ -16,6 +16,7 @@ require "./body_facts"
 require "./memos"
 require "./visit"
 require "./unions"
+require "./narrowing"
 require "./special"
 require "./local_assignments"
 require "./variable_references"
@@ -76,8 +77,6 @@ module Heucristic
         )
       end
 
-      FALSEY = {CoreType::Nil, CoreType::Bool, CoreType::Pointer}
-
       COMPARISONS = {"<", "<=", ">", ">="}
 
       def self.chained_comparison?(call : Crystal::Call) : Bool
@@ -97,6 +96,7 @@ module Heucristic
         @depth = 0
         @memos = Memos.new
         @unions = Unions.new(@types)
+        @narrowing = Narrowing.new(@types, @methods, @unions)
         @depth_exhausted = 0
       end
 
@@ -525,7 +525,7 @@ module Heucristic
         declared = entries.select(&.origin.declared?)
         unless declared.empty?
           typed = Array(Resolution).new(declared.size)
-          declared.each { |entry| typed << declared(entry.type, scope) }
+          declared.each { |entry| typed << @types.resolve(entry.type, scope) }
           return @unions.union(typed)
         end
 
@@ -533,7 +533,7 @@ module Heucristic
         entries.each do |entry|
           type = entry.type
           if type.is_a?(Syntax::Type)
-            typed << declared(type, scope)
+            typed << @types.resolve(type, scope)
             next
           end
 
@@ -625,12 +625,12 @@ module Heucristic
         current = type_of(node.target, context, visiting, locals)
         value = type_of(node.value, context, visiting, locals)
         if node.op == "||"
-          present = truthy(current, true)
+          present = @narrowing.truthy(current)
           return value if present.is_a?(TypeRef) && present.is?(:nil)
 
           return @unions.union([present, value] of Resolution)
         end
-        return @unions.union([truthy(current, false), value] of Resolution) if node.op == "&&"
+        return @unions.union([@narrowing.falsey(current), value] of Resolution) if node.op == "&&"
         return current if current.is_a?(Unknown)
 
         result_of(current, Methods::Call.new(node.op, 1, false, [value] of Resolution))
@@ -673,7 +673,7 @@ module Heucristic
           )
         end
 
-        declared(Syntax::TypeReader.read(output), Scope.of(context))
+        @types.resolve(Syntax::TypeReader.read(output), Scope.of(context))
       end
 
       private def exits_for(context : Syntax::Context, visiting : Array(Visit)) : CallExits
@@ -858,7 +858,7 @@ module Heucristic
         end
         if (read = entry.reads)
           value = read_instance_var(entry, read.name, receiver, arguments, site)
-          return read.asserted ? truthy(value, true) : value
+          return read.asserted ? @narrowing.truthy(value) : value
         end
 
         Unknown.new(:no_annotation, "#{entry.qualified} has no return type restriction")
@@ -1036,7 +1036,7 @@ module Heucristic
       ) : Resolution
         return constant(node, context, visiting) if node.is_a?(Crystal::Path)
         evident = Index::Evident.type(node)
-        return declared(evident, Scope.of(context)) if evident.is_a?(Syntax::Type)
+        return @types.resolve(evident, Scope.of(context)) if evident.is_a?(Syntax::Type)
 
         case node
         in Crystal::Var then variable(node.name, context, visiting, locals)
@@ -1068,11 +1068,11 @@ module Heucristic
         in Crystal::Or
           left = type_of(node.left, context.inside(node, node.left), visiting, locals)
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
-          @unions.union([truthy(left, true), right] of Resolution)
+          @unions.union([@narrowing.truthy(left), right] of Resolution)
         in Crystal::And
           left = type_of(node.left, context.inside(node, node.left), visiting, locals)
           right = type_of(node.right, context.inside(node, node.right), visiting, locals)
-          @unions.union([truthy(left, false), right] of Resolution)
+          @unions.union([@narrowing.falsey(left), right] of Resolution)
         in Crystal::ArrayLiteral
           collection = literal_collection(node, context)
           elements(node.elements, context, visiting, locals) do |inner|
@@ -1245,110 +1245,17 @@ module Heucristic
                       type_of(step.value, at, visiting + [key], seeded(locals, name, current)),
                       locals,
                     )
-            present = truthy(current, true)
+            present = @narrowing.truthy(current)
             if present.is_a?(TypeRef) && present.is?(:nil)
               typed
             else
               @unions.union([present, typed] of Resolution)
             end
-          in Flow::Truthy     then truthy(current, step.positive)
-          in Flow::IsA        then narrow_is_a(current, step.types, step.positive, context)
-          in Flow::RespondsTo then responding(current, step.method, step.positive, context)
-          in Flow::Declared   then declared_step(step, name, context, visiting, locals)
+          in Flow::Truthy, Flow::IsA, Flow::RespondsTo
+            @narrowing.apply(current, step, context)
+          in Flow::Declared
+            declared_step(step, name, context, visiting, locals)
           end
-        end
-      end
-
-      private def truthy(current : Resolution, positive : Bool) : Resolution
-        return current if current.is_a?(Unknown)
-
-        members = UnionRef.members_of(current)
-        kept = members.select do |member|
-          next true if member.is_a?(Unknown)
-          falsey = member.is_a?(TypeRef) && FALSEY.any? { |core| member.is?(core) }
-          positive ? !(member.is_a?(TypeRef) && member.is?(:nil)) : falsey
-        end
-        UnionRef.join(kept)
-      end
-
-      private def narrow_is_a(
-        current : Resolution,
-        types : Array(Crystal::ASTNode),
-        positive : Bool,
-        context : Syntax::Context,
-      ) : Resolution
-        targets = Array(TypeRef).new
-        types.each do |type|
-          resolved = declared(Syntax::TypeReader.read(type), Scope.of(context))
-          case resolved
-          in TypeRef then targets << resolved
-          in UnionRef
-            resolved.members.each do |member|
-              return current unless member.is_a?(TypeRef)
-
-              targets << member
-            end
-          in MetaRef, TypeVar, Unknown then return current
-          end
-        end
-
-        if current.is_a?(Unknown) || current.is_a?(TypeVar)
-          return current unless positive
-          return targets[0] if targets.size == 1
-
-          widened = Array(Resolution).new(targets.size)
-          targets.each { |target| widened << target }
-          return UnionRef.new(widened)
-        end
-
-        members = UnionRef.members_of(current)
-        kept = Array(Resolution).new
-        members.each do |member|
-          unless member.is_a?(TypeRef)
-            kept << member
-            next
-          end
-          matched = targets.any? { |target| @unions.covers?(target, member) }
-          if positive
-            kept << member if matched
-            targets.each { |target| kept << target if !matched && @unions.covers?(member, target) }
-          else
-            kept << member unless matched
-          end
-        end
-        UnionRef.join(kept)
-      end
-
-      private def responding(
-        current : Resolution,
-        method : String,
-        positive : Bool,
-        context : Syntax::Context,
-      ) : Resolution
-        return current if current.is_a?(Unknown)
-
-        members = UnionRef.members_of(current)
-        kept = Array(Resolution).new(members.size)
-        members.each do |member|
-          next kept << member unless member.is_a?(TypeRef) || member.is_a?(MetaRef)
-
-          responds = !@methods.named_on(member, method, context.path).empty?
-          if positive && !responds
-            @methods.virtual_receivers(member, context.path).each do |below|
-              kept << below unless @methods.named_on(below, method, context.path).empty?
-            end
-          elsif positive == responds
-            kept << member
-          end
-        end
-        UnionRef.join(kept)
-      end
-
-      private def assigning?(step : Flow::Step) : Bool
-        case step
-        in Flow::Assigned, Flow::Reassigned, Flow::OrAssigned, Flow::Declared then true
-        in Flow::Branched                                                     then step.assigns
-        in Flow::Truthy, Flow::IsA, Flow::RespondsTo                          then false
         end
       end
 
@@ -1381,7 +1288,7 @@ module Heucristic
           unless restriction
             return Unknown.new(:no_annotation, "parameter #{name} has no type restriction")
           end
-          typed = declared(Syntax::TypeReader.read(restriction), Scope.of(context))
+          typed = @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
           return typed if typed.is_a?(Unknown)
           return typed unless definition.splat_index == definition.args.index(parameter)
 
@@ -1394,11 +1301,12 @@ module Heucristic
             return Unknown.new(:no_annotation, "block parameter #{name} has no type restriction")
           end
 
-          return declared(Syntax::TypeReader.read(restriction), Scope.of(context))
+          return @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
         end
 
         if (declaration = facts.declaration(name))
-          return declared(Syntax::TypeReader.read(declaration.declared_type), Scope.of(context))
+          restriction = Syntax::TypeReader.read(declaration.declared_type)
+          return @types.resolve(restriction, Scope.of(context))
         end
 
         key = variable_key(name, context)
@@ -1416,7 +1324,7 @@ module Heucristic
             :no_annotation, "#{name} is not a parameter and is never assigned here"
           )
         end
-        if steps.any? { |step| assigning?(step) }
+        if steps.any? { |step| Narrowing.assigning?(step) }
           return TypeRef.of(:nil)
         end
 
@@ -1581,7 +1489,7 @@ module Heucristic
         return TypeRef.of(:exception) unless types
 
         scope = Scope.of(context)
-        @unions.union(types.map { |type| declared(Syntax::TypeReader.read(type), scope) })
+        @unions.union(types.map { |type| @types.resolve(Syntax::TypeReader.read(type), scope) })
       end
 
       private def outside(call : Crystal::Call, context : Syntax::Context) : Syntax::Context
@@ -2075,7 +1983,7 @@ module Heucristic
         name = node.name
         return CoreType::Array.type_name unless name
 
-        resolved = declared(Syntax::TypeReader.read(name), Scope.of(context))
+        resolved = @types.resolve(Syntax::TypeReader.read(name), Scope.of(context))
         resolved.is_a?(TypeRef) ? resolved.name : CoreType::Array.type_name
       end
 
@@ -2249,12 +2157,6 @@ module Heucristic
         end
       end
 
-      private def declared(type : Syntax::TypeReader::Outcome, scope : Scope) : Resolution
-        return Unknown.new(:unsupported, type.source) if type.is_a?(Syntax::TypeReader::Unsupported)
-
-        @types.resolve(type, scope)
-      end
-
       private def splatted(inputs : Array(Resolution), block : Crystal::Block) : Array(Resolution)
         return inputs unless inputs.size == 1 && block.args.size > 1
 
@@ -2373,7 +2275,7 @@ module Heucristic
         visiting : Array(Visit),
         locals : Array(Binding),
       ) : Resolution
-        restriction = declared(Syntax::TypeReader.read(step.restriction), Scope.of(context))
+        restriction = @types.resolve(Syntax::TypeReader.read(step.restriction), Scope.of(context))
         value = step.value
         return restriction unless value && restriction.is_a?(Resolved)
 
