@@ -135,7 +135,7 @@ module Heucristic
         type = entry.type
         return unless type.is_a?(Syntax::Type)
 
-        scope = Resolve::Scope.new(entry.owner, @types.type_vars_of(entry.owner))
+        scope = scope_of(entry.owner, entry.path)
         resolved = @types.resolve_lexically(type, scope)
         @fit.checkable?(resolved) ? resolved : nil
       end
@@ -145,8 +145,12 @@ module Heucristic
         return true unless type.is_a?(Syntax::Type)
         return true if type.is_a?(Syntax::Nilable)
 
-        scope = Resolve::Scope.new(owner, @types.type_vars_of(owner))
+        scope = scope_of(owner, entry.path)
         @fit.nilable?(@types.resolve_lexically(type, scope))
+      end
+
+      private def scope_of(owner : String, path : String) : Resolve::Scope
+        Resolve::Scope.new(owner, @types.type_vars_of(owner), Array(Resolve::Binding).new, path)
       end
     end
   end

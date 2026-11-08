@@ -42,7 +42,7 @@ module Heucristic
         return if node.named_args
         return unless node.type_vars.none?(Crystal::Splat)
 
-        scope = Resolve::Scope.new(site.context.owner, site.context.type_vars)
+        scope = Resolve::Scope.of(site.context)
         located = @types.locate(Syntax::Named.new(name.names, name.global?), scope)
         return if located.is_a?(Resolve::Unknown)
         return unless @workspace.aliases(name.names.last).empty?
