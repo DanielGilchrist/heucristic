@@ -1912,11 +1912,11 @@ module Heucristic
         unless restriction
           return Unknown.new(:no_annotation, "parameter #{name} has no type restriction")
         end
-        typed = @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
-        return typed if typed.is_a?(Unknown)
-        return typed unless definition.splat_index == definition.args.index(parameter)
+        if definition.splat_index == definition.args.index(parameter)
+          return Unknown.new(:splatted, "`#{name}` holds one value per call argument")
+        end
 
-        TypeRef.of(:tuple, [typed] of Resolution)
+        @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
       end
 
       private def from_block_arg(

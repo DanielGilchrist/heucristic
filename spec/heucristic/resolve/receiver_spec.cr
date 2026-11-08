@@ -668,6 +668,7 @@ describe Heucristic::Resolve::Receiver, "proc block arguments and splat paramete
       def run(body : String?, *args : String) : Nil
         body.try(&->shout(String)).size
         args.to_a.size
+        args.size
       end
     end
     CR
@@ -676,8 +677,9 @@ describe Heucristic::Resolve::Receiver, "proc block arguments and splat paramete
     receiver_of_size(source, "body.try(&->shout(String)).size").should eq("String")
   end
 
-  it "types a splat parameter as a tuple of its restriction" do
-    receiver_of_size(source, "args.to_a.size").should eq("Array(String)")
+  it "leaves a splat parameter's tuple size unknown (crystal run: Tuple(Int32, Int32))" do
+    receiver_of_size(source, "args.to_a.size").should start_with("unknown")
+    receiver_of_size(source, "args.size").should start_with("unknown")
   end
 end
 
@@ -4064,13 +4066,15 @@ describe Heucristic::Resolve::Receiver, "splat type variables" do
       def gather(label : String, *items : *T) : Tuple(*T) forall T
       end
 
-      def run(number : Int32, rest : Tuple(Int32, String)) : Nil
+      def run(number : Int32, rest : Tuple(Int32, String), any : Tuple) : Nil
+        any.size
         pair = Tuple.new(number, "a")
         pair.size
         pair[1].size
         pair[0].size
         pair[2].size
         gather("x", number, "a")[1].size
+        gather("x").size
         Tuple.new(number, mystery).size
         Tuple.new(*rest).size
       end
@@ -4085,6 +4089,14 @@ describe Heucristic::Resolve::Receiver, "splat type variables" do
 
   it "binds a def's own splat variable after leading parameters" do
     receiver_of_size(source, "gather(\"x\", number, \"a\")[1].size").should eq("String")
+  end
+
+  it "renders an empty splat pack as Tuple() (crystal run: Tuple())" do
+    receiver_of_size(source, "gather(\"x\").size").should eq("Tuple()")
+  end
+
+  it "does not call a bare Tuple restriction an empty tuple" do
+    receiver_of_size(source, "any.size").should_not eq("Tuple()")
   end
 
   it "says a tuple has no element past its bound size" do

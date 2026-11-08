@@ -329,10 +329,8 @@ module Heucristic
         lookup : Lookup,
       ) : Resolution
         aliases = @workspace.aliases(full)
-        return TypeRef.new(full, Array(Resolution).new) if aliases.empty?
-        if visiting.includes?(full) || @following.includes?(full)
-          return TypeRef.new(full, Array(Resolution).new)
-        end
+        return named(full) if aliases.empty?
+        return named(full) if visiting.includes?(full) || @following.includes?(full)
 
         candidates = loaded(aliases)
         targets = candidates.map(&.target).uniq!
@@ -362,6 +360,10 @@ module Heucristic
       private def loaded(aliases : Array(Index::Alias)) : Array(Index::Alias)
         known = aliases.select { |entry| @compiled.known?(entry.path) }
         known.empty? ? aliases : known
+      end
+
+      private def named(identity : Index::Identity) : TypeRef
+        TypeRef.new(identity, Array(Resolution).new, bare: identity == CoreType::Tuple.identity)
       end
 
       private def declared?(identity : Index::Identity, lookup : Lookup) : Bool

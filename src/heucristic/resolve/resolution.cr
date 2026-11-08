@@ -6,7 +6,8 @@ module Heucristic
     record TypeRef,
       identity : Index::Identity,
       arguments : Array(Resolution),
-      labels : Array(String) = Array(String).new do
+      labels : Array(String) = Array(String).new,
+      bare : Bool = false do
       def self.of(core : CoreType) : TypeRef
         new(Index::Public.new(core.type_name), Array(Resolution).new)
       end
@@ -31,7 +32,10 @@ module Heucristic
 
       def to_s(io : IO) : Nil
         io << identity
-        return if arguments.empty?
+        if arguments.empty?
+          io << "()" if is?(:tuple) && !bare
+          return
+        end
 
         io << '('
         if labelled?

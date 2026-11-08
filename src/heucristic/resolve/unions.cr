@@ -46,7 +46,11 @@ module Heucristic
         case resolution
         in TypeVar then scope.bound(resolution.name) || resolution
         in TypeRef
-          TypeRef.new(resolution.identity, resolution.arguments.map { |arg| rebind(arg, scope) })
+          TypeRef.new(
+            resolution.identity,
+            resolution.arguments.map { |arg| rebind(arg, scope) },
+            bare: resolution.bare,
+          )
         in UnionRef then union(resolution.members.map { |member| rebind(member, scope) })
         in MetaRef
           inner = rebind(resolution.of, scope)
