@@ -17,6 +17,7 @@ require "./memos"
 require "./visit"
 require "./unions"
 require "./narrowing"
+require "./block_inputs"
 require "./special"
 require "./local_assignments"
 require "./variable_references"
@@ -33,6 +34,8 @@ require "../syntax/well_known"
 module Heucristic
   module Resolve
     class Receiver
+      include BlockInputs::Typer
+
       DEPTH_LIMIT = 48
 
       alias Verdict = MacroPrecedence::Verdict
@@ -357,6 +360,33 @@ module Heucristic
 
       def type_of(entry : Index::Constant) : Resolution
         constant_type(entry, entry.name, Array(Visit).new)
+      end
+
+      def type_of(
+        node : Crystal::ASTNode,
+        context : Syntax::Context,
+        visiting : Array(Visit),
+        locals : Array(Binding),
+      ) : Resolution
+        if @depth >= DEPTH_LIMIT
+          @depth_exhausted += 1
+          return Unknown.new(:too_deep, "typing `#{node}` needs more than #{DEPTH_LIMIT} steps")
+        end
+
+        @depth += 1
+        begin
+          typed(node, context, visiting, locals)
+        ensure
+          @depth -= 1
+        end
+      end
+
+      def scope_of(
+        entry : Index::Def,
+        receiver : Resolved,
+        arguments : Array(Resolution),
+      ) : Scope | Unknown
+        return_scope(entry, receiver, arguments, Site::NONE)
       end
 
       private def no_return?(entry : Index::Def, visiting : Array(Visit)) : Bool
@@ -1007,25 +1037,6 @@ module Heucristic
         return bindings if bindings.is_a?(Unknown)
 
         Scope.new(level, @types.type_vars_of(level), bindings)
-      end
-
-      private def type_of(
-        node : Crystal::ASTNode,
-        context : Syntax::Context,
-        visiting : Array(Visit),
-        locals : Array(Binding),
-      ) : Resolution
-        if @depth >= DEPTH_LIMIT
-          @depth_exhausted += 1
-          return Unknown.new(:too_deep, "typing `#{node}` needs more than #{DEPTH_LIMIT} steps")
-        end
-
-        @depth += 1
-        begin
-          typed(node, context, visiting, locals)
-        ensure
-          @depth -= 1
-        end
       end
 
       private def typed(
@@ -1801,179 +1812,27 @@ module Heucristic
           block = call.block
           next unless block
           index = block.args.index(&.name.==(name))
-          unpacked = index ? nil : unpacked_position(block, name)
-          index ||= unpacked.try(&.[0])
+          unpacked = index ? nil : BlockInputs.unpacked_position(block, name)
+          index ||= unpacked.try(&.parameter_index)
           next unless index
 
           outer = outside(call, context)
           receiver = of_call(call, outer, locals, visiting)
           return receiver if receiver.is_a?(Unknown)
 
-          input = @memos.block_inputs[{call.object_id, index}]? || begin
+          input = block_inputs.remembered(call, index) || begin
             shape = shape_of(call, outer, locals, visiting)
-            computed = block_inputs(receiver, shape, index, block.args.size)
+            computed = block_inputs.of(receiver, shape, index, block.args.size)
             if locals.empty? && !unsettled?(computed)
-              @memos.block_inputs[{call.object_id, index}] = computed
+              block_inputs.remember(call, index, computed)
             end
             computed
           end
           return input unless unpacked
 
-          return tuple_element(input, unpacked[1], name)
+          return block_inputs.unpacked_element(input, unpacked.position, name)
         end
         nil
-      end
-
-      private def unpacked_position(block : Crystal::Block, name : String) : Tuple(Int32, Int32)?
-        block.unpacks.try &.each do |index, expressions|
-          position = expressions.expressions.index do |var|
-            var.is_a?(Crystal::Var) && var.name == name
-          end
-          return {index, position} if position
-        end
-        nil
-      end
-
-      private def tuple_element(input : Resolution, position : Int32, name : String) : Resolution
-        return input if input.is_a?(Unknown)
-        unless input.is_a?(TypeRef)
-          return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
-        end
-        if input.is?(:tuple)
-          element = input.arguments[position]?
-          return element || Unknown.new(:unsupported, "#{name} unpacks past the tuple's size")
-        end
-
-        chain = @types.ancestors(input.name)
-        inherits = !chain.is_a?(Unknown) && chain.includes?(CoreType::Indexable.type_name)
-        indexable = input.is?(:indexable) || inherits
-        unless indexable
-          return Unknown.new(:unsupported, "#{name} unpacks a #{input}, which is not indexable")
-        end
-
-        element = input.arguments[0]?
-        element || Unknown.new(:unsupported, "#{name} unpacks #{input} with no element type")
-      end
-
-      private def block_inputs(
-        receiver : Resolved,
-        shape : Methods::Call,
-        index : Int32,
-        parameters : Int32,
-      ) : Resolution
-        if receiver.is_a?(UnionRef)
-          per_member = Array(Resolution).new(receiver.members.size)
-          receiver.members.each do |member|
-            per_member << if member.is_a?(Unknown)
-              member
-            else
-              block_inputs(member, shape, index, parameters)
-            end
-          end
-          return @unions.union(per_member)
-        end
-
-        defs = @methods.lookup(receiver, shape)
-        if defs.empty? && !@methods.virtual_lookup(receiver, shape).empty?
-          virtual = @methods.virtual_receivers(receiver, shape.caller_path)
-          inputs = virtual.map { |below| block_inputs(below, shape, index, parameters) }
-          return @unions.union(inputs)
-        end
-        return @methods.missing(shape.name, receiver) if defs.empty?
-
-        inputs = Array(Resolution).new(defs.size)
-        defs.each do |entry|
-          inputs << block_input(entry, receiver, shape.arguments, index, parameters)
-        end
-        @unions.union(inputs)
-      end
-
-      private def block_input(
-        entry : Index::Def,
-        receiver : Resolved,
-        arguments : Array(Resolution),
-        index : Int32,
-        parameters : Int32,
-      ) : Resolution
-        proc_input = proc_block_input(entry, receiver, index)
-        return proc_input if proc_input
-
-        restriction = block_restriction(entry)
-        if restriction.nil? || restriction.inputs.empty?
-          return yielded(entry, index, receiver, arguments, parameters)
-        end
-
-        scope = return_scope(entry, receiver, arguments, Site::NONE)
-        return scope if scope.is_a?(Unknown)
-
-        if restriction.inputs.size == 1 && parameters > 1
-          yielded = @types.resolve(restriction.inputs[0], scope)
-          element = tuple_element(yielded, index)
-          return element if element
-        end
-        input = restriction.inputs[index]?
-        return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values") unless input
-
-        @types.resolve(input, scope)
-      end
-
-      private def tuple_element(yielded : Resolution, index : Int32) : Resolution?
-        if yielded.is_a?(TypeRef) && yielded.is?(:tuple)
-          return yielded.arguments[index]?
-        end
-        return unless yielded.is_a?(UnionRef)
-
-        elements = yielded.members.map do |member|
-          return unless member.is_a?(TypeRef) && member.is?(:tuple)
-
-          member.arguments[index]? || return
-        end
-        @unions.union(elements)
-      end
-
-      private def yielded(
-        entry : Index::Def,
-        index : Int32,
-        receiver : Resolved,
-        arguments : Array(Resolution),
-        parameters : Int32,
-      ) : Resolution
-        definition = entry.node
-        unless definition
-          return Unknown.new(:no_annotation, "#{entry.qualified} does not state what it yields")
-        end
-
-        owner = entry.owner
-        enclosing = owner.is_a?(String) ? [owner] : Array(String).new
-        owner_vars = owner.is_a?(String) ? @types.type_vars_of(owner) : Array(String).new
-        type_vars = entry.free_vars + owner_vars
-        sites = Syntax::YieldSites.in(definition, enclosing, type_vars, entry.path)
-        if sites.empty? && entry.macro_body
-          return Unknown.new(:macro, "#{entry.qualified} yields only inside macro code")
-        end
-        if sites.empty?
-          return Unknown.new(:no_annotation, "#{entry.qualified} never yields")
-        end
-
-        values = Array(Resolution).new(sites.size)
-        visiting = Array(Visit){DefVisit.new(entry.qualified)}
-        sites.each do |site|
-          exps = site.node.exps
-          if exps.size == 1 && parameters > 1
-            packed = type_of(exps[0], site.context, visiting, Array(Binding).new)
-            if packed.is_a?(TypeRef) && packed.is?(:tuple) && (element = packed.arguments[index]?)
-              values << element
-              next
-            end
-          end
-          expression = exps[index]?
-          unless expression
-            return Unknown.new(:no_annotation, "#{entry.qualified} yields fewer values")
-          end
-          values << type_of(expression, site.context, visiting, Array(Binding).new)
-        end
-        scope = return_scope(entry, receiver, arguments, Site::NONE)
-        scope.is_a?(Unknown) ? @unions.union(values) : @unions.rebind(@unions.union(values), scope)
       end
 
       private def literal_collection(
@@ -1987,33 +1846,6 @@ module Heucristic
         resolved.is_a?(TypeRef) ? resolved.name : CoreType::Array.type_name
       end
 
-      private def proc_block_input(
-        entry : Index::Def,
-        receiver : Resolved,
-        index : Int32,
-      ) : Resolution?
-        return unless receiver.is_a?(MetaRef)
-
-        proc = receiver.of
-        return unless proc.is_a?(TypeRef) && proc.is?(:proc) && proc.arguments.size > index + 1
-
-        restriction = entry.parameters.find(&.kind.block?).try(&.restriction)
-        return unless restriction.is_a?(Syntax::SelfType)
-
-        proc.arguments[index]
-      end
-
-      private def block_restriction(entry : Index::Def) : Syntax::Proc?
-        restriction = entry.parameters.find(&.kind.block?).try(&.restriction)
-        return restriction if restriction.is_a?(Syntax::Proc)
-
-        shim = @shims.find(entry)
-        return unless shim
-
-        shimmed = shim.entry.parameters.find(&.kind.block?).try(&.restriction)
-        shimmed.is_a?(Syntax::Proc) ? shimmed : nil
-      end
-
       private def bind_block(
         entry : Index::Def,
         site : Site,
@@ -2021,7 +1853,7 @@ module Heucristic
         bindings : Array(Binding),
         scope : Scope,
       ) : Nil
-        restriction = block_restriction(entry)
+        restriction = block_inputs.restriction_of(entry)
         return unless restriction
         output = restriction.output
         return unless output
@@ -2036,7 +1868,8 @@ module Heucristic
           return
         end
 
-        inputs = splatted(restriction.inputs.map { |input| @types.resolve(input, scope) }, block)
+        resolved = restriction.inputs.map { |input| @types.resolve(input, scope) }
+        inputs = block_inputs.splatted(resolved, block)
         locals = site.locals.dup
         block.args.each_with_index do |argument, index|
           input = inputs[index]?
@@ -2048,7 +1881,8 @@ module Heucristic
           unpacked.expressions.each_with_index do |target, position|
             next unless target.is_a?(Crystal::Var)
 
-            locals << Binding.new(target.name, tuple_element(input, position, target.name))
+            element = block_inputs.unpacked_element(input, position, target.name)
+            locals << Binding.new(target.name, element)
           end
         end
         body = block.body
@@ -2155,19 +1989,6 @@ module Heucristic
 
           Unify.bind(restriction, argument.value, free_vars, bindings, @types, scope)
         end
-      end
-
-      private def splatted(inputs : Array(Resolution), block : Crystal::Block) : Array(Resolution)
-        return inputs unless inputs.size == 1 && block.args.size > 1
-
-        elements = Array(Resolution).new(block.args.size)
-        block.args.size.times do |index|
-          element = tuple_element(inputs[0], index)
-          return inputs unless element
-
-          elements << element
-        end
-        elements
       end
 
       private def overloads_result(
@@ -2473,6 +2294,10 @@ module Heucristic
 
         escaped = break_values(block, site)
         escaped.empty? ? outcome : @unions.union([outcome] + escaped)
+      end
+
+      private def block_inputs : BlockInputs
+        @block_inputs ||= BlockInputs.new(@types, @methods, @shims, @unions, @memos, self)
       end
     end
   end
