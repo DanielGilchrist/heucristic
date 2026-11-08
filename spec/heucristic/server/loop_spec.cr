@@ -1582,6 +1582,71 @@ describe Heucristic::Server::Loop, "call checks" do
     client.shutdown
   end
 
+  it "treats enum member paths as covering their enum in a case over a union" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    client.open(usage_uri, <<-CR)
+      enum Group
+        Call
+        Path
+      end
+
+      enum Other
+        A
+      end
+
+      def nilable(group : Group?) : Bool
+        case group
+        in Group::Call then true
+        in Group::Path then false
+        in Nil         then true
+        end
+      end
+
+      def two(group : Group | Other) : Bool
+        case group
+        in Group::Call then true
+        in Group::Path then false
+        in Other::A    then true
+        end
+      end
+
+      def mixed(group : Group | String) : Bool
+        case group
+        in Group::Call then true
+        in Group::Path then false
+        in String      then true
+        end
+      end
+
+      def no_nil(group : Group?) : Bool
+        case group
+        in Group::Call then true
+        in Group::Path then false
+        end
+      end
+
+      def no_member(group : Group?) : Bool
+        case group
+        in Group::Call then true
+        in Nil         then true
+        end
+      end
+      CR
+    warnings = client.await_diagnostics(usage_uri) { |found| found.size >= 1 }
+    reported = warnings.map do |warning|
+      {warning["range"]["start"]["line"].as_i, warning["code"].as_s, warning["message"].as_s}
+    end
+    reported.should eq([
+      {34, "non-exhaustive-case", "case is not exhaustive.\n\nMissing cases:\n - Nil"},
+      {41, "non-exhaustive-case", "case is not exhaustive.\n\nMissing cases:\n - Group::Path"},
+    ])
+    client.shutdown
+  end
+
   it "resolves a file-private type in the in branches of a case over a union" do
     client = LspClient.in_process
     client.initialize!(root, stdlib: true, semantic: semantic)

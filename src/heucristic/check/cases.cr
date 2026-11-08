@@ -137,9 +137,17 @@ module Heucristic
         end
 
         branch_types = BranchTypes.new(@types, Resolve::Scope.of(context))
+        scope = Resolve::Scope.of(context)
         covered = Array(Index::Identity).new
+        named_members = Hash(Index::Identity, Array(String)).new
         node.whens.each do |branch|
           branch.conds.each do |cond|
+            named = enum_member_of(cond, members, scope)
+            if named
+              (named_members[named[0]] ||= Array(String).new) << named[1]
+              next
+            end
+
             covering = branch_types.named_by(cond)
             return unless covering
 
@@ -148,8 +156,46 @@ module Heucristic
             end
           end
         end
-        missing = members.reject { |member| covered.includes?(member.identity) }.map(&.to_s)
+        missing = Array(String).new
+        members.each do |member|
+          next if covered.includes?(member.identity)
+
+          missing.concat(uncovered_in(member, named_members[member.identity]?))
+        end
         report_missing(missing, span, findings)
+      end
+
+      private def enum_member_of(
+        cond : Crystal::ASTNode,
+        members : Array(Resolve::TypeRef),
+        scope : Resolve::Scope,
+      ) : Tuple(Index::Identity, String)?
+        return unless cond.is_a?(Crystal::Path) && cond.names.size > 1
+
+        located = enum_of(cond, scope)
+        return unless located.is_a?(Index::Identity)
+        return unless members.any? { |member| member.identity == located }
+
+        namespaces = @workspace.namespaces(located)
+        return unless namespaces.all?(Index::EnumNamespace)
+        return if namespaces.any? { |entry| entry.is_a?(Index::EnumNamespace) && entry.flags }
+
+        last = cond.names.last
+        return unless enum_members(located).includes?(last)
+
+        {located, last}
+      end
+
+      private def uncovered_in(member : Resolve::TypeRef, named : Array(String)?) : Array(String)
+        return [member.to_s] unless named
+
+        enum_members(member.identity).reject { |name| named.includes?(name) }.map do |name|
+          "#{member}::#{name}"
+        end
+      end
+
+      private def enum_members(identity : Index::Identity) : Array(String)
+        @workspace.constants_of(identity).map(&.identity.last)
       end
 
       private def plain_parameter?(subject : Crystal::ASTNode, context : Syntax::Context) : Bool
