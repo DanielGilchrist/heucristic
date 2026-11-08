@@ -58,22 +58,32 @@ module Heucristic
 
       @workspace : Index::Workspace
 
+      @macro_status : MacroStatus
+
+      @compiler_status : CompilerStatus
+
+      @semantic : String?
+
+      @executable : String?
+
+      @source_paths : Array(String)?
+
       getter progress : Progress
 
       def initialize(@transport : Protocol::Transport, events : Channel(Index::Event)) : Nil
         @root = Dir.current
         @macros = Macros.new(events)
-        @macro_status = MacrosPending.new.as(MacroStatus)
+        @macro_status = MacrosPending.new
         @macro_sites = Hash(String, Hash(Int32, Index::MacroSite)).new
         @generated = Hash(Index::MacroTarget, Index::File).new
         @compiled = Hash(Index::MacroTarget, Set(String)).new
         @spec_wanted = false
         @loose = Set(String).new
         @indexed = false
-        @semantic = nil.as(String?)
+        @semantic = nil
         @compiler = Compiler.new(events)
-        @compiler_status = CompilerPending.new.as(CompilerStatus)
-        @executable = nil.as(String?)
+        @compiler_status = CompilerPending.new
+        @executable = nil
         @published = Published.new
         @dirty = Set(String).new
         @check_generations = Hash(String, Int32).new
