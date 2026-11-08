@@ -1481,6 +1481,18 @@ describe Heucristic::Server::Loop, "call checks" do
     client.shutdown
   end
 
+  it "ignores an abstract def declared in a file the compiler never loaded" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic, compiler: compiler)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    pages_uri = "file://#{root}/app/pages.cr"
+    found = client.await_diagnostics(pages_uri, 60.seconds) { |published| !published.empty? }
+    found.map(&.["code"].as_s).should eq(["undefined-method"])
+    client.shutdown
+  end
+
   it "reports a non-exhaustive case over a file-private enum from the sweep" do
     client = LspClient.in_process
     client.initialize!(root, stdlib: true, semantic: semantic, compiler: compiler)

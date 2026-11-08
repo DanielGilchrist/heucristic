@@ -23,7 +23,7 @@ module Heucristic
           next unless primary?(entry)
           next unless @settled.declared?(entry.name)
 
-          check(entry, findings)
+          check(path, entry, findings)
         end
       end
 
@@ -34,11 +34,15 @@ module Heucristic
         first.path == entry.path && first.name_span == entry.name_span
       end
 
-      private def check(entry : Index::ClassNamespace, findings : Array(Finding)) : Nil
+      private def check(
+        path : String,
+        entry : Index::ClassNamespace,
+        findings : Array(Finding),
+      ) : Nil
         levels = @methods.levels(entry.name)
         levels.each do |level|
           @workspace.defs_of(level).each do |definition|
-            next unless definition.abstract_def
+            next unless definition.abstract_def && @methods.own?(definition, path)
             next if implemented?(definition, levels)
 
             message = String.build do |io|
