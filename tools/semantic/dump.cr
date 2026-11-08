@@ -174,7 +174,8 @@ module Semantic
       parents.compact_map do |parent|
         next if type.is_a?(Crystal::ClassType) && parent == type.superclass
         next if parent.is_a?(Crystal::ClassType)
-        next unless parent.is_a?(Crystal::ModuleType)
+        next unless parent.is_a?(Crystal::ModuleType) ||
+                    parent.is_a?(Crystal::GenericModuleInstanceType)
 
         parent.to_s
       end
