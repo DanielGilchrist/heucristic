@@ -29,6 +29,57 @@ module Heucristic
       private_path : String? = nil,
       exit_call : String? = nil,
       reads : InstanceVarRead? = nil do
+      def self.synthetic(
+        name : String,
+        owner : Owner,
+        path : String,
+        name_span : Document::Span,
+        receiver : Receiver = Receiver::Instance,
+        parameters : Array(Parameter) = Array(Parameter).new,
+        return_type : Restriction = Unrestricted.new,
+        arity : Arity = Arity.new(parameters.size, 0, false),
+        visibility : Visibility = Visibility::Public,
+        reads : InstanceVarRead? = nil,
+      ) : Def
+        new(
+          name: name,
+          owner: owner,
+          receiver: receiver,
+          path: path,
+          name_span: name_span,
+          arity: arity,
+          parameters: parameters,
+          return_type: return_type,
+          free_vars: Array(String).new,
+          yields: false,
+          visibility: visibility,
+          reads: reads,
+        )
+      end
+
+      def self.forwarder(
+        name : String,
+        owner : Owner,
+        path : String,
+        name_span : Document::Span,
+        target : Crystal::ASTNode,
+      ) : Def
+        splat = Parameter.new("args", "args", Unrestricted.new, nil, :splat)
+        new(
+          name: name,
+          owner: owner,
+          receiver: Receiver::Instance,
+          path: path,
+          name_span: name_span,
+          arity: Arity.anything,
+          parameters: [splat],
+          return_type: Unrestricted.new,
+          free_vars: Array(String).new,
+          yields: false,
+          forwards_to: target,
+        )
+      end
+
       def visible_from?(path : String?) : Bool
         path.nil? || private_path.nil? || private_path == path
       end

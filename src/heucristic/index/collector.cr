@@ -160,17 +160,15 @@ module Heucristic
         return false unless span.is_a?(Document::Span)
 
         parameters = node.args.map { |arg| Parameter.from(arg, :positional) }
-        @defs << Def.new(
+        @defs << Def.synthetic(
           name: node.name,
           owner: owner,
-          receiver: :metaclass,
           path: @path,
           name_span: span,
-          arity: Arity.new(node.args.size, 0, node.varargs?),
+          receiver: Receiver::Metaclass,
           parameters: parameters,
           return_type: fun_return_type(node),
-          free_vars: Array(String).new,
-          yields: false,
+          arity: Arity.new(node.args.size, 0, node.varargs?),
         )
         false
       end
@@ -373,19 +371,7 @@ module Heucristic
         span = span_of(node, node.name.size)
         return unless span
 
-        @defs << Def.new(
-          name: MacroHook::MethodMissing.macro_name,
-          owner: owner,
-          receiver: :instance,
-          path: @path,
-          name_span: span,
-          arity: Arity.new(0, 0, true),
-          parameters: [Parameter.new("args", "args", Unrestricted.new, nil, :splat)],
-          return_type: Unrestricted.new,
-          free_vars: Array(String).new,
-          yields: false,
-          forwards_to: target,
-        )
+        @defs << Def.forwarder(MacroHook::MethodMissing.macro_name, owner, @path, span, target)
       end
 
       private def record_macro(
@@ -429,17 +415,12 @@ module Heucristic
         value = member.default_value.try(&.to_s) || Constant::ImplicitValue.new
         type = Syntax::Named.new([owner], false)
         @constants << Constant.new("#{owner}::#{member.name}", @path, span, value, type, nil)
-        @defs << Def.new(
+        @defs << Def.synthetic(
           name: "#{member.name.underscore}?",
           owner: owner,
-          receiver: :instance,
           path: @path,
           name_span: span,
-          arity: Arity.new(0, 0, false),
-          parameters: Array(Parameter).new,
           return_type: Syntax::Named.of(:bool),
-          free_vars: Array(String).new,
-          yields: false,
         )
       end
 
@@ -473,17 +454,13 @@ module Heucristic
           end
         end
         required = parameters.count(&.default.nil?)
-        @defs << Def.new(
+        @defs << Def.synthetic(
           name: Syntax::WellKnown::Initialize.method_name,
           owner: owner,
-          receiver: :instance,
           path: @path,
           name_span: span,
-          arity: Arity.new(required, parameters.size - required, false),
           parameters: parameters,
-          return_type: Unrestricted.new,
-          free_vars: Array(String).new,
-          yields: false,
+          arity: Arity.new(required, parameters.size - required, false),
         )
       end
 
@@ -653,19 +630,7 @@ module Heucristic
           span = span_of(arg, name.size + 1)
           next unless span
 
-          @defs << Def.new(
-            name: name,
-            owner: owner,
-            receiver: :instance,
-            path: @path,
-            name_span: span,
-            arity: Arity.new(0, 0, true),
-            parameters: [Parameter.new("args", "args", Unrestricted.new, nil, :splat)],
-            return_type: Unrestricted.new,
-            free_vars: Array(String).new,
-            yields: false,
-            forwards_to: target,
-          )
+          @defs << Def.forwarder(name, owner, @path, span, target)
         end
         false
       end
@@ -749,17 +714,14 @@ module Heucristic
         return_type : Restriction,
         reads : InstanceVarRead? = nil,
       ) : Nil
-        @defs << Def.new(
+        @defs << Def.synthetic(
           name: name,
           owner: owner,
-          receiver: receiver,
           path: @path,
           name_span: span,
-          arity: Arity.new(parameters.size, 0, false),
+          receiver: receiver,
           parameters: parameters,
           return_type: return_type,
-          free_vars: Array(String).new,
-          yields: false,
           visibility: visibility,
           reads: reads,
         )
@@ -808,17 +770,12 @@ module Heucristic
 
         type = Syntax::TypeReader.read(field.declared_type)
         instance_var("@#{var.name}", type, span, :declared)
-        @defs << Def.new(
+        @defs << Def.synthetic(
           name: var.name,
           owner: owner,
-          receiver: :instance,
           path: @path,
           name_span: span,
-          arity: Arity.new(0, 0, false),
-          parameters: Array(Parameter).new,
           return_type: type,
-          free_vars: Array(String).new,
-          yields: false,
         )
       end
 
@@ -840,17 +797,13 @@ module Heucristic
         return unless span.is_a?(Document::Span)
 
         type = Syntax::TypeReader.read(field.declared_type)
-        @defs << Def.new(
+        @defs << Def.synthetic(
           name: "#{var.name}=",
           owner: owner,
-          receiver: :instance,
           path: @path,
           name_span: span,
-          arity: Arity.new(1, 0, false),
           parameters: [Parameter.new("value", "value", type, nil, :positional)],
           return_type: type,
-          free_vars: Array(String).new,
-          yields: false,
         )
       end
 
