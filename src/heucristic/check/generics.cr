@@ -45,9 +45,8 @@ module Heucristic
         given = node.type_vars.size
         return if expected.size == given
 
-        start = Document::Point.from(location)
-        span = text.span(start, start.advance(name.to_s.size))
-        return unless span.is_a?(Document::Span)
+        span = text.span_at(location, name.to_s.size)
+        return unless span
 
         if expected.empty?
           message = "#{located} is not a generic type, it's a #{kind(located)}"

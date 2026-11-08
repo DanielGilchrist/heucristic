@@ -84,6 +84,12 @@ module Heucristic
         Span.new(start.line, start.character, stop.line, stop.character)
       end
 
+      def span_at(location : Crystal::Location, size : Int32) : Span?
+        start = Point.from(location)
+        found = span(start, start.advance(size))
+        found.is_a?(Span) ? found : nil
+      end
+
       def splice(from : Int32, to : Int32, replacement : String) : Text
         Text.new(String.build(@source.bytesize + replacement.bytesize) do |io|
           io.write(@source.to_slice[0, from])

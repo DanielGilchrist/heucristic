@@ -78,9 +78,7 @@ module Heucristic
           name_location = node.name_location
           return unless name_location
 
-          start = Document::Point.from(name_location)
-          span = text.span(start, start.advance(node.name.size))
-          return span.is_a?(Document::Span) ? span : nil
+          return text.span_at(name_location, node.name.size)
         end
 
         start = Document::Point.from(location)

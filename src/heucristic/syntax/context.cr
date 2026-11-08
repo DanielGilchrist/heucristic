@@ -1,6 +1,7 @@
 require "compiler/crystal/syntax"
 require "../index/owner"
 require "../index/accessor"
+require "./well_known"
 
 module Heucristic
   module Syntax
@@ -65,6 +66,12 @@ module Heucristic
         outer = ancestors[0, index + 1]
         entered = outer.select(Crystal::Call).select { |call| !call.block.nil? }
         Context.new(enclosing, type_vars, enclosing_def(outer), entered, outer, path, instance)
+      end
+
+      def in_pending? : Bool
+        blocks.any? do |block_call|
+          block_call.obj.nil? && WellKnown::Pending.named?(block_call.name)
+        end
       end
 
       def select_condition?(call : Crystal::Call) : Bool

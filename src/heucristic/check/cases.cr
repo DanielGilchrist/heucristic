@@ -36,9 +36,8 @@ module Heucristic
         location = node.location
         return unless subject && location && node.else.nil?
 
-        start = Document::Point.from(location)
-        span = text.span(start, start.advance(KEYWORD.size))
-        return unless span.is_a?(Document::Span)
+        span = text.span_at(location, KEYWORD.size)
+        return unless span
 
         resolved = @receiver.typed(subject, site.context)
         case resolved
@@ -70,9 +69,7 @@ module Heucristic
         end
         return if members.empty?
 
-        scope = Resolve::Scope.new(
-          context.owner, context.type_vars, Array(Resolve::Binding).new, context.path
-        )
+        scope = Resolve::Scope.of(context)
         covered = covered_members(node, resolved.name, members, scope)
         return unless covered
 

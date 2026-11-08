@@ -72,16 +72,15 @@ module Heucristic
         return Skip::NoLocation unless location
         enclosing = site.context.ancestors[0...-1]
         return Skip::MacroArguments if MacroArguments.within?(enclosing, @workspace)
-        return Skip::PendingSpec if pending_block?(site.context.blocks)
+        return Skip::PendingSpec if site.context.in_pending?
         if site.context.select_condition?(call)
           timeout = call.obj.nil? && Syntax::WellKnown::Timeout.named?(call.name)
           return Skip::SelectCondition if timeout
         end
         return Skip::ChainedComparison if Resolve::Receiver.chained_comparison?(call)
 
-        start = Document::Point.from(location)
-        span = text.span(start, start.advance(call.name_size))
-        return Skip::NoLocation unless span.is_a?(Document::Span)
+        span = text.span_at(location, call.name_size)
+        return Skip::NoLocation unless span
 
         macros = @workspace.macros(call.name)
         if !macros.empty? && call.obj.nil?
@@ -464,12 +463,6 @@ module Heucristic
 
         levels = @methods.levels(of.name)
         @workspace.macros(name).any?(&.owner.in?(levels))
-      end
-
-      private def pending_block?(blocks : Array(Crystal::Call)) : Bool
-        blocks.any? do |block_call|
-          block_call.obj.nil? && Syntax::WellKnown::Pending.named?(block_call.name)
-        end
       end
 
       private def undefined(call : Crystal::Call, receiver : Resolve::Resolution) : String

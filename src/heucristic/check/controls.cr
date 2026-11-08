@@ -34,9 +34,8 @@ module Heucristic
         location = node.location
         return unless location
 
-        start = Document::Point.from(location)
-        span = text.span(start, start.advance(site.kind.keyword.size))
-        return unless span.is_a?(Document::Span)
+        span = text.span_at(location, site.kind.keyword.size)
+        return unless span
 
         findings << Finding.new(:misplaced_control, message, span)
       end

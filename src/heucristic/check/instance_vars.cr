@@ -42,9 +42,8 @@ module Heucristic
         location = site.node.location
         return unless location
 
-        start = Document::Point.from(location)
-        span = sites.text.span(start, start.advance(site.node.name.size))
-        return unless span.is_a?(Document::Span)
+        span = sites.text.span_at(location, site.node.name.size)
+        return unless span
 
         entries = @methods.levels(owner).flat_map do |level|
           @workspace.instance_vars_of(level).select(&.name.==(site.node.name))
@@ -105,9 +104,8 @@ module Heucristic
           next if nilable?(entry, owner)
           next if declared.any? { |other| other.name == entry.name && other.initialized }
 
-          start = Document::Point.from(location)
-          span = text.span(start, start.advance(node.name.size))
-          return unless span.is_a?(Document::Span)
+          span = text.span_at(location, node.name.size)
+          return unless span
 
           message = String.build do |io|
             io << "this 'initialize' doesn't explicitly initialize instance variable '"

@@ -83,9 +83,8 @@ module Heucristic
         body = definition ? definition.body : tree
         found = Array(LSProtocol::Location).new
         Syntax::VariableUses.of(body, name).each do |location|
-          start = Document::Point.from(location)
-          span = text.span(start, start.advance(name.size))
-          next unless span.is_a?(Document::Span)
+          span = text.span_at(location, name.size)
+          next unless span
 
           found << LSProtocol::Location.new(range: span.to_range, uri: URI.parse(uri))
         end
@@ -139,9 +138,8 @@ module Heucristic
       ) : Nil
         return unless location
 
-        start = Document::Point.from(location)
-        span = sites.text.span(start, start.advance(size))
-        return unless span.is_a?(Document::Span)
+        span = sites.text.span_at(location, size)
+        return unless span
 
         uri = URI.parse(Uri.from_path(sites.path))
         found << LSProtocol::Location.new(range: span.to_range, uri: uri)

@@ -325,9 +325,8 @@ module Heucristic
       ) : Nil
         return unless location
 
-        start = Document::Point.from(location)
-        span = text.span(start, start.advance(size))
-        spans << span if span.is_a?(Document::Span)
+        span = text.span_at(location, size)
+        spans << span if span
       end
 
       private def describe_resolved(

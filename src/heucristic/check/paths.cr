@@ -32,9 +32,7 @@ module Heucristic
         location = path.location
         return unless location
         return if MacroArguments.within?(site.context.ancestors, @workspace)
-        return if site.context.blocks.any? do |block_call|
-                    block_call.obj.nil? && Syntax::WellKnown::Pending.named?(block_call.name)
-                  end
+        return if site.context.in_pending?
         return if inside_lib?(site.context)
 
         scope = Resolve::Scope.of(site.context)
@@ -45,9 +43,8 @@ module Heucristic
         return unless resolved.is_a?(Resolve::Unknown) && resolved.reason.unresolved_name?
         return unless provable?(path, scope)
 
-        start = Document::Point.from(location)
-        span = text.span(start, start.advance(path.to_s.size))
-        return unless span.is_a?(Document::Span)
+        span = text.span_at(location, path.to_s.size)
+        return unless span
 
         findings << Finding.new(:undefined_constant, "undefined constant #{path}", span)
       end

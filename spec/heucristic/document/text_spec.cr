@@ -43,4 +43,15 @@ describe Heucristic::Document::Text do
   it "handles crlf line endings" do
     text("ab\r\ncd").offset(position(1, 0)).should eq(4)
   end
+
+  it "spans a location for a number of characters" do
+    location = Crystal::Location.new(nil, 2, 2)
+    span = text("ab\ncd").span_at(location, 2)
+    span.should eq(Heucristic::Document::Span.new(1, 1, 1, 2))
+  end
+
+  it "has no span past the end of the text" do
+    location = Crystal::Location.new(nil, 5, 1)
+    text("ab\ncd").span_at(location, 2).should be_nil
+  end
 end
