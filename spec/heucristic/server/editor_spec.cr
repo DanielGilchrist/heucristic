@@ -76,6 +76,22 @@ describe "hover and definition at editor positions" do
     end
   end
 
+  it "hovers and jumps from the name of a rescue clause's variable" do
+    source = "def run\n  exit\nrescue ex : Exception\n  ex.message\nend\n"
+    with_document(source) do |client|
+      hover_text(client.hover(URI_A, 2, 8)).to_s.should contain("Exception")
+      starts(client.definition(URI_A, 2, 8)).should eq([{2, 7}])
+    end
+  end
+
+  it "jumps from a local declared with uninitialized to its declaration" do
+    source = "def run\n  stat = uninitialized Int32\n  stat + 1\nend\n"
+    with_document(source) do |client|
+      starts(client.definition(URI_A, 2, 3)).should eq([{1, 2}])
+      starts(client.definition(URI_A, 1, 3)).should eq([{1, 2}])
+    end
+  end
+
   it "jumps from a variable captured by a proc literal to the enclosing def's declaration" do
     source = "def run(user_id : Int32)\n  window = 1\n  -> : Int32 { window + user_id }\nend\n"
     with_document(source) do |client|

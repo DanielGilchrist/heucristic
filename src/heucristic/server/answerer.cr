@@ -9,6 +9,7 @@ require "../index/workspace"
 require "../requires"
 require "../resolve/block_inputs"
 require "../resolve/local_declarations"
+require "../resolve/uninitialized_locals"
 require "../resolve/methods"
 require "../resolve/receiver"
 require "../resolve/types"
@@ -348,6 +349,9 @@ module Heucristic
 
         found = Resolve::LocalAssignments.first_target(body, name).try(&.location)
         return found if found
+        if (uninitialized = Resolve::UninitializedLocals.find(body, name))
+          return uninitialized.location
+        end
 
         index = context.proc_index
         introduced_at(name, context.outside_proc(index), source) if index
