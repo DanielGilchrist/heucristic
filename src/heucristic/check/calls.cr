@@ -544,10 +544,14 @@ module Heucristic
         entry = defs[0]
         shape = @receiver.shape_of(call, context)
         complaint = shape.complaint(entry)
-        return unless complaint
-        return if entry.arity.splat && !complaint.starts_with?("no parameter")
+        suppressed = case complaint
+                     in Index::NoParameter                              then false
+                     in Index::AlreadySpecified, Index::MissingArgument then entry.arity.splat
+                     in Nil                                             then return
+                     end
+        return if suppressed
 
-        findings << Finding.new(:named_argument, complaint, span)
+        findings << Finding.new(:named_argument, complaint.to_s, span)
       end
 
       private def argument_types(

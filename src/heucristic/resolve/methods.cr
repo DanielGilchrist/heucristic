@@ -1,6 +1,7 @@
 require "./precision"
 require "./compiled"
 require "../index/def"
+require "../index/argument_check"
 require "../index/workspace"
 require "../syntax/type"
 require "../syntax/well_known"
@@ -44,31 +45,8 @@ module Heucristic
           positional_satisfied?(entry) && entry.yields == block && keywords_satisfied?(entry)
         end
 
-        def complaint(entry : Index::Def) : String?
-          positional = entry.parameters.select(&.kind.positional?)
-          accepts_any = entry.parameters.any?(&.kind.double_splat?)
-          named.each do |name|
-            index = positional.index(&.external_name.==(name))
-            return "argument for parameter '#{name}' already specified" if index && index < arity
-            next if index || entry.parameters.any? { |parameter| keyword_named?(parameter, name) }
-            return "no parameter named '#{name}'" unless accepts_any
-          end
-          entry.parameters.each do |parameter|
-            next unless parameter.kind.keyword? && parameter.default.nil?
-            next if named.includes?(parameter.external_name)
-
-            return "missing argument: #{parameter.external_name}"
-          end
-          positional.each_with_index do |parameter, index|
-            next if index < arity || parameter.default || named.includes?(parameter.external_name)
-
-            return "missing argument: #{parameter.external_name}"
-          end
-          nil
-        end
-
-        private def keyword_named?(parameter : Index::Parameter, name : String) : Bool
-          parameter.kind.keyword? && parameter.external_name == name
+        def complaint(entry : Index::Def) : Index::ArgumentComplaint?
+          Index::ArgumentCheck.new(entry.parameters, arity, named).complaint
         end
 
         private def positional_satisfied?(entry : Index::Def) : Bool
