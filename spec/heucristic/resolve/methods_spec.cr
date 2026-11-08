@@ -143,7 +143,8 @@ private def private_generated_methods(*declared : {String, String}) : Heucristic
   text = Heucristic::Document::Text.new(source)
   collected = Heucristic::Index::Collector.collect(generated, text, tree)
   shims = Heucristic::Index::Shims.new
-  workspace.update(Heucristic::Index::Generated.merge(collected, sites, workspace, shims))
+  loaded = Heucristic::Index::LoadedFiles.new(declared.map(&.[0]).to_set, Array(String).new)
+  workspace.update(Heucristic::Index::Generated.merge(collected, sites, workspace, shims, loaded))
   Heucristic::Resolve::Methods.new(workspace, Heucristic::Resolve::Types.new(workspace))
 end
 

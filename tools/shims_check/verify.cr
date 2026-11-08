@@ -103,7 +103,7 @@ module ShimsCheck
       workspace.update(Heucristic::Index::Collector.collect(PROBES, text, tree))
       types = Heucristic::Resolve::Types.new(workspace)
       methods = Heucristic::Resolve::Methods.new(workspace, types)
-      loaded = expand(workspace, shims)
+      loaded = expand(workspace, shims, shim_roots)
       if loaded
         targets = {Heucristic::Index::MacroTarget::Loose => loaded}
         methods.compiled(Heucristic::Resolve::Compiled.new(targets, shim_roots))
@@ -114,6 +114,7 @@ module ShimsCheck
     private def expand(
       workspace : Heucristic::Index::Workspace,
       shims : Heucristic::Index::Shims,
+      shim_roots : Array(String),
     ) : Set(String)?
       events = Channel(Heucristic::Index::Event).new(64)
       macros = Heucristic::Server::Macros.new(events)
@@ -131,7 +132,8 @@ module ShimsCheck
 
       text = Heucristic::Document::Text.new(result.source)
       collected = Heucristic::Index::Collector.collect(path, text, generated)
-      merged = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims)
+      merged = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims,
+        Heucristic::Index::LoadedFiles.new(result.files.to_set, shim_roots))
       workspace.update(merged)
       workspace.expand(Heucristic::Index::MacroTarget::Loose, result.expansions)
       result.files.to_set

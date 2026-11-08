@@ -4,6 +4,7 @@ require "./shims"
 require "./workspace"
 require "./accessor"
 require "./synthesized"
+require "./loaded_files"
 require "../syntax/well_known"
 
 module Heucristic
@@ -11,15 +12,21 @@ module Heucristic
     module Generated
       extend self
 
-      def merge(file : File, sites : Array(MacroSite), workspace : Workspace, shims : Shims) : File
+      def merge(
+        file : File,
+        sites : Array(MacroSite),
+        workspace : Workspace,
+        shims : Shims,
+        loaded : LoadedFiles,
+      ) : File
         macros = Hash(Int32, String).new
         sites.each { |site| macros[site.line] = site.macro_name }
         privately = Hash(Int32, String).new
         sites.each { |site| site.private_to.try { |path| privately[site.line] = path } }
         kept = file.defs.reject do |entry|
-          constructor?(entry.name) ||
-            known?(entry, workspace, shims, privately[entry.name_span.start_line.to_i + 1]?) ||
-            synthesized?(entry, macros, workspace)
+          private_to = privately[entry.name_span.start_line.to_i + 1]?
+          constructor?(entry.name) || known?(entry, workspace, shims, loaded, private_to) ||
+            synthesized?(entry, macros, workspace, loaded)
         end
         kept.map! do |entry|
           path = privately[entry.name_span.start_line.to_i + 1]?
@@ -46,13 +53,14 @@ module Heucristic
         entry : Def,
         macros : Hash(Int32, String),
         workspace : Workspace,
+        loaded : LoadedFiles,
       ) : Bool
         macro_name = macros[entry.name_span.start_line.to_i + 1]?
         return false unless macro_name && synthesized_macro?(macro_name)
 
         workspace.named(entry.name).any? do |existing|
-          existing.path != entry.path && existing.owner == entry.owner &&
-            existing.receiver == entry.receiver
+          existing.path != entry.path && loaded.includes?(existing.path) &&
+            existing.owner == entry.owner && existing.receiver == entry.receiver
         end
       end
 
@@ -72,14 +80,15 @@ module Heucristic
         entry : Def,
         workspace : Workspace,
         shims : Shims,
+        loaded : LoadedFiles,
         private_to : String?,
       ) : Bool
         return true if shims.find(entry)
 
         identity = entry.identity
         workspace.named(entry.name).any? do |existing|
-          existing.path != entry.path && existing.identity == identity &&
-            (private_to.nil? || existing.path == private_to)
+          existing.path != entry.path && loaded.includes?(existing.path) &&
+            existing.identity == identity && (private_to.nil? || existing.path == private_to)
         end
       end
     end

@@ -215,7 +215,8 @@ module Heucristic
         else
           text = Document::Text.new(event.source)
           collected = Index::Collector.collect(path, text, tree)
-          file = Index::Generated.merge(collected, event.sites, @workspace, @shims)
+          file = Index::Generated.merge(collected, event.sites, @workspace, @shims,
+            Index::LoadedFiles.new(event.files.to_set, shim_roots))
           @generated[event.target] = file
           @workspace.update(file)
           @workspace.expand(event.target, event.expansions)

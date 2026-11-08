@@ -471,7 +471,10 @@ module Score
       end
       text = Heucristic::Document::Text.new(result.source)
       collected = Heucristic::Index::Collector.collect(path, text, tree)
-      file = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims)
+      loaded = Heucristic::Index::LoadedFiles.new(
+        result.files.to_set, Heucristic::Server::ShimRoots.for(root)
+      )
+      file = Heucristic::Index::Generated.merge(collected, result.sites, workspace, shims, loaded)
       workspace.update(file)
       workspace.expand(target, result.expansions)
       elapsed = result.elapsed.total_milliseconds.round
