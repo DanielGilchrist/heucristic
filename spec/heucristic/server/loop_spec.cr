@@ -1493,6 +1493,18 @@ describe Heucristic::Server::Loop, "call checks" do
     client.shutdown
   end
 
+  it "expands a macro call before looking at a same-named def of another arity" do
+    client = LspClient.in_process
+    client.initialize!(root, stdlib: true, semantic: semantic, compiler: compiler)
+    client.await_notification(Notice::Indexed, 60.seconds)
+    client.await_stage(Notice::Macros, Stage::Done, 60.seconds)
+
+    keyed_uri = "file://#{root}/app/macro_priority.cr"
+    found = client.await_diagnostics(keyed_uri, 60.seconds) { |published| !published.empty? }
+    found.map(&.["code"].as_s).should eq(["undefined-method"])
+    client.shutdown
+  end
+
   it "accepts a module's self where a type that includes the module is required" do
     client = LspClient.in_process
     client.initialize!(root, stdlib: true, semantic: semantic, compiler: compiler)

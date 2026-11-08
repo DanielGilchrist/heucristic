@@ -84,7 +84,8 @@ module Heucristic
         return Skip::NoLocation unless span.is_a?(Document::Span)
 
         macros = @workspace.macros(call.name)
-        if !macros.empty? && call.obj.nil? && !method_named?(call.name, site.context)
+        if !macros.empty? && call.obj.nil? &&
+           (!method_named?(call.name, site.context) || macro_wins?(call, macros, site.context))
           return macro_call(call, macros, span, findings)
         end
 
@@ -223,6 +224,45 @@ module Heucristic
         return true if receiver.is_a?(Resolve::UnionRef) || receiver.is_a?(Resolve::TypeVar)
 
         !@methods.named_on(receiver, name).empty?
+      end
+
+      private def macro_wins?(
+        call : Crystal::Call,
+        macros : Array(Index::MacroDef),
+        context : Syntax::Context,
+      ) : Bool
+        return false if call.args.any? { |arg| splat?(arg) } || call.block_arg
+
+        accepting = macros.select { |definition| macro_complaint(call, definition).nil? }
+        return false if accepting.empty?
+
+        receiver = @receiver.of_call(Crystal::Call.new(nil, call.name), context)
+        return false if receiver.is_a?(Resolve::Unknown)
+
+        type = self_type(receiver)
+        return false unless type
+
+        levels = @methods.levels(type)
+        depth = accepting.compact_map { |definition| levels.index(definition.owner) }.min?
+        return false unless depth
+
+        nearer = levels[0, depth]
+        shape = @receiver.shape_of(call, context)
+        @methods.named_on(receiver, call.name).none? do |entry|
+          nearer.includes?(entry.owner) &&
+            (shape.copy_with(block: true).accepts?(entry) ||
+              shape.copy_with(block: false).accepts?(entry))
+        end
+      end
+
+      private def self_type(receiver : Resolve::Resolved) : String?
+        case receiver
+        in Resolve::TypeRef then receiver.name
+        in Resolve::MetaRef
+          of = receiver.of
+          of.is_a?(Resolve::TypeRef) ? of.name : nil
+        in Resolve::UnionRef, Resolve::TypeVar then nil
+        end
       end
 
       private def wrong_macro_arity(call : Crystal::Call, definition : Index::MacroDef) : String
