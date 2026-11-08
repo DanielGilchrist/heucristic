@@ -41,8 +41,7 @@ module Heucristic
             bind(inner, value, free_vars, bindings, types, scope) if value
           end
         in Syntax::Nilable
-          inner = argument.is_a?(UnionRef) ? argument.members.reject(&.==(NIL)) : [argument]
-          value = inner.size == 1 ? inner[0] : argument
+          value = argument.is_a?(UnionRef) ? without_nil(argument) : argument
           bind(restriction.inner, value, free_vars, bindings, types, scope)
         in Syntax::Union
           bind_union(restriction, argument, free_vars, bindings, types, scope)
@@ -61,6 +60,11 @@ module Heucristic
         in Syntax::Splat, Syntax::Literal, Syntax::TypeOf, Syntax::SelfType, Syntax::Underscore
           nil
         end
+      end
+
+      private def without_nil(argument : UnionRef) : Resolution
+        remaining = argument.members.reject(&.==(NIL))
+        remaining.empty? ? argument : UnionRef.join(remaining)
       end
 
       private def instance_of(argument : Resolution) : Resolution?

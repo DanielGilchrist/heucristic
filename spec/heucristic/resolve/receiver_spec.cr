@@ -1111,6 +1111,33 @@ describe Heucristic::Resolve::Receiver, "file-private declarations" do
   end
 end
 
+describe Heucristic::Resolve::Receiver, "a nilable alias union bound through a block result" do
+  source = <<-CR
+    record First, size : Int32
+    record Second, size : Int32
+    alias Either = First | Second
+
+    def pick : Either?
+    end
+
+    class Box(T)
+      def item : T
+      end
+
+      def keep(& : T -> U?) : Box(U) forall U
+      end
+    end
+
+    def run(box : Box(Int32)) : Nil
+      box.keep { pick }.item.size
+    end
+    CR
+
+  it "drops Nil from the bound variable when the block returns an alias union or nil" do
+    receiver_of_size(source, "box.keep { pick }.item.size").should eq("First | Second")
+  end
+end
+
 describe Heucristic::Resolve::Receiver, "file-private types shadowing same-named types" do
   files = {
     "a.cr" => <<-CR,
