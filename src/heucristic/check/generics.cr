@@ -4,18 +4,26 @@ require "../index/workspace"
 require "../resolve/types"
 require "../resolve/scope"
 require "../syntax/type_reader"
+require "./environment"
+require "./inspection"
 require "./finding"
 require "./settled"
 
 module Heucristic
   module Check
     struct Generics
-      def initialize(
-        @workspace : Index::Workspace,
-        @types : Resolve::Types,
-        @settled : Settled,
-        @root : String,
-      ) : Nil
+      include Inspection
+
+      @workspace : Index::Workspace
+      @types : Resolve::Types
+      @settled : Settled
+      @root : String
+
+      def initialize(environment : Environment) : Nil
+        @workspace = environment.workspace
+        @types = environment.types
+        @settled = environment.settled
+        @root = environment.root
       end
 
       def run(sites : Index::Sites, findings : Array(Finding)) : Nil

@@ -9,7 +9,19 @@ private def misplaced(source : String) : Array(String)
   workspace.update(Heucristic::Index::Collector.collect("a.cr", text, tree))
   sites = Heucristic::Index::Sites.of("a.cr", text, tree)
   findings = Array(Heucristic::Check::Finding).new
-  Heucristic::Check::Controls.new(workspace).run(sites, findings)
+  types = Heucristic::Resolve::Types.new(workspace)
+  methods = Heucristic::Resolve::Methods.new(workspace, types)
+  receiver = Heucristic::Resolve::Receiver.new(
+    workspace, Heucristic::Index::Shims.new, types, methods
+  )
+  settled = Heucristic::Check::Settled.new(
+    workspace, types, methods.descendants, true, Set(String).new, Set{"a.cr"}, "/project",
+    Array(String).new
+  )
+  environment = Heucristic::Check::Environment.new(
+    workspace, types, methods, receiver, settled, "/project"
+  )
+  Heucristic::Check::Controls.new(environment).run(sites, findings)
   findings.map { |finding| "#{finding.span.start_line + 1}: #{finding.message}" }
 end
 

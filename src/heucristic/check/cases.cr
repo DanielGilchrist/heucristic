@@ -6,20 +6,28 @@ require "../resolve/types"
 require "../resolve/scope"
 require "../core_type"
 require "./branch_types"
+require "./environment"
+require "./inspection"
 require "./finding"
 require "./settled"
 
 module Heucristic
   module Check
     struct Cases
+      include Inspection
+
       KEYWORD = "case"
 
-      def initialize(
-        @workspace : Index::Workspace,
-        @types : Resolve::Types,
-        @receiver : Resolve::Receiver,
-        @settled : Settled,
-      ) : Nil
+      @workspace : Index::Workspace
+      @types : Resolve::Types
+      @receiver : Resolve::Receiver
+      @settled : Settled
+
+      def initialize(environment : Environment) : Nil
+        @workspace = environment.workspace
+        @types = environment.types
+        @receiver = environment.receiver
+        @settled = environment.settled
       end
 
       def run(sites : Index::Sites, findings : Array(Finding)) : Nil

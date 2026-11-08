@@ -6,6 +6,8 @@ require "../resolve/methods"
 require "../resolve/receiver"
 require "../resolve/scope"
 require "../syntax/well_known"
+require "./environment"
+require "./inspection"
 require "./finding"
 require "./settled"
 require "./macro_arguments"
@@ -15,13 +17,22 @@ require "./fit"
 module Heucristic
   module Check
     struct InstanceVars
-      def initialize(
-        @workspace : Index::Workspace,
-        @types : Resolve::Types,
-        @methods : Resolve::Methods,
-        @receiver : Resolve::Receiver,
-        @settled : Settled,
-      ) : Nil
+      include Inspection
+
+      @workspace : Index::Workspace
+      @types : Resolve::Types
+      @methods : Resolve::Methods
+      @receiver : Resolve::Receiver
+      @settled : Settled
+      @fit : Fit
+
+      def initialize(environment : Environment) : Nil
+        @workspace = environment.workspace
+        @types = environment.types
+        @methods = environment.methods
+        @receiver = environment.receiver
+        @settled = environment.settled
+        @fit = environment.fit
       end
 
       def run(sites : Index::Sites, findings : Array(Finding)) : Nil
@@ -65,12 +76,11 @@ module Heucristic
 
         expected = declared_type(declared)
         return unless expected
-        fit = Fit.new(@methods)
-        return if assign.value.is_a?(Crystal::NumberLiteral) && fit.numeric?(expected)
+        return if assign.value.is_a?(Crystal::NumberLiteral) && @fit.numeric?(expected)
 
         actual = @receiver.typed(assign.value, site.context.inside(assign.value))
         return if actual.is_a?(Resolve::Unknown)
-        return if fit.fits?(expected, actual, Resolve::Precision.of(assign.value))
+        return if @fit.fits?(expected, actual, Resolve::Precision.of(assign.value))
 
         message = String.build do |io|
           io << "instance variable '" << site.node.name << "' of " << declared[0].owner
@@ -127,7 +137,7 @@ module Heucristic
 
         scope = Resolve::Scope.new(entry.owner, @types.type_vars_of(entry.owner))
         resolved = @types.resolve_lexically(type, scope)
-        Fit.new(@methods).checkable?(resolved) ? resolved : nil
+        @fit.checkable?(resolved) ? resolved : nil
       end
 
       private def nilable?(entry : Index::InstanceVar, owner : String) : Bool
@@ -136,7 +146,7 @@ module Heucristic
         return true if type.is_a?(Syntax::Nilable)
 
         scope = Resolve::Scope.new(owner, @types.type_vars_of(owner))
-        Fit.new(@methods).nilable?(@types.resolve_lexically(type, scope))
+        @fit.nilable?(@types.resolve_lexically(type, scope))
       end
     end
   end

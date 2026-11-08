@@ -38,7 +38,9 @@ private def codes(source : String) : Array(String)
     workspace, types, methods.descendants, true, Set(String).new, Set{path}, "/project",
     Array(String).new
   )
-  calls = Heucristic::Check::Calls.new(workspace, types, methods, receiver, settled)
+  calls = Heucristic::Check::Calls.new(
+    Heucristic::Check::Environment.new(workspace, types, methods, receiver, settled, "/project")
+  )
   sites = Heucristic::Index::Sites.of(path, text, tree)
   calls.run(sites).findings.map(&.rule.to_s.underscore)
 end

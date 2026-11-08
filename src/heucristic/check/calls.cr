@@ -17,6 +17,7 @@ require "../index/synthesized"
 require "../index/evident"
 require "./macro_arguments"
 require "./fit"
+require "./environment"
 require "../index/macro_hook"
 
 module Heucristic
@@ -24,13 +25,20 @@ module Heucristic
     class Calls
       record Virtual, defs : Array(Index::Def), complete : Bool
 
-      def initialize(
-        @workspace : Index::Workspace,
-        @types : Resolve::Types,
-        @methods : Resolve::Methods,
-        @receiver : Resolve::Receiver,
-        @settled : Settled,
-      ) : Nil
+      @workspace : Index::Workspace
+      @types : Resolve::Types
+      @methods : Resolve::Methods
+      @receiver : Resolve::Receiver
+      @settled : Settled
+      @fit : Fit
+
+      def initialize(environment : Environment) : Nil
+        @workspace = environment.workspace
+        @types = environment.types
+        @methods = environment.methods
+        @receiver = environment.receiver
+        @settled = environment.settled
+        @fit = environment.fit
         @mixed_in = Hash(String, Array(Index::Def)).new
       end
 
@@ -557,13 +565,12 @@ module Heucristic
         return if fitting.empty?
 
         shape = @receiver.shape_of(call, context)
-        fit = Fit.new(@methods)
         rejections = Array(Resolve::Methods::Rejected).new(fitting.size)
         fitting.each do |entry|
           rejected = @methods.rejected_argument(entry, shape, any_member: true)
           return unless rejected
           argument = call.args[rejected.index]?
-          return if argument.is_a?(Crystal::NumberLiteral) && fit.numeric?(rejected.expected)
+          return if argument.is_a?(Crystal::NumberLiteral) && @fit.numeric?(rejected.expected)
 
           rejections << rejected
         end

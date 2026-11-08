@@ -163,7 +163,9 @@ module Score
       )
     }
     build_suite = ->(settled : Heucristic::Check::Settled) : Heucristic::Check::Suite {
-      Heucristic::Check::Suite.new(workspace, types, methods, receiver, settled, root)
+      Heucristic::Check::Suite.new(
+        Heucristic::Check::Environment.new(workspace, types, methods, receiver, settled, root)
+      )
     }
     settled = settle.call
     suite = build_suite.call(settled)
@@ -285,10 +287,13 @@ module Score
       root,
       shim_roots,
     )
-    calls = Heucristic::Check::Calls.new(workspace, types, methods, receiver, settled)
+    environment = Heucristic::Check::Environment.new(
+      workspace, types, methods, receiver, settled, root
+    )
+    calls = Heucristic::Check::Calls.new(environment)
     outcome = calls.run(sites)
     findings = outcome.findings
-    Heucristic::Check::Returns.new(types, methods, receiver, settled).run(sites, findings)
+    Heucristic::Check::Returns.new(environment).run(sites, findings)
     findings.each do |finding|
       near = (finding.span.start_line.to_i64 + 1 - line.to_i64).abs <= 40
       next unless near

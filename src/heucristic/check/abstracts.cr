@@ -1,19 +1,27 @@
 require "../index/workspace"
 require "../resolve/methods"
+require "./environment"
+require "./inspection"
 require "./finding"
 require "./settled"
 
 module Heucristic
   module Check
     struct Abstracts
-      def initialize(
-        @workspace : Index::Workspace,
-        @methods : Resolve::Methods,
-        @settled : Settled,
-      ) : Nil
+      include Inspection
+
+      @workspace : Index::Workspace
+      @methods : Resolve::Methods
+      @settled : Settled
+
+      def initialize(environment : Environment) : Nil
+        @workspace = environment.workspace
+        @methods = environment.methods
+        @settled = environment.settled
       end
 
-      def run(path : String, findings : Array(Finding)) : Nil
+      def run(sites : Index::Sites, findings : Array(Finding)) : Nil
+        path = sites.path
         file = @workspace.file(path)
         return unless file
 

@@ -340,7 +340,9 @@ module Heucristic
         )
         return Diagnostics.none if settled.uncompiled_file?(path)
 
-        suite = Check::Suite.new(@workspace, @types, @methods, @receiver, settled, @root)
+        suite = Check::Suite.new(
+          Check::Environment.new(@workspace, @types, @methods, @receiver, settled, @root)
+        )
         suite.findings(sites).map { |finding| Diagnostics.warning(finding) }
       end
 

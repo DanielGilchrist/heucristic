@@ -16,7 +16,15 @@ private def unimplemented(source : String) : Array(String)
     Array(String).new
   )
   findings = Array(Heucristic::Check::Finding).new
-  Heucristic::Check::Abstracts.new(workspace, methods, settled).run(path, findings)
+  receiver = Heucristic::Resolve::Receiver.new(
+    workspace, Heucristic::Index::Shims.new, types, methods
+  )
+  environment = Heucristic::Check::Environment.new(
+    workspace, types, methods, receiver, settled, "/project"
+  )
+  text = Heucristic::Document::Text.new(source)
+  sites = Heucristic::Index::Sites.of(path, text, tree)
+  Heucristic::Check::Abstracts.new(environment).run(sites, findings)
   findings.map(&.message)
 end
 

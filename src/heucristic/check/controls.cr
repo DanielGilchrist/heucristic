@@ -1,13 +1,20 @@
 require "compiler/crystal/syntax"
 require "../index/sites"
 require "../index/workspace"
+require "./environment"
+require "./inspection"
 require "./finding"
 require "./macro_arguments"
 
 module Heucristic
   module Check
     struct Controls
-      def initialize(@workspace : Index::Workspace) : Nil
+      include Inspection
+
+      @workspace : Index::Workspace
+
+      def initialize(environment : Environment) : Nil
+        @workspace = environment.workspace
       end
 
       def run(sites : Index::Sites, findings : Array(Finding)) : Nil

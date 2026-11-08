@@ -3,6 +3,8 @@ require "../index/sites"
 require "../index/workspace"
 require "../resolve/types"
 require "../resolve/scope"
+require "./environment"
+require "./inspection"
 require "./finding"
 require "./settled"
 require "./macro_arguments"
@@ -10,11 +12,16 @@ require "./macro_arguments"
 module Heucristic
   module Check
     struct Paths
-      def initialize(
-        @workspace : Index::Workspace,
-        @types : Resolve::Types,
-        @settled : Settled,
-      ) : Nil
+      include Inspection
+
+      @workspace : Index::Workspace
+      @types : Resolve::Types
+      @settled : Settled
+
+      def initialize(environment : Environment) : Nil
+        @workspace = environment.workspace
+        @types = environment.types
+        @settled = environment.settled
       end
 
       def run(sites : Index::Sites, findings : Array(Finding)) : Nil

@@ -7,6 +7,8 @@ require "../resolve/receiver"
 require "../resolve/scope"
 require "../syntax/type_reader"
 require "../syntax/well_known"
+require "./environment"
+require "./inspection"
 require "./finding"
 require "./settled"
 require "./fit"
@@ -14,14 +16,20 @@ require "./fit"
 module Heucristic
   module Check
     struct Returns
+      include Inspection
+
       record Returned, node : Crystal::ASTNode?, type : Resolve::Resolution
 
-      def initialize(
-        @types : Resolve::Types,
-        @methods : Resolve::Methods,
-        @receiver : Resolve::Receiver,
-        @settled : Settled,
-      ) : Nil
+      @types : Resolve::Types
+      @receiver : Resolve::Receiver
+      @settled : Settled
+      @fit : Fit
+
+      def initialize(environment : Environment) : Nil
+        @types = environment.types
+        @receiver = environment.receiver
+        @settled = environment.settled
+        @fit = environment.fit
       end
 
       def run(sites : Index::Sites, findings : Array(Finding)) : Nil
@@ -49,12 +57,12 @@ module Heucristic
         context = site.context
         scope = Resolve::Scope.of(context)
         expected = @types.resolve_lexically(read, scope)
-        return unless Fit.new(@methods).checkable?(expected)
+        return unless @fit.checkable?(expected)
 
         returned(node, site, sites).each do |value|
           actual = value.type
           next if actual.is_a?(Resolve::Unknown)
-          next if Fit.new(@methods).fits?(expected, actual, Resolve::Precision.of(value.node))
+          next if @fit.fits?(expected, actual, Resolve::Precision.of(value.node))
 
           span = span_for(value.node, node, sites.text)
           return unless span
