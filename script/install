@@ -2,11 +2,29 @@
 set -e
 cd "$(dirname "$0")/.."
 prefix="${PREFIX:-$HOME/.local}"
+stats="${VERBOSE:+--stats}"
+started=$(date +%s)
 
-shards install
-shards build heucristic --release --no-debug
-script/build-semantic
+step() {
+  printf '\n\033[1m==> %s\033[0m\n' "$1"
+}
 
+step "[1/4] Dependencies"
+shards check >/dev/null 2>&1 && echo "already satisfied" || shards install
+
+step "[2/4] Server (bin/heucristic)"
+shards build heucristic --release --no-debug --progress $stats
+
+step "[3/4] Semantic helper (bin/heucristic-semantic)"
+SKIP_SHARDS=1 script/build-semantic
+
+step "[4/4] Link"
 mkdir -p "$prefix/bin"
 ln -sf "$PWD/bin/heucristic" "$prefix/bin/heucristic"
-echo "linked $prefix/bin/heucristic -> $PWD/bin/heucristic"
+echo "$prefix/bin/heucristic -> $PWD/bin/heucristic"
+
+printf '\n\033[1;32mInstalled in %ss\033[0m\n' "$(($(date +%s) - started))"
+case ":$PATH:" in
+  *":$prefix/bin:"*) ;;
+  *) echo "warning: $prefix/bin is not on your PATH" >&2 ;;
+esac
