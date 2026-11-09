@@ -949,7 +949,7 @@ module Heucristic
         found.reject do |entry|
           found.any? do |other|
             other.path == entry.path && entry.name_span.before?(other.name_span) &&
-              other.identity == entry.identity
+              other.same_identity?(entry)
           end
         end
       end

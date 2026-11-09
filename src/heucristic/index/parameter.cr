@@ -32,6 +32,12 @@ module Heucristic
         end
       end
 
+      def same_identity?(other : Parameter) : Bool
+        return false unless kind.same_prefix?(other.kind) && external_name == other.external_name
+
+        kind.block? || restriction == other.restriction
+      end
+
       def rendered(restriction_text : String?) : Parameter
         return self unless restriction_text
 

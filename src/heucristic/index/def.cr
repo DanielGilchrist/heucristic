@@ -99,6 +99,14 @@ module Heucristic
         "#{qualified}(#{parameters.map(&.identity).join(", ")})"
       end
 
+      def same_identity?(other : Def) : Bool
+        name == other.name && owner == other.owner && receiver == other.receiver &&
+          parameters.size == other.parameters.size &&
+          parameters.each_with_index.all? do |parameter, index|
+            parameter.same_identity?(other.parameters[index])
+          end
+      end
+
       def unrestricted_identity : String
         "#{qualified}(#{parameters.map(&.unrestricted_identity).join(", ")})"
       end

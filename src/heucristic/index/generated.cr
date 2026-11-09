@@ -123,10 +123,9 @@ module Heucristic
       ) : Bool
         return true if shims.find(entry)
 
-        identity = entry.identity
         workspace.named(entry.name).any? do |existing|
           existing.path != entry.path && loaded.includes?(existing.path) &&
-            existing.identity == identity && (private_to.nil? || existing.path == private_to)
+            existing.same_identity?(entry) && (private_to.nil? || existing.path == private_to)
         end
       end
     end

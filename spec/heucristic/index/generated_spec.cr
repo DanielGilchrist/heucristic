@@ -24,6 +24,31 @@ private def merged_names(twin_path : String, loaded : Set(String)) : Array(Strin
   merged.defs.map(&.name)
 end
 
+private def merged_against(loaded_source : String, generated_source : String) : Array(String)
+  workspace = Heucristic::Index::Workspace.new
+  workspace.update(file("src/user.cr", loaded_source))
+  merge_into(workspace, file("<macros>", generated_source)).defs.map(&.name)
+end
+
+private def merge_into(
+  workspace : Heucristic::Index::Workspace,
+  generated : Heucristic::Index::File,
+) : Heucristic::Index::File
+  Heucristic::Index::Generated.merge(
+    generated, Array(Heucristic::Index::MacroSite).new, Array(Heucristic::Index::Reopening).new,
+    workspace, Heucristic::Index::Shims.new,
+    Heucristic::Index::LoadedFiles.new(Set{"src/user.cr"}, Array(String).new)
+  )
+end
+
+private def same_name_defs(owner : String, count : Int32) : String
+  String.build do |io|
+    io << "class " << owner << '\n'
+    count.times { |index| io << "  def ==(other : Type" << index << ")\n  end\n" }
+    io << "end\n"
+  end
+end
+
 private def reopened_mixins(reopenings : Array({String, String?})) : Array(Bool)
   generated = file("<macros>", "struct ::Foo\n  include ::M\nend\n")
   files = Heucristic::Index::LoadedFiles.new(Set(String).new, Array(String).new)
@@ -67,6 +92,37 @@ describe Heucristic::Index::Generated do
 
   it "drops a generated def already declared in a file the compiler loaded" do
     merged_names("src/user.cr", Set{"src/user.cr"}).should be_empty
+  end
+
+  it "keeps a generated def whose loaded twin restricts its parameter differently" do
+    merged_against(
+      "class User\n  def email(name : String)\n  end\nend\n",
+      "class ::User\n  def email(name : Int32)\n  end\nend\n",
+    ).should eq(["email"])
+  end
+
+  it "drops a generated def whose loaded twin differs only in its block's restriction" do
+    merged_against(
+      "class User\n  def each(&block : String ->)\n  end\nend\n",
+      "class ::User\n  def each(&block : Int32 ->)\n  end\nend\n",
+    ).should be_empty
+  end
+
+  it "drops a generated def whose loaded twin is keyword only, crystal 1.22 keeps one" do
+    merged_against(
+      "class User\n  def email(*, name : String)\n  end\nend\n",
+      "class ::User\n  def email(name : String)\n  end\nend\n",
+    ).should be_empty
+  end
+
+  it "compares generated defs against many same-named loaded defs without building strings" do
+    workspace = Heucristic::Index::Workspace.new
+    workspace.update(file("src/user.cr", same_name_defs("User", 200)))
+    generated = file("<macros>", same_name_defs("::Other", 50))
+    merge_into(workspace, generated)
+    before = GC.stats.total_bytes
+    merge_into(workspace, generated)
+    (GC.stats.total_bytes - before).should be < 200_000
   end
 
   it "types the == a def_equals expansion generates as Bool, other generated defs untouched" do
