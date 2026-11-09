@@ -5,6 +5,15 @@ An experimental language server for Crystal. It aims to be fast and responsive b
 > [!WARNING]
 > Highly experimental. Also mostly experimenting with heavy use of LLMs while trying to solve a real-world problem I have.
 
+- [Features](#features)
+- [Install](#install)
+- [Editor support](#editor-support)
+- [Trade-offs](#trade-offs)
+- [Keeping the editor responsive](#keeping-the-editor-responsive)
+- [Project shims](#project-shims)
+- [Development](#development)
+- [License](#license)
+
 ## Features
 
 - Hover shows the type of a call, variable, instance variable, constant or parameter. When the type is unknown, heucristic explains why instead.
@@ -71,10 +80,12 @@ Optional `init_options`:
 - Shard methods without a return type are unknown unless you add a shim for them (see below).
 - `flag?` checks in macros are evaluated for the platform heucristic was built on. Built on a Mac, code under `{% if flag?(:linux) %}` is skipped.
 
-## Performance
+## Keeping the editor responsive
 
-- The compiler runs in a separate process, so its time and memory don't block the server.
-- Macros are expanded by a separate helper process for the same reason.
+Hover, go to definition and diagnostics should feel instant while you type, so nothing slow runs on that path.
+
+- No type inference, so a hover is a lookup instead of an analysis of the whole program.
+- The compiler and the macro helper run as separate processes, so they never block the server.
 - Each file is indexed on its own, in parallel.
 
 ## Project shims
