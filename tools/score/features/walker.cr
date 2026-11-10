@@ -1,4 +1,6 @@
 require "compiler/crystal/syntax"
+require "../../../src/heucristic/syntax/interpolation"
+require "../../../src/heucristic/syntax/literal_extent"
 require "../../../src/heucristic/syntax/rescue_name"
 require "../statements"
 require "./site"
@@ -203,12 +205,14 @@ module Score
       end
 
       def visit(node : Crystal::ArrayLiteral) : Bool
+        container(node)
         node.elements.each(&.accept(self))
         typed(node.of)
         false
       end
 
       def visit(node : Crystal::HashLiteral) : Bool
+        container(node)
         node.entries.each do |entry|
           entry.key.accept(self)
           entry.value.accept(self)
@@ -218,6 +222,37 @@ module Score
           typed(entry.value)
         end
         false
+      end
+
+      def visit(
+        node : Crystal::StringLiteral | Crystal::CharLiteral | Crystal::BoolLiteral |
+               Crystal::NilLiteral | Crystal::NumberLiteral | Crystal::SymbolLiteral,
+      ) : Bool
+        scalar(node)
+        true
+      end
+
+      def visit(node : Crystal::StringInterpolation) : Bool
+        scalar(node)
+        Heucristic::Syntax::Interpolation.parts(node).each(&.accept(self))
+        false
+      end
+
+      def visit(node : Crystal::RegexLiteral) : Bool
+        scalar(node)
+        value = node.value
+        if value.is_a?(Crystal::StringInterpolation)
+          Heucristic::Syntax::Interpolation.parts(value).each(&.accept(self))
+        end
+        false
+      end
+
+      def visit(
+        node : Crystal::RangeLiteral | Crystal::TupleLiteral | Crystal::NamedTupleLiteral |
+               Crystal::ProcLiteral,
+      ) : Bool
+        container(node)
+        true
       end
 
       def visit(node : Crystal::SizeOf | Crystal::InstanceSizeOf) : Bool
@@ -234,6 +269,27 @@ module Score
 
       def visit(node : Crystal::ASTNode) : Bool
         true
+      end
+
+      private def scalar(node : Crystal::ASTNode) : Nil
+        location = node.location
+        return unless location && node.end_location && @type_depth.zero?
+
+        name = node.class.name.split("::").last
+        emit(Kind::Literal, location.line_number, location.column_number, name)
+      end
+
+      private def container(
+        node : Crystal::ArrayLiteral | Crystal::HashLiteral | Crystal::TupleLiteral |
+               Crystal::NamedTupleLiteral | Crystal::RangeLiteral | Crystal::ProcLiteral,
+      ) : Nil
+        return unless @type_depth.zero?
+
+        extent = Heucristic::Syntax::LiteralExtent.delimiters(node, @lines)
+        return if extent.is_a?(Heucristic::Document::NoRegion)
+
+        first = extent.regions.first.first
+        emit(Kind::Literal, first.line, first.column, node.class.name.split("::").last)
       end
 
       private def mark_instance_var_arguments(definition : Crystal::Def) : Nil

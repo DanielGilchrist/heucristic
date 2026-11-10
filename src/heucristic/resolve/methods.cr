@@ -1,10 +1,13 @@
 require "./admission"
+require "./literal_fit"
 require "./precision"
 require "./compiled"
 require "../index/def"
 require "../index/argument_check"
 require "../index/workspace"
 require "../syntax/type"
+require "../syntax/slot"
+require "../index/restriction"
 require "../syntax/well_known"
 require "./types"
 require "./descendants"
@@ -17,6 +20,8 @@ module Heucristic
       record Rejected, index : Int32, expected : Resolution, actual : Resolved
 
       record Covering, defs : Array(Index::Def), complete : Bool
+
+      record NoParameter
 
       record Reach, type : Index::Identity, metaclass : Bool do
         def reaches?(entry : Index::Def) : Bool
@@ -399,6 +404,38 @@ module Heucristic
         end
       end
 
+      def expected_at(
+        entry : Index::Def,
+        slot : Syntax::Slot,
+        receiver : Resolution,
+      ) : Resolution | Index::Unrestricted | NoParameter
+        parameter = parameter_at(entry, slot)
+        return NoParameter.new unless parameter
+
+        restriction = parameter.restriction
+        return restriction if restriction.is_a?(Index::Unrestricted)
+
+        owner = entry.owner
+        owner_vars = owner.is_a?(Index::Identity) ? @types.type_vars_of(owner) : Array(String).new
+        bindings = receiver_bindings(instance_of(receiver), owner)
+        scope = Scope.new(owner, entry.free_vars + owner_vars, bindings, entry.path)
+        return @types.resolve(restriction, scope) unless restriction.is_a?(Syntax::Type)
+
+        @types.resolve_lexically(restriction, scope)
+      end
+
+      def instance_of(receiver : Resolution) : Resolution
+        receiver.is_a?(MetaRef) ? receiver.of : receiver
+      end
+
+      def literal_fit(restriction : TypeRef, literal : TypeRef) : LiteralFit
+        own = restriction.identity == literal.identity ||
+              ancestor?(literal.identity, restriction.identity)
+        return LiteralFit::Own if own
+
+        casts_literal?(literal, restriction) ? LiteralFit::Cast : LiteralFit::Neither
+      end
+
       def lookup_super(
         receiver : Resolved,
         owner : Index::Identity,
@@ -580,6 +617,27 @@ module Heucristic
         from = argument.core
         to = restriction.core
         !from.nil? && !to.nil? && from.widens_to?(to)
+      end
+
+      private def parameter_at(entry : Index::Def, slot : Syntax::Slot) : Index::Parameter?
+        case slot
+        in Syntax::PositionalSlot
+          entry.parameters.select(&.kind.positional?)[slot.index]? ||
+            entry.parameters.find(&.kind.splat?)
+        in Syntax::NamedSlot
+          entry.parameters.find do |parameter|
+            (parameter.kind.keyword? || parameter.kind.positional?) &&
+              parameter.external_name == slot.name
+          end || entry.parameters.find(&.kind.double_splat?)
+        end
+      end
+
+      private def casts_literal?(literal : TypeRef, restriction : TypeRef) : Bool
+        return true if autocast?(literal, restriction)
+
+        from = literal.core
+        to = restriction.core
+        !from.nil? && !to.nil? && from.autocasts_to?(to)
       end
 
       private def autocast?(argument : TypeRef, restriction : TypeRef) : Bool

@@ -11,7 +11,6 @@ require "./macro_precedence"
 require "./precision"
 require "./unify"
 require "./render"
-require "./local_declarations"
 require "./body_facts"
 require "./memos"
 require "./visit"
@@ -22,6 +21,9 @@ require "./block_inputs"
 require "./macro_expansions"
 require "./dispatch"
 require "./instance_var_types"
+require "./literal_target"
+require "./local_declarations"
+require "./not_declared"
 require "./special"
 require "./local_assignments"
 require "./variable_references"
@@ -42,6 +44,8 @@ module Heucristic
       include Dispatch::Typer
 
       DEPTH_LIMIT = 48
+
+      PROC_REASON = "a proc's type comes from its body, which is not inferred"
 
       BE_NIL_EXPECTATION = Index::Public.new("Spec::BeNilExpectation")
 
@@ -217,6 +221,27 @@ module Heucristic
 
       def instance_var(name : String, context : Syntax::Context) : Resolution
         instance_var_types.of(name, context, Array(Visit).new)
+      end
+
+      def resolved(type : Syntax::TypeReader::Outcome, context : Syntax::Context) : Resolution
+        @types.resolve(type, Scope.of(context))
+      end
+
+      def declared_instance_var(
+        name : String,
+        context : Syntax::Context,
+      ) : Resolution | NotDeclared
+        instance_var_types.declared(name, context)
+      end
+
+      def declared_local(name : String, context : Syntax::Context) : Resolution | NotDeclared
+        definition = context.def_node
+        scopes = context.ancestors.empty? && definition ? [definition] : context.ancestors
+        declaration = LocalDeclarations.find(scopes, name)
+        case declaration
+        in LocalDeclaration then written(declaration.declared_type, context)
+        in NotDeclared      then declaration
+        end
       end
 
       def return_type(
@@ -519,10 +544,23 @@ module Heucristic
         node : Crystal::HashLiteral,
         frame : Frame,
       ) : Resolution
+        name = node.name
+        return named_hash(node, name, frame) if name
+
         if node.entries.empty?
           return Unknown.new(:no_annotation, "an empty hash literal needs `of K => V`")
         end
 
+        parts = entry_types(node, frame)
+        return parts if parts.is_a?(Unknown)
+
+        TypeRef.of(:hash, parts)
+      end
+
+      private def entry_types(
+        node : Crystal::HashLiteral,
+        frame : Frame,
+      ) : Array(Resolution) | Unknown
         keys = Array(Resolution).new(node.entries.size)
         values = Array(Resolution).new(node.entries.size)
         node.entries.each do |entry|
@@ -534,7 +572,7 @@ module Heucristic
         value = @unions.union(values)
         return value if value.is_a?(Unknown)
 
-        TypeRef.of(:hash, [key, value] of Resolution)
+        [key, value] of Resolution
       end
 
       private def yielded_result(context : Syntax::Context) : Resolution
@@ -550,7 +588,7 @@ module Heucristic
           )
         end
 
-        @types.resolve(Syntax::TypeReader.read(output), Scope.of(context))
+        written(output, context)
       end
 
       private def exits_for(context : Syntax::Context, visiting : Array(Visit)) : CallExits
@@ -814,6 +852,11 @@ module Heucristic
         frame : Frame,
       ) : Resolution
         return constant(node, frame.context, frame.visiting) if node.is_a?(Crystal::Path)
+        if node.is_a?(Crystal::HashLiteral)
+          name = node.name
+          return named_hash(node, name, frame) if name && !name.is_a?(Crystal::Generic)
+        end
+
         evident = Index::Evident.type(node)
         if evident.is_a?(Syntax::Type)
           return constructed(node, evident, frame) if node.is_a?(Crystal::Call)
@@ -848,6 +891,7 @@ module Heucristic
         in Crystal::Nop               then TypeRef.of(:nil)
         in Crystal::Splat, Crystal::DoubleSplat
           Unknown.new(:splatted, "`#{node}` spreads an unknown number of values")
+        in Crystal::ProcLiteral then Unknown.new(:inference_needed, PROC_REASON)
         in Crystal::TypeOf      then typeof_value(node, frame)
         in Crystal::Expressions then expressions_value(node, frame)
         in Crystal::ASTNode
@@ -908,7 +952,8 @@ module Heucristic
         return if shadowing_block(name, frame.context).try(&.> index)
 
         inner = facts_of(definition.body)
-        return unless inner.assigned(name).empty? && inner.declaration(name).nil?
+        declared = LocalDeclarations.find(frame.context.ancestors[index..], name)
+        return unless inner.assigned(name).empty? && declared.is_a?(NotDeclared)
         return if inner.rescued(name)
 
         outer = frame.context.outside_proc(index)
@@ -997,7 +1042,7 @@ module Heucristic
         from_active_rescue(rescued, frame.context) ||
           from_parameter(name, definition, frame.context) ||
           from_block_arg(name, definition, frame.context) ||
-          from_declaration(name, facts, frame.context) ||
+          from_declaration(name, frame.context) ||
           from_block_parameter(name, frame) ||
           from_rescue(rescued, frame.context) ||
           from_assignments(name, facts, frame, steps)
@@ -1430,10 +1475,17 @@ module Heucristic
         frame.context.blocks.reverse_each do |call|
           block = call.block
           next unless block
-          index = block.args.index(&.name.==(name))
-          unpacked = index ? nil : BlockInputs.unpacked_position(block, name)
-          index ||= unpacked.try(&.parameter_index)
-          next unless index
+          introduced = BlockInputs.introduced(block, name)
+          case introduced
+          in BlockInputs::NotIntroduced
+            next
+          in BlockInputs::Parameter
+            index = introduced.index
+            unpacked = nil
+          in BlockInputs::Unpacked
+            index = introduced.parameter_index
+            unpacked = introduced
+          end
 
           collected = BlockInputs.collected(block, index, name)
           return collected if collected
@@ -1455,18 +1507,6 @@ module Heucristic
           return block_inputs.unpacked_element(input, unpacked.path, name)
         end
         nil
-      end
-
-      private def literal_collection(
-        node : Crystal::ArrayLiteral,
-        context : Syntax::Context,
-      ) : Index::Identity
-        name = node.name
-        array = CoreType::Array.identity
-        return array unless name
-
-        resolved = @types.resolve(Syntax::TypeReader.read(name), Scope.of(context))
-        resolved.is_a?(TypeRef) ? resolved.identity : array
       end
 
       private def bind_block(
@@ -1793,9 +1833,11 @@ module Heucristic
         node : Crystal::ArrayLiteral,
         frame : Frame,
       ) : Resolution
-        collection = literal_collection(node, frame.context)
+        name = node.name
+        return named_collection(node, name, frame) if name
+
         elements(node.elements, frame) do |inner|
-          TypeRef.new(collection, [inner] of Resolution)
+          TypeRef.new(CoreType::Array.identity, [inner] of Resolution)
         end
       end
 
@@ -1846,8 +1888,9 @@ module Heucristic
         key = variable_key(name, frame.context)
         bound = seeded(frame.locals, name, current)
         seeded_frame = frame.at(step.within).visited(key).with_locals(bound)
-        value_type(step.value, frame.locals) ||
-          remember_value(step.value, type_of(step.value, seeded_frame), frame.locals)
+        typed = value_type(step.value, frame.locals) ||
+                remember_value(step.value, type_of(step.value, seeded_frame), frame.locals)
+        converted(step.value, name, typed, frame)
       end
 
       private def narrow_reassigned(
@@ -1864,7 +1907,8 @@ module Heucristic
           inner = seeded_frame.at(step.within + item.path)
           typed = value_type(item.value, frame.locals) ||
                   remember_value(item.value, type_of(item.value, inner), frame.locals)
-          values << (looped?(step, item) ? settled(name, current, item.value, typed) : typed)
+          assigned = converted(item.value, name, typed, frame)
+          values << (looped?(step, item) ? settled(name, current, item.value, assigned) : assigned)
         end
         @unions.union(values)
       end
@@ -1881,6 +1925,7 @@ module Heucristic
         typed = value_type(step.value, frame.locals) ||
                 remember_value(step.value, type_of(step.value, seeded_frame), frame.locals)
         present = @narrowing.truthy(current)
+        typed = converted(step.value, name, typed, frame)
         return typed if present.is_a?(TypeRef) && present.is?(:nil)
 
         @unions.union([present, typed] of Resolution)
@@ -1938,19 +1983,78 @@ module Heucristic
           return Unknown.new(:no_annotation, "block parameter #{name} has no type restriction")
         end
 
-        @types.resolve(Syntax::TypeReader.read(restriction), Scope.of(context))
+        written(restriction, context)
       end
 
-      private def from_declaration(
-        name : String,
-        facts : BodyFacts,
-        context : Syntax::Context,
-      ) : Resolution?
-        declaration = facts.declaration(name)
-        return unless declaration
+      private def named_collection(
+        node : Crystal::ArrayLiteral,
+        name : Crystal::ASTNode,
+        frame : Frame,
+      ) : Resolution
+        bare = bare_generic(name, 1, frame.context)
+        return bare unless bare.is_a?(Index::Identity)
 
-        restriction = Syntax::TypeReader.read(declaration.declared_type)
-        @types.resolve(restriction, Scope.of(context))
+        elements(node.elements, frame) do |inner|
+          TypeRef.new(bare, [inner] of Resolution)
+        end
+      end
+
+      private def named_hash(
+        node : Crystal::HashLiteral,
+        name : Crystal::ASTNode,
+        frame : Frame,
+      ) : Resolution
+        bare = bare_generic(name, 2, frame.context)
+        return bare unless bare.is_a?(Index::Identity)
+
+        parts = entry_types(node, frame)
+        parts.is_a?(Unknown) ? parts : TypeRef.new(bare, parts)
+      end
+
+      private def bare_generic(
+        name : Crystal::ASTNode,
+        arity : Int32,
+        context : Syntax::Context,
+      ) : Resolution | Index::Identity
+        resolved = written(name, context)
+        return resolved unless resolved.is_a?(TypeRef) && resolved.arguments.empty?
+
+        type_vars = @types.type_vars_of(resolved.identity)
+        return resolved if type_vars.empty?
+        return resolved.identity if type_vars.size == arity
+
+        Unknown.new(
+          :no_annotation,
+          "`#{name}` has #{type_vars.size} type variables, a literal with #{arity} infers them"
+        )
+      end
+
+      private def converted(
+        value : Crystal::ASTNode,
+        name : String,
+        typed : Resolution,
+        frame : Frame,
+      ) : Resolution
+        return typed unless typed.is_a?(TypeRef)
+        return typed unless LiteralTarget.autocastable?(value)
+
+        declared = declared_local(name, frame.context)
+        return typed if declared.is_a?(NotDeclared)
+
+        literal_target.choose(typed, [declared])
+      end
+
+      private def literal_target : LiteralTarget
+        @literal_target ||= LiteralTarget.new(@methods)
+      end
+
+      private def written(type : Crystal::ASTNode, context : Syntax::Context) : Resolution
+        resolved(Syntax::TypeReader.read(type), context)
+      end
+
+      private def from_declaration(name : String, context : Syntax::Context) : Resolution?
+        declared = declared_local(name, context)
+        declared.is_a?(NotDeclared) ? nil : declared
       end
 
       private def from_block_parameter(

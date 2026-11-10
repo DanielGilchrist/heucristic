@@ -7,6 +7,7 @@ require "./binding"
 require "./resolution"
 require "./scope"
 require "./typer"
+require "./not_declared"
 require "./types"
 require "./unions"
 require "./visit"
@@ -28,11 +29,8 @@ module Heucristic
           return Unknown.new(:no_annotation, "#{name} outside any type")
         end
 
-        levels = [owner]
-        chain = @types.ancestors(owner)
-        levels.concat(chain) unless chain.is_a?(Unknown)
-        levels.each do |level|
-          entries = @workspace.instance_vars_of(level).select(&.name.==(name))
+        levels_of(owner).each do |level|
+          entries = entries_at(level, name)
           next if entries.empty?
 
           scope = scope_at(owner, level)
@@ -47,6 +45,22 @@ module Heucristic
         Unknown.new(
           :no_annotation, "#{name} is never declared or assigned an evident type in #{owner}"
         )
+      end
+
+      def declared(name : String, context : Syntax::Context) : Resolution | NotDeclared
+        owner = context.owner
+        return NotDeclared.new if owner.is_a?(Index::TopLevel)
+
+        levels_of(owner).each do |level|
+          entries = entries_at(level, name).select(&.origin.declared?)
+          next if entries.empty?
+
+          scope = scope_at(owner, level)
+          return scope if scope.is_a?(Unknown)
+
+          return declared_union(entries, scope)
+        end
+        NotDeclared.new
       end
 
       def read(
@@ -82,11 +96,7 @@ module Heucristic
         visiting : Array(Visit),
       ) : Resolution
         declared = entries.select(&.origin.declared?)
-        unless declared.empty?
-          typed = Array(Resolution).new(declared.size)
-          declared.each { |entry| typed << @types.resolve(entry.type, scope.at(entry.path)) }
-          return @unions.union(typed)
-        end
+        return declared_union(declared, scope) unless declared.empty?
 
         typed = Array(Resolution).new(entries.size)
         entries.each do |entry|
@@ -112,6 +122,23 @@ module Heucristic
           :no_annotation,
           "#{entries[0].name} is only assigned #{assigned.join(", ")}; declare its type",
         )
+      end
+
+      private def levels_of(owner : Index::Identity) : Array(Index::Identity)
+        levels = [owner]
+        chain = @types.ancestors(owner)
+        levels.concat(chain) unless chain.is_a?(Unknown)
+        levels
+      end
+
+      private def entries_at(level : Index::Identity, name : String) : Array(Index::InstanceVar)
+        @workspace.instance_vars_of(level).select(&.name.==(name))
+      end
+
+      private def declared_union(entries : Array(Index::InstanceVar), scope : Scope) : Resolution
+        typed = Array(Resolution).new(entries.size)
+        entries.each { |entry| typed << @types.resolve(entry.type, scope.at(entry.path)) }
+        @unions.union(typed)
       end
 
       private def guessable?(expression : Crystal::ASTNode) : Bool

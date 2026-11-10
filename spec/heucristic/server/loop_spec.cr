@@ -7,10 +7,6 @@ private def completion_labels(response : Heucristic::Protocol::Response) : Array
   response.result.try(&.["items"].as_a.map(&.["label"].as_s))
 end
 
-private def hover_text(response : Heucristic::Protocol::Response) : String?
-  response.result.try(&.["contents"]?).try(&.["value"]?).try(&.as_s?)
-end
-
 private def definition_columns(response : Heucristic::Protocol::Response) : Array(Int32)?
   response.result.try(&.as_a?).try(&.map(&.["range"]["start"]["character"].as_i))
 end
@@ -627,7 +623,7 @@ describe Heucristic::Server::Loop do
     client.shutdown
   end
 
-  it "always explains a hover it cannot answer" do
+  it "explains a hover it cannot answer and replies null where nothing is under the cursor" do
     client = LspClient.in_process
     client.initialize!("/tmp/heucristic-spec-empty")
     client.await_notification(Notice::Indexed)
@@ -636,7 +632,7 @@ describe Heucristic::Server::Loop do
     client.await_diagnostics
 
     hover_text(client.hover(URI_A, 0, 6)).to_s.should eq("unknown (unresolved name: Missing)")
-    hover_text(client.hover(URI_A, 1, 0)).to_s.should contain("under the cursor")
+    client.hover(URI_A, 1, 0).result.try(&.raw).should be_nil
     hover_text(client.hover(URI_A, 9, 0)).to_s.should eq("position is outside the document")
     client.definition(URI_A, 0, 6).result.try(&.raw).should be_nil
     client.shutdown

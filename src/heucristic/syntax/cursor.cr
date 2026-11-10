@@ -1,5 +1,11 @@
 require "compiler/crystal/syntax"
+require "../document/region"
+require "./interpolation"
+require "./literal_extent"
+require "./macro_code"
 require "../document/point"
+require "./no_target"
+require "./placements"
 require "./parameter_name"
 require "./rescue_name"
 require "./scoped"
@@ -16,10 +22,10 @@ module Heucristic
         path : String?,
         version : CrystalVersion::Detected,
         source : String,
-      ) : Target?
+      ) : Target | NoTarget
         cursor = new(point, path, version, source)
         tree.accept(cursor)
-        cursor.target
+        cursor.target || NoTarget.new
       end
 
       def initialize(
@@ -40,7 +46,6 @@ module Heucristic
 
       def visit(node : Crystal::Call) : Bool
         @target = OnCall.new(node, context) if on_name?(node)
-        literal_name(node) if @target.nil?
         super
         @target.nil?
       end
@@ -96,6 +101,11 @@ module Heucristic
         false
       end
 
+      def visit(node : Crystal::Macro | Crystal::MacroFor | Crystal::MacroExpression) : Bool
+        MacroCode.paths(node).each(&.accept(self))
+        false
+      end
+
       def visit(node : Crystal::MacroIf) : Bool
         return false unless @target.nil?
 
@@ -104,6 +114,50 @@ module Heucristic
 
       def visit(node : Crystal::ASTNode) : Bool
         @target.nil?
+      end
+
+      def visit(node : Crystal::Generic) : Bool
+        node.name.accept(self) unless node.suffix.bracket?
+        node.type_vars.each { |type_var| type_var.accept(self) unless literal?(type_var) }
+        node.named_args.try(&.each do |named|
+          named.value.accept(self) unless literal?(named.value)
+        end)
+        false
+      end
+
+      def visit(node : Crystal::StringInterpolation) : Bool
+        Interpolation.parts(node).each(&.accept(self))
+        false
+      end
+
+      def visit(node : Crystal::RegexLiteral) : Bool
+        value = node.value
+        Interpolation.parts(value).each(&.accept(self)) if value.is_a?(Crystal::StringInterpolation)
+        false
+      end
+
+      def end_visit(
+        node : Crystal::StringLiteral | Crystal::StringInterpolation | Crystal::CharLiteral |
+               Crystal::BoolLiteral | Crystal::NilLiteral | Crystal::RegexLiteral,
+      ) : Nil
+        return unless @target.nil? && holds?(node) { LiteralExtent.whole(node, lines) }
+
+        @target = OnLiteral.new(node, context)
+      end
+
+      def end_visit(
+        node : Crystal::ArrayLiteral | Crystal::HashLiteral | Crystal::TupleLiteral |
+               Crystal::NamedTupleLiteral | Crystal::RangeLiteral | Crystal::ProcLiteral,
+      ) : Nil
+        return unless @target.nil? && holds?(node) { LiteralExtent.delimiters(node, lines) }
+
+        @target = OnLiteral.new(node, context)
+      end
+
+      def end_visit(node : Crystal::NumberLiteral | Crystal::SymbolLiteral) : Nil
+        return unless @target.nil? && holds?(node) { LiteralExtent.whole(node, lines) }
+
+        @target = OnAutocast.new(node, Placements.of(node, @nodes), context)
       end
 
       protected def expansion_of(
@@ -132,18 +186,6 @@ module Heucristic
         @target = OnPath.new(name, context, segment_at(name, location))
       end
 
-      private def literal_name(node : Crystal::Call) : Nil
-        node.args.each do |argument|
-          next unless argument.is_a?(Crystal::SymbolLiteral)
-
-          location = argument.location
-          next unless location && over?(location, argument.value.size + 1)
-
-          @target = OnName.new(argument.value, location, context)
-          return
-        end
-      end
-
       private def on_name?(node : Crystal::Call) : Bool
         location = node.name_location
         return over?(location, node.name.size) unless index_sugar?(node)
@@ -163,6 +205,33 @@ module Heucristic
         case node.name
         when "[]"  then point
         when "[]?" then Document::Point.new(point.line, point.column - 1)
+        end
+      end
+
+      private def literal?(node : Crystal::ASTNode) : Bool
+        node.is_a?(
+          Crystal::StringLiteral | Crystal::StringInterpolation | Crystal::CharLiteral |
+          Crystal::BoolLiteral | Crystal::NilLiteral | Crystal::RegexLiteral |
+          Crystal::ArrayLiteral | Crystal::HashLiteral | Crystal::TupleLiteral |
+          Crystal::NamedTupleLiteral | Crystal::RangeLiteral | Crystal::ProcLiteral |
+          Crystal::NumberLiteral | Crystal::SymbolLiteral
+        )
+      end
+
+      private def holds?(
+        node : Crystal::ASTNode,
+        & : -> LiteralExtent | Document::NoRegion
+      ) : Bool
+        hull = Document::Region.of(node)
+        return false unless hull.is_a?(Document::Region) && hull.includes?(@point)
+
+        inside?(yield)
+      end
+
+      private def inside?(extent : LiteralExtent | Document::NoRegion) : Bool
+        case extent
+        in LiteralExtent      then extent.includes?(@point)
+        in Document::NoRegion then false
         end
       end
 

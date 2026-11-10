@@ -52,11 +52,12 @@ private def receiver_of(marker : String) : String
   in Heucristic::Syntax::OnCall        then receiver.of_call(target.node, target.context).to_s
   in Heucristic::Syntax::OnVar         then receiver.variable(target.name, target.context).to_s
   in Heucristic::Syntax::OnInstanceVar then receiver.instance_var(target.name, target.context).to_s
+  in Heucristic::Syntax::OnLiteral     then receiver.typed(target.node, target.context).to_s
   in Heucristic::Syntax::OnDef,
      Heucristic::Syntax::OnPath,
-     Heucristic::Syntax::OnName,
+     Heucristic::Syntax::OnAutocast,
      Heucristic::Syntax::OnRequire,
-     Nil
+     Heucristic::Syntax::NoTarget
     raise "cursor did not land on a call or variable at #{marker.inspect}"
   end
 end
@@ -3652,9 +3653,10 @@ describe Heucristic::Resolve::Receiver, "memoised call results" do
          Heucristic::Syntax::OnPath,
          Heucristic::Syntax::OnVar,
          Heucristic::Syntax::OnInstanceVar,
-         Heucristic::Syntax::OnName,
+         Heucristic::Syntax::OnLiteral,
+         Heucristic::Syntax::OnAutocast,
          Heucristic::Syntax::OnRequire,
-         Nil
+         Heucristic::Syntax::NoTarget
         "no call"
       end
     }

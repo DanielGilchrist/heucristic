@@ -16,7 +16,6 @@ module Heucristic
       def initialize : Nil
         @assignments = Hash(String, Array(Crystal::ASTNode)).new
         @reassignments = Hash(String, Array(Reassignment)).new
-        @declarations = Hash(String, Crystal::TypeDeclaration).new
         @rescues = Hash(String, Crystal::Rescue).new
         @mentioned = Hash(String, Set(UInt64)).new
         @within = Hash(String, Hash(UInt64, Array(Reassignment))).new
@@ -53,10 +52,6 @@ module Heucristic
         by_ancestor[statement.object_id]? || Array(Reassignment).new
       end
 
-      def declaration(name : String) : Crystal::TypeDeclaration?
-        @declarations[name]?
-      end
-
       def rescued(name : String) : Crystal::Rescue?
         @rescues[name]?
       end
@@ -89,12 +84,6 @@ module Heucristic
           value = LocalAssignments.unpacked(node, target.name)
           remember(target.name, value) if value
         end
-        true
-      end
-
-      def visit(node : Crystal::TypeDeclaration) : Bool
-        var = node.var
-        @declarations[var.name] ||= node if var.is_a?(Crystal::Var)
         true
       end
 

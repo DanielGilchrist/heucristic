@@ -21,6 +21,7 @@ require "./diagnostics"
 require "./decoded_params"
 require "./outcome"
 require "./answer"
+require "./located"
 require "./progress"
 require "./options"
 require "./resolver_caches"
@@ -48,7 +49,6 @@ module Heucristic
   module Server
     class Session
       CHECK_DELAY = 300.milliseconds
-      NO_TARGET   = "no def, call, constant, variable or instance variable under the cursor"
 
       @root : String
 
@@ -390,30 +390,29 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::RenameParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        uri = params.text_document.uri.to_s
-        document = @documents[uri]
-        tree = @documents.tree(uri)
-        return reply(request.id, nil) if document.is_a?(Document::Store::Missing) || tree.nil?
+        located = locate(params.text_document.uri.to_s, params.position)
+        case located
+        in Located                  then renamed(request.id, params, located)
+        in Answer, Syntax::NoTarget then reply(request.id, nil)
+        end
+      end
 
-        point = document.text.point(params.position)
-        return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
-
-        path = @documents.path(document)
-        target = Syntax::Cursor.find(
-          tree, point, path, @workspace.crystal_version, document.text.source
-        )
-        return reply(request.id, nil) unless target
-
-        answer = answer_at(uri, params.position)
+      private def renamed(
+        id : Protocol::Id,
+        params : LSProtocol::RenameParams,
+        located : Located,
+      ) : Outcome
+        target = located.target
+        answer = answer_of(located)
         declared = answer.entries.reject { |entry| Index::MacroTarget.generated?(entry.path) }
         if declared.empty? && !answer.entries.empty?
           reason = "a macro-generated def cannot be renamed"
-          return error(request.id, Protocol::Encoder::INVALID_REQUEST, reason)
+          return error(id, Protocol::Encoder::INVALID_REQUEST, reason)
         end
 
-        locations = uses_of(target, Answer.of(declared), tree, uri, document.text)
+        locations = uses_of(located, Answer.of(declared))
         declared.each { |entry| @answerer.locate(entry).try { |location| locations << location } }
-        return reply(request.id, nil) if locations.empty?
+        return reply(id, nil) if locations.empty?
 
         edit = @rename.edits(
           locations.uniq,
@@ -422,10 +421,10 @@ module Heucristic
           answer.entries.any?(Index::Namespace) || target.is_a?(Syntax::OnPath),
         ) { |file| @documents.text(file) }
         if edit.is_a?(Rename::Invalid)
-          return error(request.id, Protocol::Encoder::INVALID_REQUEST, edit.reason)
+          return error(id, Protocol::Encoder::INVALID_REQUEST, edit.reason)
         end
 
-        reply(request.id, edit)
+        reply(id, edit)
       end
 
       private def completion(request : Protocol::Request) : Outcome
@@ -463,52 +462,47 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::ReferenceParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        uri = params.text_document.uri.to_s
-        document = @documents[uri]
-        tree = @documents.tree(uri)
-        return reply(request.id, nil) if document.is_a?(Document::Store::Missing) || tree.nil?
+        located = locate(params.text_document.uri.to_s, params.position)
+        case located
+        in Located                  then referenced(request.id, params, located)
+        in Answer, Syntax::NoTarget then reply(request.id, nil)
+        end
+      end
 
-        point = document.text.point(params.position)
-        return reply(request.id, nil) if point.is_a?(Document::OutOfRange)
-
-        path = @documents.path(document)
-        target = Syntax::Cursor.find(
-          tree, point, path, @workspace.crystal_version, document.text.source
-        )
-        return reply(request.id, nil) unless target
-
-        answer = answer_at(uri, params.position)
-        locations = uses_of(target, answer, tree, uri, document.text)
+      private def referenced(
+        id : Protocol::Id,
+        params : LSProtocol::ReferenceParams,
+        located : Located,
+      ) : Outcome
+        answer = answer_of(located)
+        locations = uses_of(located, answer)
         if params.context.include_declaration
           answer.entries.each do |entry|
             @answerer.locate(entry).try { |location| locations << location }
           end
         end
-        reply(request.id, locations.empty? ? nil : locations.uniq)
+        reply(id, locations.empty? ? nil : locations.uniq)
       end
 
-      private def uses_of(
-        target : Syntax::Target,
-        answer : Answer,
-        tree : Crystal::ASTNode,
-        uri : String,
-        text : Document::Text,
-      ) : Array(LSProtocol::Location)
+      private def uses_of(located : Located, answer : Answer) : Array(LSProtocol::Location)
+        target = located.target
         case target
-        in Syntax::OnDef, Syntax::OnCall, Syntax::OnPath, Syntax::OnName
+        in Syntax::OnDef, Syntax::OnCall, Syntax::OnPath, Syntax::OnAutocast
           @references.of_entries(answer.entries)
         in Syntax::OnVar
           unless answer.entries.empty?
             return @references.of_entries(answer.entries)
           end
 
-          @references.of_variable(target.name, target.context, tree, uri, text)
+          @references.of_variable(
+            target.name, target.context, located.tree, located.uri, located.text
+          )
         in Syntax::OnInstanceVar
           owner = target.context.owner
           return Array(LSProtocol::Location).new unless owner.is_a?(Index::Identity)
 
           @references.of_instance_var(target.name, owner)
-        in Syntax::OnRequire
+        in Syntax::OnLiteral, Syntax::OnRequire
           Array(LSProtocol::Location).new
         end
       end
@@ -517,27 +511,42 @@ module Heucristic
         params = DecodedParams.decode(request.params, LSProtocol::HoverParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        answer = answer_at(params.text_document.uri.to_s, params.position)
+        located = locate(params.text_document.uri.to_s, params.position)
+        case located
+        in Located          then hovered(request.id, answer_of(located))
+        in Answer           then hovered(request.id, located)
+        in Syntax::NoTarget then reply(request.id, nil)
+        end
+      end
+
+      private def hovered(id : Protocol::Id, answer : Answer) : Outcome
         sections = @answerer.sections(answer, @root)
         sections << "nothing indexed for this position" if sections.empty?
 
         contents = LSProtocol::MarkupContent.new(
           kind: LSProtocol::MarkupKind::Markdown, value: sections.join("\n\n---\n\n")
         )
-        reply(request.id, LSProtocol::Hover.new(contents: contents))
+        reply(id, LSProtocol::Hover.new(contents: contents))
       end
 
       private def definition(request : Protocol::Request) : Outcome
         params = DecodedParams.decode(request.params, LSProtocol::DefinitionParams)
         return invalid(request.id, params) if params.is_a?(DecodedParams::Invalid)
 
-        uri = params.text_document.uri.to_s
-        answer = answer_at(uri, params.position)
-        locations = @answerer.locations(answer, uri)
-        reply(request.id, locations.empty? ? nil : locations)
+        located = locate(params.text_document.uri.to_s, params.position)
+        case located
+        in Located
+          locations = @answerer.locations(answer_of(located), located.uri)
+          reply(request.id, locations.empty? ? nil : locations)
+        in Answer, Syntax::NoTarget
+          reply(request.id, nil)
+        end
       end
 
-      private def answer_at(uri : String, position : LSProtocol::Position) : Answer
+      private def locate(
+        uri : String,
+        position : LSProtocol::Position,
+      ) : Located | Answer | Syntax::NoTarget
         document = @documents[uri]
         return Answer.note("document is not open") if document.is_a?(Document::Store::Missing)
         tree = @documents.tree(uri)
@@ -547,14 +556,17 @@ module Heucristic
         return Answer.note("position is outside the document") if point.is_a?(Document::OutOfRange)
 
         path = @documents.path(document)
-        target = Syntax::Cursor.find(
+        found = Syntax::Cursor.find(
           tree, point, path, @workspace.crystal_version, document.text.source
         )
-        unless target
-          return Answer.note(NO_TARGET)
+        case found
+        in Syntax::NoTarget then found
+        in Syntax::Target   then Located.new(uri, tree, document.text, path, found)
         end
+      end
 
-        @answerer.answer(target, path, document.text, @root)
+      private def answer_of(located : Located) : Answer
+        @answerer.answer(located.target, located.path, located.text, @root)
       end
 
       private def did_save(notification : Protocol::Notification) : Outcome

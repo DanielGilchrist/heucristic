@@ -2,10 +2,6 @@ require "../../spec_helper"
 
 private URI_A = "file:///tmp/heucristic-spec/a.cr"
 
-private def hover_text(response : Heucristic::Protocol::Response) : String?
-  response.result.try(&.["contents"]?).try(&.["value"]?).try(&.as_s?)
-end
-
 private def starts(response : Heucristic::Protocol::Response) : Array({Int32, Int32})?
   response.result.try(&.as_a?).try do |locations|
     locations.map do |location|
@@ -13,16 +9,6 @@ private def starts(response : Heucristic::Protocol::Response) : Array({Int32, In
       {start["line"].as_i, start["character"].as_i}
     end
   end
-end
-
-private def with_document(source : String, & : LspClient ->) : Nil
-  client = LspClient.in_process
-  client.initialize!("/tmp/heucristic-spec-empty")
-  client.await_notification(Heucristic::Server::Notice::Indexed)
-  client.open(URI_A, source)
-  client.await_diagnostics
-  yield client
-  client.shutdown
 end
 
 describe "hover and definition at editor positions" do

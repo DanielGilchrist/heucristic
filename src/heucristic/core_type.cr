@@ -64,6 +64,16 @@ module Heucristic
       end
     end
 
+    def autocasts_to?(target : CoreType) : ::Bool
+      return false unless numeric? && target.numeric?
+
+      float? ? target.float? : true
+    end
+
+    def float? : ::Bool
+      in?(Float32, Float64)
+    end
+
     def numeric? : ::Bool
       case self
       in Int8, Int16, Int32, Int64, Int128, UInt8, UInt16, UInt32, UInt64, UInt128, Float32,

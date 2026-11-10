@@ -64,9 +64,10 @@ module Heucristic
                 in Syntax::OnDef,
                    Syntax::OnVar,
                    Syntax::OnInstanceVar,
-                   Syntax::OnName,
+                   Syntax::OnLiteral,
+                   Syntax::OnAutocast,
                    Syntax::OnRequire,
-                   Nil
+                   Syntax::NoTarget
                   Array(LSProtocol::CompletionItem).new
                 end
         items.uniq!(&.label)

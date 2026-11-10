@@ -7,9 +7,9 @@ require "../index/macro_call"
 require "../index/macro_target"
 require "../index/workspace"
 require "../requires"
+require "../resolve/autocasts"
 require "../resolve/block_inputs"
 require "../resolve/local_declarations"
-require "../resolve/uninitialized_locals"
 require "../resolve/methods"
 require "../resolve/receiver"
 require "../resolve/types"
@@ -38,6 +38,7 @@ module Heucristic
         @sources : SourcePaths,
       ) : Nil
         @undeclared = Undeclared.new(@workspace)
+        @autocasts = Resolve::Autocasts.new(@types, @methods, @receiver)
       end
 
       def answer(
@@ -54,11 +55,11 @@ module Heucristic
           anchored = anchored_at(path, target.location)
           anchored.empty? ? answer_var(target, text, root) : Answer.of(anchored)
         in Syntax::OnInstanceVar then answer_instance_var(target)
-        in Syntax::OnName
-          anchored = anchored_at(path, target.location)
-          return Answer.of(anchored) unless anchored.empty?
-
-          Answer.note("nothing is declared by `#{target.name}` here")
+        in Syntax::OnLiteral
+          Answer.note(typed(@receiver.typed(target.node, target.context)))
+        in Syntax::OnAutocast
+          anchored = anchored_at(path, target.node.location)
+          anchored.empty? ? Answer.note(typed(@autocasts.of(target))) : Answer.of(anchored)
         in Syntax::OnRequire then answer_require(target, path, root)
         end
       end
@@ -327,11 +328,12 @@ module Heucristic
           block = call.block
           next unless block
 
-          argument = block.args.find(&.name.==(name))
-          return argument.location if argument
-
-          unpacked = Resolve::BlockInputs.unpacked_position(block, name)
-          return unpacked.target.location if unpacked
+          introduced = Resolve::BlockInputs.introduced(block, name)
+          case introduced
+          in Resolve::BlockInputs::Parameter     then return introduced.location
+          in Resolve::BlockInputs::Unpacked      then return introduced.target.location
+          in Resolve::BlockInputs::NotIntroduced then nil
+          end
         end
 
         definition = context.def_node
@@ -343,15 +345,11 @@ module Heucristic
         if definition && (block_arg = definition.block_arg) && block_arg.name == name
           return block_arg.location
         end
-        if (declaration = Resolve::LocalDeclarations.find(body, name))
-          return declaration.var.location
-        end
+        declaration = Resolve::LocalDeclarations.find(context.ancestors, name)
+        return declaration.location unless declaration.is_a?(Resolve::NotDeclared)
 
         found = Resolve::LocalAssignments.first_target(body, name).try(&.location)
         return found if found
-        if (uninitialized = Resolve::UninitializedLocals.find(body, name))
-          return uninitialized.location
-        end
 
         index = context.proc_index
         introduced_at(name, context.outside_proc(index), source) if index

@@ -33,14 +33,27 @@ module Heucristic
 
       record Unpacked, parameter_index : Int32, path : Array(Int32), target : Crystal::Var
 
+      record Parameter, index : Int32, location : Crystal::Location?
+
+      record NotIntroduced
+
+      alias Introduced = Parameter | Unpacked
+
       private record Located, path : Array(Int32), target : Crystal::Var
 
-      def self.unpacked_position(block : Crystal::Block, name : String) : Unpacked?
+      private def self.unpacked_position(block : Crystal::Block, name : String) : Unpacked?
         block.unpacks.try &.each do |index, targets|
           found = locate(targets, name)
           return Unpacked.new(index, found.path, found.target) if found
         end
         nil
+      end
+
+      def self.introduced(block : Crystal::Block, name : String) : Introduced | NotIntroduced
+        index = block.args.index(&.name.==(name))
+        return Parameter.new(index, block.args[index].location) if index
+
+        unpacked_position(block, name) || NotIntroduced.new
       end
 
       def self.collected(block : Crystal::Block, index : Int32, name : String) : Unknown?

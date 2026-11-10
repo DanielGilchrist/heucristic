@@ -13,7 +13,6 @@ require "./walker"
 module Score
   module Features
     class Inquiry
-      NO_TARGET   = "no def, call, constant, variable or instance variable under the cursor"
       QUOTED      = /`[^`]*`/
       UNKNOWN     = /unknown \(([a-z ]+): .*/
       REASON_SIZE = 90
@@ -58,12 +57,13 @@ module Score
       ) : Observation
         point = Heucristic::Document::Point.new(site.line, site.column)
         target = Heucristic::Syntax::Cursor.find(tree, point, path, @version, text.source)
-        unless target
-          return Observation.new(path, site, Unanswered.new(NO_TARGET, NO_TARGET), nil, nil)
+        case target
+        in Heucristic::Syntax::NoTarget
+          Observation.new(path, site, Untargeted.new, nil, nil)
+        in Heucristic::Syntax::Target
+          answer = @answerer.answer(target, path, text, @root)
+          Observation.new(path, site, reply_to(answer), target, answer)
         end
-
-        answer = @answerer.answer(target, path, text, @root)
-        Observation.new(path, site, reply_to(answer), target, answer)
       rescue error : Exception
         Observation.new(path, site, Crashed.new("#{error.class}: #{error.message}"), nil, nil)
       end

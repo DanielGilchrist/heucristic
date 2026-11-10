@@ -28,9 +28,11 @@ module Score
           end
         in Unanswered
           @unanswered += 1
-          @untargeted << observation.place if reply.reason == Inquiry::NO_TARGET
           @reasons[reply.reason] ||= Bucket.new
           @reasons[reply.reason].add(observation.place, reply.detail)
+        in Untargeted
+          @unanswered += 1
+          @untargeted << observation.place
         in Empty
           @empties << observation.place
         in Crashed
@@ -43,7 +45,7 @@ module Score
       end
 
       private def declared?(reply : Answered, observation : Observation) : Bool
-        reply.located || observation.site.kind.self_reference?
+        reply.located || observation.site.kind.definitionless?
       end
     end
   end

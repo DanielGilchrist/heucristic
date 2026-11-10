@@ -20,6 +20,7 @@ module Score
       DeclarationPath
       EnumMember
       DefName
+      Literal
       Require
 
       def label : String
@@ -28,6 +29,10 @@ module Score
 
       def definition? : Bool
         local_definition? || parameter? || block_parameter? || unpacked_block_parameter?
+      end
+
+      def definitionless? : Bool
+        self_reference? || literal?
       end
 
       def group : Group?
@@ -42,7 +47,8 @@ module Score
           Group::Local
         in .def_name?
           Group::DefName
-        in .statement_call?, .self_reference?, .unpacked_block_parameter?, .enum_member?, .require?
+        in .statement_call?, .self_reference?, .unpacked_block_parameter?, .enum_member?,
+           .literal?, .require?
           nil
         end
       end

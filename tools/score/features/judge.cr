@@ -38,7 +38,8 @@ module Score
           local(target, answer, observation)
         in Heucristic::Syntax::OnDef
           def_name(target, answer, observation)
-        in Heucristic::Syntax::OnCall, Heucristic::Syntax::OnName, Heucristic::Syntax::OnRequire
+        in Heucristic::Syntax::OnCall, Heucristic::Syntax::OnAutocast,
+           Heucristic::Syntax::OnLiteral, Heucristic::Syntax::OnRequire
           Skipped.new("not a declaration kind")
         end
       end
