@@ -4,6 +4,11 @@ cd "$(dirname "$0")/.."
 prefix="${PREFIX:-$HOME/.local}"
 stats="${VERBOSE:+--stats}"
 started=$(date +%s)
+commit=$(git rev-parse HEAD)
+
+if [ "$1" = "--if-changed" ] && [ -x bin/heucristic ] && [ "$(cat bin/.installed-commit 2>/dev/null)" = "$commit" ]; then
+  exit 0
+fi
 
 step() {
   printf '\n\033[1m==> %s\033[0m\n' "$1"
@@ -22,6 +27,7 @@ step "[4/4] Link"
 mkdir -p "$prefix/bin"
 ln -sf "$PWD/bin/heucristic" "$prefix/bin/heucristic"
 echo "$prefix/bin/heucristic -> $PWD/bin/heucristic"
+echo "$commit" > bin/.installed-commit
 
 printf '\n\033[1;32mInstalled in %ss\033[0m\n' "$(($(date +%s) - started))"
 case ":$PATH:" in
